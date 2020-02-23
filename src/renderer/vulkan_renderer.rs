@@ -17,11 +17,11 @@ const IS_DEBUG_MODE: bool = false;
 const ENABLE_VALIDATION_LAYERS: bool = IS_DEBUG_MODE;
 
 /// The Sarekt Renderer, see module level documentation for details.
-pub struct Renderer {
+pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
 }
-impl Renderer {
+impl VulkanRenderer {
   /// Creates a renderer with no application name, no engine, and base versions
   /// of 0.1.0.
   pub fn new<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
@@ -71,7 +71,7 @@ impl Renderer {
     })
   }
 }
-impl Drop for Renderer {
+impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     info!("Destroying renderer...");
     unsafe {
@@ -81,7 +81,7 @@ impl Drop for Renderer {
 }
 
 /// Private implementation details.
-impl Renderer {
+impl VulkanRenderer {
   /// Creates an instance of the Vulkan client side driver given the raw handle.
   /// Currently Sarekt doesn't support drawing to anything but a presentable
   /// window surface.
@@ -162,14 +162,14 @@ mod tests {
   fn can_construct_renderer_with_new() {
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    Renderer::new(window.clone()).unwrap();
+    VulkanRenderer::new(window.clone()).unwrap();
   }
 
   #[test]
   fn can_construct_renderer_with_new_detailed() {
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    Renderer::new_detailed(
+    VulkanRenderer::new_detailed(
       window.clone(),
       "Testing App",
       (0, 1, 0),
