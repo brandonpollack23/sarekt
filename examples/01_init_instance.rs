@@ -1,3 +1,4 @@
+use log::Level;
 use sarekt::{error::SarektError, renderer::Renderer};
 use std::{error::Error, sync::Arc};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
@@ -26,6 +27,7 @@ impl SarektApp {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+  simple_logger::init_with_level(Level::Info);
   let mut app = SarektApp::new()?;
   app.run();
   Ok(())

@@ -15,8 +15,9 @@ path = "examples/01_init_instance.rs"
 [dependencies]
 ash = {git = "https://github.com/MaikKlein/ash" }
 ash-window = "0.1.0"
+log = "0.4.8"
 raw-window-handle = "0.3.3"
 winit = "0.21.0"
 
 [dev-dependencies]
-winit = "0.21.0"
+simple_logger = "1.5.0"
