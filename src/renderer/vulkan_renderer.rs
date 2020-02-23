@@ -2,45 +2,38 @@ use ash::{extensions::khr::Surface, version::EntryV1_0, vk, Entry, Instance};
 use log::info;
 use std::ffi::{CStr, CString};
 
-use crate::error::SarektError;
+use crate::{
+  error::SarektError,
+  renderer::{ApplicationDetails, EngineDetails, Renderer, IS_DEBUG_MODE},
+};
 use ash::{version::InstanceV1_0, vk::ExtensionProperties};
 use raw_window_handle::HasRawWindowHandle;
 use std::sync::Arc;
 
 // TODO test that no drop of resource causes test failure with validation.
 
-#[cfg(debug_assertions)]
-const IS_DEBUG_MODE: bool = true;
-#[cfg(not(debug_assertions))]
-const IS_DEBUG_MODE: bool = false;
-
-const ENABLE_VALIDATION_LAYERS: bool = IS_DEBUG_MODE;
-
-/// The Sarekt Renderer, see module level documentation for details.
+/// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
 }
 impl VulkanRenderer {
-  /// Creates a renderer with no application name, no engine, and base versions
-  /// of 0.1.0.
+  /// Creates a VulkanRenderer for the window with no application name, no
+  /// engine, and base versions of 0.1.0.
   pub fn new<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
     window: OW,
   ) -> Result<Self, SarektError> {
     Self::new_detailed(
       window,
-      "Nameless Application",
-      (0, 1, 0),
-      "No Engine",
-      (0, 1, 0),
+      ApplicationDetails::default(),
+      EngineDetails::default(),
     )
   }
 
-  /// Creates a renderer with a given name/version/engine name/engine version.
+  /// Creates a VulkanRenderer with a given name/version/engine name/engine
+  /// version.
   pub fn new_detailed<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW, application_name: &str,
-    (app_version_major, app_version_minor, app_version_patch): (u32, u32, u32), engine_name: &str,
-    (engine_version_major, engine_version_minor, engine_version_patch): (u32, u32, u32),
+    window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
   ) -> Result<Self, SarektError> {
     // TODO
     // * Support rendering to a non window surface if window is None (change it to
@@ -55,14 +48,10 @@ impl VulkanRenderer {
     let instance = Self::create_instance(
       &entry,
       window.as_ref(),
-      application_name,
-      ash::vk::make_version(app_version_major, app_version_minor, app_version_patch),
-      engine_name,
-      ash::vk::make_version(
-        engine_version_major,
-        engine_version_minor,
-        engine_version_patch,
-      ),
+      application_details.name,
+      application_details.get_u32_version(),
+      engine_details.name,
+      engine_details.get_u32_version(),
     )?;
 
     Ok(Self {
@@ -71,6 +60,7 @@ impl VulkanRenderer {
     })
   }
 }
+impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     info!("Destroying renderer...");
@@ -152,6 +142,7 @@ impl VulkanRenderer {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::renderer::Version;
   #[cfg(unix)]
   use winit::platform::windows::EventLoopExtUnix;
   #[cfg(windows)]
@@ -171,10 +162,8 @@ mod tests {
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     VulkanRenderer::new_detailed(
       window.clone(),
-      "Testing App",
-      (0, 1, 0),
-      "No Test Engine",
-      (0, 1, 0),
+      ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
+      EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
   }
