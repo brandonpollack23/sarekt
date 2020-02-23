@@ -1,0 +1,11 @@
+[package]
+name = "sarekt"
+version = "0.1.0"
+authors = ["Brandon Pollack <brandonpollack23@gmail.com>"]
+edition = "2018"
+
+[[example]]
+name = "00_base_code"
+path = "examples/00_base_code.rs"
+
+[dependencies]
