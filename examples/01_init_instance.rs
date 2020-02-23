@@ -1,10 +1,13 @@
 use log::Level;
-use sarekt::{error::SarektError, renderer::Renderer};
+use sarekt::{
+  error::SarektError,
+  renderer::{Renderer, VulkanRenderer},
+};
 use std::{error::Error, sync::Arc};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 
 struct SarektApp {
-  renderer: Renderer,
+  renderer: VulkanRenderer,
   event_loop: EventLoop<()>,
 }
 impl SarektApp {
@@ -13,7 +16,7 @@ impl SarektApp {
 
     let event_loop = EventLoop::new();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = Renderer::new(window.clone()).unwrap();
+    let renderer = VulkanRenderer::new(window.clone()).unwrap();
 
     Ok(Self {
       event_loop,
