@@ -8,4 +8,15 @@ edition = "2018"
 name = "00_base_code"
 path = "examples/00_base_code.rs"
 
+[[example]]
+name = "01_init_instance"
+path = "examples/01_init_instance.rs"
+
 [dependencies]
+ash = {git = "https://github.com/MaikKlein/ash" }
+ash-window = "0.1.0"
+raw-window-handle = "0.3.3"
+winit = "0.21.0"
+
+[dev-dependencies]
+winit = "0.21.0"

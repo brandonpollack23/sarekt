@@ -1,8 +1,9 @@
+use sarekt::error::SarektError;
 use std::error::Error;
 
 struct SarektApp;
 impl SarektApp {
-  fn new() -> Result<Self, Box<dyn Error>> {
+  fn new() -> Result<Self, SarektError> {
     println!("Creating App");
     Ok(Self)
   }
