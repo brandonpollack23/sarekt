@@ -1,0 +1,8 @@
+merge_imports = true
+tab_spaces = 2
+fn_args_layout = "Compressed"
+format_strings = true
+reorder_impl_items = true
+use_try_shorthand = true
+wrap_comments = true
+
