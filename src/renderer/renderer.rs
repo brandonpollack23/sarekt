@@ -7,7 +7,6 @@ use ash::{version::InstanceV1_0, vk::ExtensionProperties};
 use raw_window_handle::HasRawWindowHandle;
 use std::sync::Arc;
 
-// TODO log crate
 // TODO test that no drop of resource causes test failure with validation.
 
 #[cfg(debug_assertions)]
