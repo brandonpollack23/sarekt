@@ -1,12 +1,14 @@
 use ash::{extensions::khr::Surface, version::EntryV1_0, vk, Entry, Instance};
+use log::info;
 use std::ffi::{CStr, CString};
 
 use crate::error::SarektError;
-use ash::vk::ExtensionProperties;
+use ash::{version::InstanceV1_0, vk::ExtensionProperties};
 use raw_window_handle::HasRawWindowHandle;
 use std::sync::Arc;
 
 // TODO log crate
+// TODO test that no drop of resource causes test failure with validation.
 
 #[cfg(debug_assertions)]
 const IS_DEBUG_MODE: bool = true;
@@ -44,7 +46,7 @@ impl Renderer {
     // TODO
     // * Support rendering to a non window surface if window is None (change it to
     //   an Enum of WindowHandle or OtherSurface).
-    println!("Creating Sarekt Renderer with Vulkan Backend...");
+    info!("Creating Sarekt Renderer with Vulkan Backend...");
 
     let window = window
       .into()
@@ -68,6 +70,14 @@ impl Renderer {
       _entry: entry,
       instance,
     })
+  }
+}
+impl Drop for Renderer {
+  fn drop(&mut self) {
+    info!("Destroying renderer...");
+    unsafe {
+      self.instance.destroy_instance(None);
+    }
   }
 }
 
@@ -133,7 +143,7 @@ impl Renderer {
       .iter_mut()
       .map(|&mut e| CStr::from_ptr(e).to_owned())
       .collect();
-    println!(
+    info!(
       "Available Instance Extensions:\n\t{:?}\nRequested Instance Extensions:\n\t{:?}\n",
       available_extensions, extension_names_cstr
     );
