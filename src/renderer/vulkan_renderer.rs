@@ -1,21 +1,35 @@
-use ash::{extensions::khr::Surface, version::EntryV1_0, vk, Entry, Instance};
-use log::info;
-use std::ffi::{CStr, CString};
+use ash::{
+  extensions::{ext::DebugUtils, khr::Surface},
+  version::{EntryV1_0, InstanceV1_0},
+  vk, Entry, Instance,
+};
+use log::{error, info};
+use raw_window_handle::HasRawWindowHandle;
+use std::{
+  ffi::{c_void, CStr, CString},
+  sync::Arc,
+};
 
 use crate::{
   error::SarektError,
-  renderer::{ApplicationDetails, EngineDetails, Renderer, IS_DEBUG_MODE},
+  renderer::{
+    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+  },
 };
-use ash::{version::InstanceV1_0, vk::ExtensionProperties};
-use raw_window_handle::HasRawWindowHandle;
-use std::sync::Arc;
 
-// TODO test that no drop of resource causes test failure with validation.
+// TODO Debugging instance creation and destruction
+// TODO make unit tests that use validation callback (read that unit test vulkan
+// article) TODO test that no drop of resource causes test failure with
+// validation.
+
+// TODO LAXY STATIC THIS AND FIX ALL PRINTS AND LAYERS CHECK
+const VALIDATION_LAYERS: &[&CStr] = &["VK_LAYER_KHRONOS_validation"];
 
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
+  debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -54,9 +68,16 @@ impl VulkanRenderer {
       engine_details.get_u32_version(),
     )?;
 
+    let debug_utils_and_messenger = if ENABLE_VALIDATION_LAYERS {
+      Some(Self::setup_debug_callback_messenger(&entry, &instance))
+    } else {
+      None
+    };
+
     Ok(Self {
       _entry: entry,
       instance,
+      debug_utils_and_messenger,
     })
   }
 }
@@ -72,6 +93,9 @@ impl Drop for VulkanRenderer {
 
 /// Private implementation details.
 impl VulkanRenderer {
+  // ================================================================================
+  //  Instance Creation
+  // ================================================================================
   /// Creates an instance of the Vulkan client side driver given the raw handle.
   /// Currently Sarekt doesn't support drawing to anything but a presentable
   /// window surface.
@@ -89,14 +113,30 @@ impl VulkanRenderer {
       .api_version(ash::vk::make_version(0, 1, 0))
       .build();
 
+    let mut layer_names: Vec<_> = Vec::new(); // Will not alloc until stuff put in, so no problem.
+    unsafe {
+      if ENABLE_VALIDATION_LAYERS {
+        assert!(
+          Self::check_validation_layer_support(entry),
+          "The requested validation layers were not available!"
+        );
+        layer_names = VALIDATION_LAYERS
+          .iter()
+          .map(|&layer| layer.as_ptr() as *const i8)
+          .collect();
+      }
+    }
+
     let extension_names = Self::get_required_extensions(window);
-    if IS_DEBUG_MODE {
-      unsafe { Self::print_extensions_dialog(entry, &extension_names) }
+    unsafe {
+      if IS_DEBUG_MODE {
+        Self::log_extensions_dialog(entry, &extension_names);
+      }
     }
 
     let instance_create_info = vk::InstanceCreateInfo::builder()
       .application_info(&app_info)
-      .enabled_layer_names(&[])
+      .enabled_layer_names(&layer_names)
       .enabled_extension_names(&extension_names)
       .build();
 
@@ -110,20 +150,44 @@ impl VulkanRenderer {
   // ================================================================================
   //  Instance Helper Methods
   // ================================================================================
-  fn get_available_extensions(entry: &Entry) -> Vec<ExtensionProperties> {
-    entry
-      .enumerate_instance_extension_properties()
-      .expect("Couldn't enumerate extensions")
-  }
-
   fn get_required_extensions<W: HasRawWindowHandle>(window: &W) -> Vec<*const i8> {
     let surface_extension = Surface::name().as_ptr();
     let window_system_surface_extension = ash_window::enumerate_required_extension(window).as_ptr();
-    vec![surface_extension, window_system_surface_extension]
+    let mut extensions = vec![surface_extension, window_system_surface_extension];
+
+    if IS_DEBUG_MODE {
+      extensions.push(DebugUtils::name().as_ptr());
+    }
+
+    extensions
   }
 
-  unsafe fn print_extensions_dialog(entry: &Entry, extension_names: &Vec<*const i8>) -> () {
-    let available_extensions: Vec<CString> = Self::get_available_extensions(entry)
+  /// Checks if all the validation layers specified are supported supported in
+  /// this machine.
+  unsafe fn check_validation_layer_support(entry: &Entry) -> bool {
+    let available_layers: Vec<_> = entry
+      .enumerate_instance_layer_properties()
+      .expect("Unable to enumerate layers")
+      .iter()
+      .map(|layer| layer.layer_name)
+      .map(|layer| layer)
+      .collect();
+
+    info!(
+      "Supported Layers:\n\t{:?}\nRequested Layers:\n\t{:?}",
+      available_layers, VALIDATION_LAYERS
+    );
+
+    VALIDATION_LAYERS
+      .iter()
+      .map(|requested_layer| layers.contains(requested_layer))
+      .all(|b| b)
+  }
+
+  unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &Vec<*const i8>) -> () {
+    let available_extensions: Vec<CString> = entry
+      .enumerate_instance_extension_properties()
+      .expect("Couldn't enumerate extensions")
       .iter_mut()
       .map(|e| CStr::from_ptr(e.extension_name.as_mut_ptr()).to_owned())
       .collect();
@@ -137,12 +201,67 @@ impl VulkanRenderer {
       available_extensions, extension_names_cstr
     );
   }
+
+  fn setup_debug_callback_messenger(entry: &Entry, instance: &Instance) -> DebugUtilsAndMessenger {
+    let messenger_ci = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+      .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
+      .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
+      .pfn_user_callback(Some(DebugUtilsAndMessenger::debug_callback))
+      .build();
+
+    let debug_utils = DebugUtils::new(entry, instance);
+    let messenger = unsafe {
+      debug_utils
+        .create_debug_utils_messenger(&messenger_ci, None)
+        .expect("Could not create debug utils messenger")
+    };
+    DebugUtilsAndMessenger {
+      debug_utils,
+      messenger,
+    }
+  }
+}
+
+// TODO own file
+struct DebugUtilsAndMessenger {
+  debug_utils: DebugUtils,
+  messenger: vk::DebugUtilsMessengerEXT,
+}
+impl DebugUtilsAndMessenger {
+  unsafe extern "system" fn debug_callback(
+    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    message_types: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT, p_user_data: *mut c_void,
+  ) -> u32 {
+    unsafe {
+      error!(
+        "Validation Error! {}",
+        CStr::from_ptr((*p_callback_data).p_message as *const i8)
+          .to_str()
+          .unwrap()
+      );
+    }
+
+    // Returning false indicates no error in callback.
+    vk::FALSE
+  }
+}
+impl Drop for DebugUtilsAndMessenger {
+  fn drop(&mut self) {
+    unsafe {
+      info!("Destroying debug messenger...");
+      self
+        .debug_utils
+        .destroy_debug_utils_messenger(self.messenger, None);
+    }
+  }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::renderer::Version;
+  use log::Level;
   #[cfg(unix)]
   use winit::platform::windows::EventLoopExtUnix;
   #[cfg(windows)]
@@ -151,13 +270,16 @@ mod tests {
 
   #[test]
   fn can_construct_renderer_with_new() {
+    simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     VulkanRenderer::new(window.clone()).unwrap();
+    println!("Done creating!");
   }
 
   #[test]
   fn can_construct_renderer_with_new_detailed() {
+    simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     VulkanRenderer::new_detailed(
@@ -166,5 +288,6 @@ mod tests {
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
+    println!("Done creating!");
   }
 }
