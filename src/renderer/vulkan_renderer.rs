@@ -14,7 +14,8 @@ use std::{
 use crate::{
   error::SarektError,
   renderer::{
-    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    debug_utils_ext::DebugUtilsAndMessenger, ApplicationDetails, EngineDetails, Renderer,
+    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
 
@@ -229,29 +230,6 @@ impl VulkanRenderer {
       debug_utils,
       messenger,
     }
-  }
-}
-
-// TODO own file
-struct DebugUtilsAndMessenger {
-  debug_utils: DebugUtils,
-  messenger: vk::DebugUtilsMessengerEXT,
-}
-impl DebugUtilsAndMessenger {
-  unsafe extern "system" fn debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_types: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT, p_user_data: *mut c_void,
-  ) -> u32 {
-    error!(
-      "Validation Error! {}",
-      CStr::from_ptr((*p_callback_data).p_message as *const i8)
-        .to_str()
-        .unwrap()
-    );
-
-    // Returning false indicates no error in callback.
-    vk::FALSE
   }
 }
 
