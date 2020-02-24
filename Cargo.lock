@@ -582,6 +582,7 @@ version = "0.1.0"
 dependencies = [
  "ash 0.29.0 (git+https://github.com/MaikKlein/ash)",
  "ash-window",
+ "lazy_static",
  "log",
  "raw-window-handle",
  "simple_logger",

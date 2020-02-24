@@ -3,6 +3,7 @@ use ash::{
   version::{EntryV1_0, InstanceV1_0},
   vk, Entry, Instance,
 };
+use lazy_static::lazy_static;
 use log::{error, info};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
@@ -22,8 +23,10 @@ use crate::{
 // article) TODO test that no drop of resource causes test failure with
 // validation.
 
-// TODO LAXY STATIC THIS AND FIX ALL PRINTS AND LAYERS CHECK
-const VALIDATION_LAYERS: &[&CStr] = &["VK_LAYER_KHRONOS_validation"];
+lazy_static! {
+  static ref VALIDATION_LAYERS: Vec<CString> =
+    vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
+}
 
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
@@ -122,7 +125,7 @@ impl VulkanRenderer {
         );
         layer_names = VALIDATION_LAYERS
           .iter()
-          .map(|&layer| layer.as_ptr() as *const i8)
+          .map(|layer| layer.clone().as_ptr() as *const i8)
           .collect();
       }
     }
@@ -169,18 +172,21 @@ impl VulkanRenderer {
       .enumerate_instance_layer_properties()
       .expect("Unable to enumerate layers")
       .iter()
-      .map(|layer| layer.layer_name)
-      .map(|layer| layer)
+      .map(|layer| CStr::from_ptr(&layer.layer_name as *const i8))
       .collect();
 
     info!(
       "Supported Layers:\n\t{:?}\nRequested Layers:\n\t{:?}",
-      available_layers, VALIDATION_LAYERS
+      available_layers,
+      VALIDATION_LAYERS
+        .iter()
+        .map(|vl| vl.to_str())
+        .collect::<Vec<_>>()
     );
 
     VALIDATION_LAYERS
       .iter()
-      .map(|requested_layer| layers.contains(requested_layer))
+      .map(|requested_layer| available_layers.contains(&requested_layer.as_c_str()))
       .all(|b| b)
   }
 
@@ -233,14 +239,12 @@ impl DebugUtilsAndMessenger {
     message_types: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT, p_user_data: *mut c_void,
   ) -> u32 {
-    unsafe {
-      error!(
-        "Validation Error! {}",
-        CStr::from_ptr((*p_callback_data).p_message as *const i8)
-          .to_str()
-          .unwrap()
-      );
-    }
+    error!(
+      "Validation Error! {}",
+      CStr::from_ptr((*p_callback_data).p_message as *const i8)
+        .to_str()
+        .unwrap()
+    );
 
     // Returning false indicates no error in callback.
     vk::FALSE
