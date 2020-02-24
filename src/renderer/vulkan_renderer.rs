@@ -87,8 +87,15 @@ impl VulkanRenderer {
 impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
-    info!("Destroying renderer...");
     unsafe {
+      info!("Destroying debug messenger...");
+      if let Some(dbum) = &self.debug_utils_and_messenger {
+        dbum
+          .debug_utils
+          .destroy_debug_utils_messenger(dbum.messenger, None);
+      }
+
+      info!("Destroying renderer...");
       self.instance.destroy_instance(None);
     }
   }
@@ -123,11 +130,7 @@ impl VulkanRenderer {
           Self::check_validation_layer_support(entry),
           "The requested validation layers were not available!"
         );
-        layer_names = VALIDATION_LAYERS
-          .iter()
-          .cloned()
-          .map(|layer| layer.as_ptr() as *const i8)
-          .collect();
+        layer_names = VALIDATION_LAYERS.iter().map(|name| name.as_ptr()).collect();
       }
     }
 
@@ -173,7 +176,7 @@ impl VulkanRenderer {
       .enumerate_instance_layer_properties()
       .expect("Unable to enumerate layers")
       .iter()
-      .map(|layer| CStr::from_ptr(&layer.layer_name as *const i8))
+      .map(|layer| CStr::from_ptr(layer.layer_name.as_ptr()).to_owned())
       .collect();
 
     info!(
@@ -187,7 +190,7 @@ impl VulkanRenderer {
 
     VALIDATION_LAYERS
       .iter()
-      .map(|requested_layer| available_layers.contains(&requested_layer.as_c_str()))
+      .map(|requested_layer| available_layers.contains(&requested_layer))
       .all(|b| b)
   }
 
@@ -251,16 +254,6 @@ impl DebugUtilsAndMessenger {
     vk::FALSE
   }
 }
-impl Drop for DebugUtilsAndMessenger {
-  fn drop(&mut self) {
-    unsafe {
-      info!("Destroying debug messenger...");
-      self
-        .debug_utils
-        .destroy_debug_utils_messenger(self.messenger, None);
-    }
-  }
-}
 
 #[cfg(test)]
 mod tests {
@@ -279,7 +272,6 @@ mod tests {
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     VulkanRenderer::new(window.clone()).unwrap();
-    println!("Done creating!");
   }
 
   #[test]
@@ -293,6 +285,5 @@ mod tests {
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
-    println!("Done creating!");
   }
 }
