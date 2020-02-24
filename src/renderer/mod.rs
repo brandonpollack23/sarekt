@@ -29,6 +29,7 @@
 //! - [ ] Moar.
 //!
 //! Things on the TODO list are in a repo TODO file.
+mod debug_utils_ext;
 mod vulkan_renderer;
 
 use crate::error::SarektError;
