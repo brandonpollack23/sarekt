@@ -14,6 +14,10 @@ use std::ffi::{c_void, CStr};
 pub struct DebugUtilsAndMessenger {
   pub debug_utils: DebugUtils,
   pub messenger: vk::DebugUtilsMessengerEXT,
+
+  info_count: AtomicUsize,
+  warning_count: AtomicUsize,
+  error_count: AtomicUsize,
 }
 impl DebugUtilsAndMessenger {
   /// It is invariant in the vulkan renderer setup that p_user_data is of type
@@ -33,5 +37,9 @@ impl DebugUtilsAndMessenger {
 
     // Returning false indicates no error in callback.
     vk::FALSE
+  }
+
+  fn handle_debug_callback(&mut self) -> u32 {
+
   }
 }
