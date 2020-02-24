@@ -125,7 +125,8 @@ impl VulkanRenderer {
         );
         layer_names = VALIDATION_LAYERS
           .iter()
-          .map(|layer| layer.clone().as_ptr() as *const i8)
+          .cloned()
+          .map(|layer| layer.as_ptr() as *const i8)
           .collect();
       }
     }
@@ -180,7 +181,7 @@ impl VulkanRenderer {
       available_layers,
       VALIDATION_LAYERS
         .iter()
-        .map(|vl| vl.to_str())
+        .map(|vl| vl.to_str().unwrap())
         .collect::<Vec<_>>()
     );
 
