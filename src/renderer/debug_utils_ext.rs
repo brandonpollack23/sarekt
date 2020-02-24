@@ -2,11 +2,23 @@ use ash::{extensions::ext::DebugUtils, vk};
 use log::error;
 use std::ffi::{c_void, CStr};
 
+// TODO to make unit tests etc work, we can pass this structure itself the
+// callback data, cast it as mut, and delegate to a do_debug_callback.
+// That function can access mutable internal data like error counters etc.
+// It can be called from multiple threads simultaneously, so we can use an
+// atomic counter.
+
+/// The debug callbacks for vulkan that are enabled when in debug mode.  Called
+/// by validation layers (mostly). Keeps track of errors etc for unit tests and logs all errors with [the log crate](https://www.crates.io/crate/log).
+#[repr(C)]
 pub struct DebugUtilsAndMessenger {
   pub debug_utils: DebugUtils,
   pub messenger: vk::DebugUtilsMessengerEXT,
 }
 impl DebugUtilsAndMessenger {
+  /// It is invariant in the vulkan renderer setup that p_user_data is of type
+  /// DebugUtilsAndMessenger (see the [vulkan
+  /// renderer](struct.VulkanRenderer.html) implementation.
   pub unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_types: vk::DebugUtilsMessageTypeFlagsEXT,
