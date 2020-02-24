@@ -30,7 +30,7 @@ impl SarektApp {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  simple_logger::init_with_level(Level::Info);
+  simple_logger::init_with_level(Level::Info)?;
   let mut app = SarektApp::new()?;
   app.run();
   Ok(())

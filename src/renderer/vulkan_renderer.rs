@@ -239,7 +239,7 @@ mod tests {
   use crate::renderer::Version;
   use log::Level;
   #[cfg(unix)]
-  use winit::platform::windows::EventLoopExtUnix;
+  use winit::platform::unix::EventLoopExtUnix;
   #[cfg(windows)]
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
