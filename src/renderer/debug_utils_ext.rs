@@ -49,14 +49,16 @@ impl DebugUtilsAndMessenger {
   }
 
   /// It is invariant in the vulkan renderer setup that p_user_data is of type
-  /// DebugUtilsAndMessenger (see the [vulkan
-  /// renderer](struct.VulkanRenderer.html) implementation.
+  /// DebugUserData, it is set up in new.
   pub unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_types: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT, p_user_data: *mut c_void,
   ) -> u32 {
-    let mut user_data: Pin<Box<DebugUserData>> = std::mem::transmute(p_user_data);
+    // Transmute the user data to its appropriate type, but not a box (we don't want
+    // to drop it).
+    let mut user_data: &mut DebugUserData = std::mem::transmute(p_user_data);
+
     match message_severity {
       vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
         user_data.error_count.fetch_add(1, Ordering::SeqCst);
@@ -86,8 +88,6 @@ impl DebugUtilsAndMessenger {
       }
     }
 
-    // Do not free the user data it is still in use by Vulkan!
-    std::mem::forget(user_data);
     vk::FALSE // Returning false indicates no error in callback.
   }
 
