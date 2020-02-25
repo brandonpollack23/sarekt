@@ -1,15 +1,20 @@
+use std::{
+  ffi::{CStr, CString},
+  pin::Pin,
+  sync::Arc,
+};
+
 use ash::{
   extensions::{ext::DebugUtils, khr::Surface},
   version::{EntryV1_0, InstanceV1_0},
-  vk, Entry, Instance,
+  vk,
+  vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT},
+  Entry, Instance,
 };
-use lazy_static::lazy_static;
-use log::{error, info};
+use log::info;
 use raw_window_handle::HasRawWindowHandle;
-use std::{
-  ffi::{c_void, CStr, CString},
-  sync::Arc,
-};
+
+use lazy_static::lazy_static;
 
 use crate::{
   error::SarektError,
@@ -18,8 +23,6 @@ use crate::{
     ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
-use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, PhysicalDevice};
-use std::pin::Pin;
 
 // TODO Debugging instance creation and destruction
 
@@ -239,15 +242,18 @@ impl VulkanRenderer {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use crate::renderer::Version;
-  use log::Level;
   use std::borrow::Borrow;
+
+  use log::Level;
   #[cfg(unix)]
   use winit::platform::unix::EventLoopExtUnix;
   #[cfg(windows)]
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
+
+  use crate::renderer::Version;
+
+  use super::*;
 
   // TODO Make error count from renderer destruction checkable by letting the
   // Boxed value be injectable.
