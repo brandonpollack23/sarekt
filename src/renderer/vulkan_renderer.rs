@@ -242,21 +242,16 @@ impl VulkanRenderer {
 
 #[cfg(test)]
 mod tests {
-  use std::borrow::Borrow;
-
+  use crate::renderer::{
+    ApplicationDetails, DebugUserData, EngineDetails, Version, VulkanRenderer, IS_DEBUG_MODE,
+  };
   use log::Level;
+  use std::{pin::Pin, sync::Arc};
   #[cfg(unix)]
   use winit::platform::unix::EventLoopExtUnix;
   #[cfg(windows)]
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
-
-  use crate::renderer::Version;
-
-  use super::*;
-
-  // TODO Make error count from renderer destruction checkable by letting the
-  // Boxed value be injectable.
 
   fn assert_no_warnings_or_errors_in_debug_user_data(debug_user_data: &Pin<Arc<DebugUserData>>) {
     if !IS_DEBUG_MODE {
@@ -272,7 +267,7 @@ mod tests {
 
   #[test]
   fn can_construct_renderer_with_new() {
-    simple_logger::init_with_level(Level::Info);
+    let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let renderer = VulkanRenderer::new(window.clone()).unwrap();
@@ -288,7 +283,7 @@ mod tests {
 
   #[test]
   fn can_construct_renderer_with_new_detailed() {
-    simple_logger::init_with_level(Level::Info);
+    let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let renderer = VulkanRenderer::new_detailed(
@@ -308,7 +303,7 @@ mod tests {
 
   #[test]
   fn can_construct_renderer_with_new_detailed_and_user_data() {
-    simple_logger::init_with_level(Level::Info);
+    let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let debug_user_data = Arc::pin(DebugUserData::new());
