@@ -4,7 +4,10 @@ use std::{
   ffi::{c_void, CStr},
   mem::MaybeUninit,
   pin::Pin,
-  sync::atomic::{AtomicUsize, Ordering},
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
 };
 
 // TODO to make unit tests etc work, we can pass this structure itself the
@@ -19,21 +22,22 @@ use std::{
 pub struct DebugUtilsAndMessenger {
   pub debug_utils: DebugUtils,
   pub messenger: vk::DebugUtilsMessengerEXT,
-  pub user_data: Pin<Box<DebugUserData>>,
+  pub user_data: Pin<Arc<DebugUserData>>,
 }
 impl DebugUtilsAndMessenger {
   pub fn new(
     entry: &Entry, instance: &Instance, severity_flags: vk::DebugUtilsMessageSeverityFlagsEXT,
     type_flags: vk::DebugUtilsMessageTypeFlagsEXT,
+    debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> Self {
-    let mut user_data = Box::pin(DebugUserData::new());
+    let mut user_data = debug_user_data.unwrap_or(Arc::pin(DebugUserData::new()));
 
     let debug_utils = DebugUtils::new(entry, instance);
     let messenger_ci = vk::DebugUtilsMessengerCreateInfoEXT::builder()
       .message_severity(severity_flags)
       .message_type(type_flags)
       .pfn_user_callback(Some(Self::debug_callback))
-      .user_data(user_data.as_mut().get_mut() as *mut DebugUserData as *mut c_void)
+      .user_data(user_data.get_mut() as *mut DebugUserData as *mut c_void)
       .build();
     let messenger = unsafe {
       debug_utils
@@ -107,7 +111,7 @@ pub struct DebugUserData {
   error_count: AtomicUsize,
 }
 impl DebugUserData {
-  fn new() -> Self {
+  pub fn new() -> Self {
     Self {
       info_count: AtomicUsize::new(0),
       warning_count: AtomicUsize::new(0),

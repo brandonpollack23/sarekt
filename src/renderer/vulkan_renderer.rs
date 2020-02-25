@@ -14,11 +14,12 @@ use std::{
 use crate::{
   error::SarektError,
   renderer::{
-    debug_utils_ext::DebugUtilsAndMessenger, ApplicationDetails, EngineDetails, Renderer,
-    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
+    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
 use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, PhysicalDevice};
+use std::pin::Pin;
 
 // TODO Debugging instance creation and destruction
 
@@ -51,6 +52,19 @@ impl VulkanRenderer {
   pub fn new_detailed<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
     window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
   ) -> Result<Self, SarektError> {
+    Self::new_detailed_with_debug_user_data(
+      window,
+      ApplicationDetails::default(),
+      EngineDetails::default(),
+      None,
+    )
+  }
+
+  /// Like new_detailed but allows injection of user data, for unit testing.
+  fn new_detailed_with_debug_user_data<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
+    window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
+    debug_user_data: Option<Pin<Arc<DebugUserData>>>,
+  ) -> Result<Self, SarektError> {
     // TODO
     // * Support rendering to a non window surface if window is None (change it to
     //   an Enum of WindowHandle or OtherSurface).
@@ -71,7 +85,11 @@ impl VulkanRenderer {
     )?;
 
     let debug_utils_and_messenger = if ENABLE_VALIDATION_LAYERS {
-      Some(Self::setup_debug_callback_messenger(&entry, &instance))
+      Some(Self::setup_debug_callback_messenger(
+        &entry,
+        &instance,
+        debug_user_data,
+      ))
     } else {
       None
     };
@@ -211,12 +229,15 @@ impl VulkanRenderer {
     );
   }
 
-  fn setup_debug_callback_messenger(entry: &Entry, instance: &Instance) -> DebugUtilsAndMessenger {
+  fn setup_debug_callback_messenger(
+    entry: &Entry, instance: &Instance, debug_user_data: Option<Pin<Arc<DebugUserData>>>,
+  ) -> DebugUtilsAndMessenger {
     DebugUtilsAndMessenger::new(
       entry,
       instance,
       DebugUtilsMessageSeverityFlagsEXT::all(),
       DebugUtilsMessageTypeFlagsEXT::all(),
+      debug_user_data,
     )
   }
 }
@@ -226,6 +247,7 @@ mod tests {
   use super::*;
   use crate::renderer::Version;
   use log::Level;
+  use std::borrow::Borrow;
   #[cfg(unix)]
   use winit::platform::unix::EventLoopExtUnix;
   #[cfg(windows)]
@@ -235,12 +257,12 @@ mod tests {
   // TODO Make error count from renderer destruction checkable by letting the
   // Boxed value be injectable.
 
-  fn assert_no_warnings_or_errors(debug_utils_and_messenger: &DebugUtilsAndMessenger) {
+  fn assert_no_warnings_or_errors_in_debug_user_data(debug_user_data: &Pin<Arc<DebugUserData>>) {
     if !IS_DEBUG_MODE {
       return;
     }
 
-    let error_counts = debug_utils_and_messenger.get_error_counts();
+    let error_counts = debug_user_data.get_ref().get_error_counts();
 
     assert_eq!(error_counts.error_count, 0);
     assert_eq!(error_counts.warning_count, 0);
@@ -253,7 +275,14 @@ mod tests {
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let renderer = VulkanRenderer::new(window.clone()).unwrap();
-    assert_no_warnings_or_errors(renderer.debug_utils_and_messenger.as_ref().unwrap());
+
+    assert_no_warnings_or_errors_in_debug_user_data(
+      &renderer
+        .debug_utils_and_messenger
+        .as_ref()
+        .unwrap()
+        .user_data,
+    );
   }
 
   #[test]
@@ -267,6 +296,30 @@ mod tests {
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
-    assert_no_warnings_or_errors(renderer.debug_utils_and_messenger.as_ref().unwrap());
+    assert_no_warnings_or_errors_in_debug_user_data(
+      &renderer
+        .debug_utils_and_messenger
+        .as_ref()
+        .unwrap()
+        .user_data,
+    );
+  }
+
+  #[test]
+  fn can_construct_renderer_with_new_detailed_and_user_data() {
+    simple_logger::init_with_level(Level::Info);
+    let event_loop = EventLoop::<()>::new_any_thread();
+    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    let debug_user_data = Arc::pin(DebugUserData::new());
+    let renderer = VulkanRenderer::new_detailed_with_debug_user_data(
+      window.clone(),
+      ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
+      EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
+      Some(debug_user_data),
+    )
+    .unwrap();
+
+    std::mem::drop(renderer);
+    assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
   }
 }
