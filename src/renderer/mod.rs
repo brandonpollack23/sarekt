@@ -36,7 +36,8 @@ use crate::error::SarektError;
 use raw_window_handle::HasRawWindowHandle;
 use std::sync::Arc;
 
-pub use vulkan_renderer::{DebugUserData, DebugUserDataCopy, VulkanRenderer};
+pub use debug_utils_ext::{DebugUserData, DebugUserDataCopy};
+pub use vulkan_renderer::VulkanRenderer;
 
 // ================================================================================
 //  Compile Time Constants and Configurations
@@ -52,13 +53,13 @@ const ENABLE_VALIDATION_LAYERS: bool = IS_DEBUG_MODE;
 // ================================================================================
 /// A simple version with major, minor and patch fields for specifying
 /// information about your application.
-struct Version {
+pub struct Version {
   major: u32,
   minor: u32,
   patch: u32,
 }
 impl Version {
-  fn new(major: u32, minor: u32, patch: u32) -> Self {
+  pub fn new(major: u32, minor: u32, patch: u32) -> Self {
     Self {
       major,
       minor,
@@ -85,7 +86,7 @@ pub struct ApplicationDetails<'a> {
   version: Version,
 }
 impl<'a> ApplicationDetails<'a> {
-  fn new(name: &'a str, version: Version) -> Self {
+  pub fn new(name: &'a str, version: Version) -> Self {
     Self { name, version }
   }
 
