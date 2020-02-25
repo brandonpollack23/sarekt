@@ -134,3 +134,24 @@ impl<'a> Default for EngineDetails<'a> {
 pub trait Renderer {}
 
 // TODO some kind of factory for backends?
+
+// TODO for resources. user application in charge of loading, once they are
+// given to the renderer they are loaded into GPU memory and a handle is
+// returned.
+//
+// These handles are implemented as enums with a type for each backend
+// containing its actual handle.
+//
+// This includes handles to uniforms (backed by whatever the shader said to be)
+// (if other backends implemented shader_cross has to get them ready to be
+// for that shader type and use them how we like).
+//
+// These handles could be used to change changeable values (eg uniforms).
+//
+// These objects are used to insert an object into the scene, which generates
+// the appropriate pipline (potentially the pipeline can be generated even
+// without full insertion), commands to draw it, etc.
+//
+// Uniforms (and maybe SSBOs along with them) specifically in vulkan would be an
+// enum of uniform/ssbo type WITHIN the SarektUniformHandle.  Then i can match
+// and do the write command buffer strategy to draw them.
