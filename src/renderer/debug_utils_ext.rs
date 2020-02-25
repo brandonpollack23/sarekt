@@ -11,12 +11,6 @@ use std::{
   },
 };
 
-// TODO to make unit tests etc work, we can pass this structure itself the
-// callback data, cast it as mut, and delegate to a do_debug_callback.
-// That function can access mutable internal data like error counters etc.
-// It can be called from multiple threads simultaneously, so we can use an
-// atomic counter.
-
 /// The debug callbacks for vulkan that are enabled when in debug mode.  Called
 /// by validation layers (mostly). Keeps track of errors etc for unit tests and logs all errors with [the log crate](https://www.crates.io/crate/log).
 #[repr(C)]
@@ -124,7 +118,8 @@ impl DebugUserData {
     }
   }
 
-  // TODO docs, better ordering?
+  /// Returns the number of errors, warning, and info messages created by the
+  /// debug layers.
   pub fn get_error_counts(&self) -> DebugUserDataCopy {
     DebugUserDataCopy {
       info_count: self.info_count.load(Ordering::SeqCst),
