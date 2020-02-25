@@ -35,7 +35,8 @@ mod vulkan_renderer;
 use crate::error::SarektError;
 use raw_window_handle::HasRawWindowHandle;
 use std::sync::Arc;
-pub use vulkan_renderer::VulkanRenderer;
+
+pub use vulkan_renderer::{DebugUserData, DebugUserDataCopy, VulkanRenderer};
 
 // ================================================================================
 //  Compile Time Constants and Configurations
