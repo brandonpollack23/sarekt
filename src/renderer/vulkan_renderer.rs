@@ -24,8 +24,6 @@ use crate::{
   },
 };
 
-// TODO Debugging instance creation and destruction
-
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
@@ -156,10 +154,17 @@ impl VulkanRenderer {
       }
     }
 
+    let mut debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+      .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
+      .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
+      .pfn_user_callback(Some(DebugUtilsAndMessenger::debug_callback))
+      .build();
+
     let instance_create_info = vk::InstanceCreateInfo::builder()
       .application_info(&app_info)
       .enabled_layer_names(&layer_names)
       .enabled_extension_names(&extension_names)
+      .push_next(&mut debug_create_info)
       .build();
 
     unsafe {
