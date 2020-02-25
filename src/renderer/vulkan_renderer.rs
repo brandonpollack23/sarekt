@@ -18,11 +18,10 @@ use crate::{
     ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
+use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT};
 
+// TODO test that no drop of resource causes test failure with validation.
 // TODO Debugging instance creation and destruction
-// TODO make unit tests that use validation callback (read that unit test vulkan
-// article) TODO test that no drop of resource causes test failure with
-// validation.
 
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
@@ -214,22 +213,12 @@ impl VulkanRenderer {
   }
 
   fn setup_debug_callback_messenger(entry: &Entry, instance: &Instance) -> DebugUtilsAndMessenger {
-    let messenger_ci = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-      .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
-      .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
-      .pfn_user_callback(Some(DebugUtilsAndMessenger::debug_callback))
-      .build();
-
-    let debug_utils = DebugUtils::new(entry, instance);
-    let messenger = unsafe {
-      debug_utils
-        .create_debug_utils_messenger(&messenger_ci, None)
-        .expect("Could not create debug utils messenger")
-    };
-    DebugUtilsAndMessenger {
-      debug_utils,
-      messenger,
-    }
+    DebugUtilsAndMessenger::new(
+      entry,
+      instance,
+      DebugUtilsMessageSeverityFlagsEXT::all(),
+      DebugUtilsMessageTypeFlagsEXT::all(),
+    )
   }
 }
 
@@ -244,12 +233,30 @@ mod tests {
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
 
+  fn assert_no_warnings_or_errors(renderer: &VulkanRenderer) {
+    if !IS_DEBUG_MODE {
+      return;
+    }
+
+    let error_counts = renderer
+      .debug_utils_and_messenger
+      .as_ref()
+      .unwrap()
+      .get_error_counts();
+
+    assert_eq!(error_counts.error_count, 0);
+    assert_eq!(error_counts.warning_count, 0);
+    assert_eq!(error_counts.info_count, 0);
+  }
+
   #[test]
   fn can_construct_renderer_with_new() {
     simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    VulkanRenderer::new(window.clone()).unwrap();
+    let renderer = VulkanRenderer::new(window.clone()).unwrap();
+
+    assert_no_warnings_or_errors(&renderer);
   }
 
   #[test]
@@ -257,11 +264,13 @@ mod tests {
     simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    VulkanRenderer::new_detailed(
+    let renderer = VulkanRenderer::new_detailed(
       window.clone(),
       ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
+
+    assert_no_warnings_or_errors(&renderer);
   }
 }
