@@ -20,7 +20,6 @@ use crate::{
 };
 use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, PhysicalDevice};
 
-// TODO make debug utils and messenger injectable from tests
 // TODO Debugging instance creation and destruction
 
 lazy_static! {
@@ -232,6 +231,9 @@ mod tests {
   #[cfg(windows)]
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
+
+  // TODO Make error count from renderer destruction checkable by letting the
+  // Boxed value be injectable.
 
   fn assert_no_warnings_or_errors(debug_utils_and_messenger: &DebugUtilsAndMessenger) {
     if !IS_DEBUG_MODE {
