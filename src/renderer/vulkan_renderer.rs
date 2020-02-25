@@ -18,9 +18,9 @@ use crate::{
     ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
-use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT};
+use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, PhysicalDevice};
 
-// TODO test that no drop of resource causes test failure with validation.
+// TODO make debug utils and messenger injectable from tests
 // TODO Debugging instance creation and destruction
 
 lazy_static! {
@@ -89,11 +89,11 @@ impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
       info!("Destroying debug messenger...");
-      // if let Some(dbum) = &self.debug_utils_and_messenger {
-      //   dbum
-      //     .debug_utils
-      //     .destroy_debug_utils_messenger(dbum.messenger, None);
-      // }
+      if let Some(dbum) = &self.debug_utils_and_messenger {
+        dbum
+          .debug_utils
+          .destroy_debug_utils_messenger(dbum.messenger, None);
+      }
 
       info!("Destroying renderer...");
       self.instance.destroy_instance(None);
@@ -233,18 +233,12 @@ mod tests {
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
 
-  fn assert_no_warnings_or_errors(renderer: &VulkanRenderer) {
+  fn assert_no_warnings_or_errors(debug_utils_and_messenger: &DebugUtilsAndMessenger) {
     if !IS_DEBUG_MODE {
       return;
     }
 
-    let error_counts = renderer
-      .debug_utils_and_messenger
-      .as_ref()
-      .unwrap()
-      .get_error_counts();
-
-    println!("TEST RESULTS: {:?}", error_counts);
+    let error_counts = debug_utils_and_messenger.get_error_counts();
 
     assert_eq!(error_counts.error_count, 0);
     assert_eq!(error_counts.warning_count, 0);
@@ -257,8 +251,7 @@ mod tests {
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let renderer = VulkanRenderer::new(window.clone()).unwrap();
-
-    assert_no_warnings_or_errors(&renderer);
+    assert_no_warnings_or_errors(renderer.debug_utils_and_messenger.as_ref().unwrap());
   }
 
   #[test]
@@ -272,7 +265,6 @@ mod tests {
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
-
-    assert_no_warnings_or_errors(&renderer);
+    assert_no_warnings_or_errors(renderer.debug_utils_and_messenger.as_ref().unwrap());
   }
 }
