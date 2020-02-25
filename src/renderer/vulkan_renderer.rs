@@ -52,12 +52,7 @@ impl VulkanRenderer {
   pub fn new_detailed<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
     window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
   ) -> Result<Self, SarektError> {
-    Self::new_detailed_with_debug_user_data(
-      window,
-      ApplicationDetails::default(),
-      EngineDetails::default(),
-      None,
-    )
+    Self::new_detailed_with_debug_user_data(window, application_details, engine_details, None)
   }
 
   /// Like new_detailed but allows injection of user data, for unit testing.
@@ -262,7 +257,7 @@ mod tests {
       return;
     }
 
-    let error_counts = debug_user_data.get_ref().get_error_counts();
+    let error_counts = debug_user_data.get_error_counts();
 
     assert_eq!(error_counts.error_count, 0);
     assert_eq!(error_counts.warning_count, 0);
@@ -281,7 +276,7 @@ mod tests {
         .debug_utils_and_messenger
         .as_ref()
         .unwrap()
-        .user_data,
+        .debug_user_data,
     );
   }
 
@@ -301,7 +296,7 @@ mod tests {
         .debug_utils_and_messenger
         .as_ref()
         .unwrap()
-        .user_data,
+        .debug_user_data,
     );
   }
 
@@ -315,7 +310,7 @@ mod tests {
       window.clone(),
       ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
-      Some(debug_user_data),
+      Some(debug_user_data.clone()),
     )
     .unwrap();
 
