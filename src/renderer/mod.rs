@@ -32,10 +32,6 @@
 mod debug_utils_ext;
 mod vulkan_renderer;
 
-use crate::error::SarektError;
-use raw_window_handle::HasRawWindowHandle;
-use std::sync::Arc;
-
 pub use debug_utils_ext::{DebugUserData, DebugUserDataCopy};
 pub use vulkan_renderer::VulkanRenderer;
 
@@ -113,7 +109,7 @@ pub struct EngineDetails<'a> {
   version: Version,
 }
 impl<'a> EngineDetails<'a> {
-  fn new(name: &'a str, version: Version) -> Self {
+  pub fn new(name: &'a str, version: Version) -> Self {
     Self { name, version }
   }
 

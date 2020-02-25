@@ -2,9 +2,8 @@ use ash::{extensions::ext::DebugUtils, vk, Entry, Instance};
 use log::error;
 use static_assertions::assert_impl_all;
 use std::{
-  borrow::BorrowMut,
-  ffi::{c_void, CStr},
-  mem::MaybeUninit,
+  ffi::CStr,
+  os::raw::c_void,
   pin::Pin,
   sync::{
     atomic::{AtomicUsize, Ordering},
