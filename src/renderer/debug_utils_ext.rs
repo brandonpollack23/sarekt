@@ -26,15 +26,14 @@ impl DebugUtilsAndMessenger {
     entry: &Entry, instance: &Instance, severity_flags: vk::DebugUtilsMessageSeverityFlagsEXT,
     type_flags: vk::DebugUtilsMessageTypeFlagsEXT,
   ) -> Self {
-    let mut user_data_ptr = Box::pin(DebugUserData::new());
+    let mut user_data = Box::pin(DebugUserData::new());
 
     let debug_utils = DebugUtils::new(entry, instance);
-
     let messenger_ci = vk::DebugUtilsMessengerCreateInfoEXT::builder()
       .message_severity(severity_flags)
       .message_type(type_flags)
       .pfn_user_callback(Some(Self::debug_callback))
-      .user_data(user_data_ptr.as_mut().get_mut() as *mut DebugUserData as *mut c_void)
+      .user_data(user_data.as_mut().get_mut() as *mut DebugUserData as *mut c_void)
       .build();
     let messenger = unsafe {
       debug_utils
@@ -45,7 +44,7 @@ impl DebugUtilsAndMessenger {
     DebugUtilsAndMessenger {
       debug_utils,
       messenger,
-      user_data: user_data_ptr,
+      user_data,
     }
   }
 
@@ -57,19 +56,24 @@ impl DebugUtilsAndMessenger {
     message_types: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT, p_user_data: *mut c_void,
   ) -> u32 {
-    let this: &mut DebugUserData = std::mem::transmute(p_user_data);
+    let mut user_data: Pin<Box<DebugUserData>> = std::mem::transmute(p_user_data);
     match message_severity {
       vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
-        this.error_count.fetch_add(1, Ordering::Relaxed);
+        user_data.error_count.fetch_add(1, Ordering::SeqCst);
       }
       vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
-        this.warning_count.fetch_add(1, Ordering::Relaxed);
+        user_data.warning_count.fetch_add(1, Ordering::SeqCst);
       }
       vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
-        this.info_count.fetch_add(1, Ordering::Relaxed);
+        user_data.info_count.fetch_add(1, Ordering::SeqCst);
       }
       _ => {}
     }
+
+    println!(
+      "ERROR COUNT IS NOW: {}",
+      user_data.error_count.load(Ordering::SeqCst)
+    );
 
     match (message_severity, message_types) {
       _ => {
@@ -82,15 +86,16 @@ impl DebugUtilsAndMessenger {
       }
     }
 
-    // Returning false indicates no error in callback.
-    vk::FALSE
+    // Do not free the user data it is still in use by Vulkan!
+    std::mem::forget(user_data);
+    vk::FALSE // Returning false indicates no error in callback.
   }
 
   pub fn get_error_counts(&self) -> DebugUserDataCopy {
     DebugUserDataCopy {
-      info_count: self.user_data.info_count.load(Ordering::Relaxed),
-      warning_count: self.user_data.warning_count.load(Ordering::Relaxed),
-      error_count: self.user_data.error_count.load(Ordering::Relaxed),
+      info_count: self.user_data.info_count.load(Ordering::SeqCst),
+      warning_count: self.user_data.warning_count.load(Ordering::SeqCst),
+      error_count: self.user_data.error_count.load(Ordering::SeqCst),
     }
   }
 }
@@ -111,6 +116,7 @@ impl DebugUserData {
   }
 }
 
+#[derive(Debug)]
 pub struct DebugUserDataCopy {
   pub info_count: usize,
   pub warning_count: usize,

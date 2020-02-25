@@ -89,11 +89,11 @@ impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
       info!("Destroying debug messenger...");
-      if let Some(dbum) = &self.debug_utils_and_messenger {
-        dbum
-          .debug_utils
-          .destroy_debug_utils_messenger(dbum.messenger, None);
-      }
+      // if let Some(dbum) = &self.debug_utils_and_messenger {
+      //   dbum
+      //     .debug_utils
+      //     .destroy_debug_utils_messenger(dbum.messenger, None);
+      // }
 
       info!("Destroying renderer...");
       self.instance.destroy_instance(None);
@@ -243,6 +243,8 @@ mod tests {
       .as_ref()
       .unwrap()
       .get_error_counts();
+
+    println!("TEST RESULTS: {:?}", error_counts);
 
     assert_eq!(error_counts.error_count, 0);
     assert_eq!(error_counts.warning_count, 0);
