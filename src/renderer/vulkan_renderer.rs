@@ -8,10 +8,10 @@ use crate::{
 };
 use ash::{
   extensions::{ext::DebugUtils, khr::Surface},
-  version::{EntryV1_0, InstanceV1_0},
+  version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
   vk,
   vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT},
-  Entry, Instance,
+  Device, Entry, Instance,
 };
 use lazy_static::lazy_static;
 use log::info;
@@ -35,6 +35,9 @@ pub struct VulkanRenderer {
   instance: Instance,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
   physical_device: vk::PhysicalDevice,
+  logical_device: Device,
+
+  graphics_queue: vk::Queue,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -98,11 +101,16 @@ impl VulkanRenderer {
 
     let physical_device = Self::pick_physical_device(&instance)?;
 
+    let (logical_device, graphics_queue) =
+      Self::create_logical_device_and_queues(&instance, physical_device)?;
+
     Ok(Self {
       _entry: entry,
       instance,
       debug_utils_and_messenger,
       physical_device,
+      logical_device,
+      graphics_queue,
     })
   }
 }
@@ -110,6 +118,9 @@ impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Destrying logical device...");
+      self.logical_device.destroy_device(None);
+
       info!("Destroying debug messenger...");
       if let Some(dbum) = &self.debug_utils_and_messenger {
         dbum
@@ -333,11 +344,44 @@ impl VulkanRenderer {
         .queue_flags
         .intersects(vk::QueueFlags::GRAPHICS)
       {
-        queue_family_indices.graphics_queue_family = Some(i);
+        queue_family_indices.graphics_queue_family = Some(i as u32);
       }
     }
 
     queue_family_indices
+  }
+
+  // ================================================================================
+  //  Logical Device Helper Methods
+  // ================================================================================
+  fn create_logical_device_and_queues(
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+  ) -> SarektResult<(Device, vk::Queue)> {
+    let queue_family_indices = Self::find_queue_families(instance, physical_device);
+    let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
+    let graphics_queue_ci = vk::DeviceQueueCreateInfo::builder()
+      .queue_family_index(graphics_queue_family)
+      .queue_priorities(&[1.0]) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
+      .build();
+
+    let device_features = vk::PhysicalDeviceFeatures::default();
+
+    let device_ci = vk::DeviceCreateInfo::builder()
+      .queue_create_infos(&[graphics_queue_ci])
+      .enabled_features(&device_features)
+      // TODO VK_KHR_swapchain .enabled_extension_names()
+      .build();
+
+    unsafe {
+      instance
+        .create_device(physical_device, &device_ci, None)
+        .map_or(Err(SarektError::CouldNotCreateLogicalDevice), |device| {
+          // MULTITHREADING I would create one queue for each thread, right now I'm only
+          // using one.
+          let graphics_queue = device.get_device_queue(graphics_queue_family, 0);
+          Ok((device, graphics_queue))
+        })
+    }
   }
 }
 

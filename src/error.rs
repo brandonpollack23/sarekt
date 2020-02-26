@@ -10,6 +10,7 @@ pub enum SarektError {
   CouldNotCreateInstance(&'static str, InstanceError),
   CStrError(NulError),
   CouldNotSelectPhysicalDevice,
+  CouldNotCreateLogicalDevice,
 }
 
 impl fmt::Display for SarektError {
@@ -18,7 +19,8 @@ impl fmt::Display for SarektError {
       SarektError::Unknown => write!(f, "Unknown Error"),
       SarektError::CouldNotCreateInstance(s, ie) => write!(f, "{} caused by {:?}", s, ie),
       SarektError::CStrError(e) => write!(f, "{}", e),
-      SarektError::CouldNotSelectPhysicalDevice => write!(f, "Could Not Create Physical Device"),
+      SarektError::CouldNotSelectPhysicalDevice => write!(f, "Could Not Select Physical Device"),
+      SarektError::CouldNotCreateLogicalDevice => write!(f, "Could Not Create Logical Device"),
     }
   }
 }
