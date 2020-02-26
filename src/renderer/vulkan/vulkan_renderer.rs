@@ -26,9 +26,6 @@ use std::{
   sync::Arc,
 };
 
-// TODO group queues, put in queue_family_indices file and rename just queues.
-// TODO ensure all methods (private included) are documented.
-
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
@@ -222,6 +219,8 @@ impl VulkanRenderer {
   // ================================================================================
   //  Instance Helper Methods
   // ================================================================================
+  /// Returns all extension needed for this renderer, depending on windowing
+  /// system (or lack thereof) etc.
   fn get_required_extensions<W: HasRawWindowHandle>(window: &W) -> SarektResult<Vec<&CStr>> {
     // Includes VK_KHR_Surface and
     // VK_KHR_Win32_Surface/VK_KHR_xcb_surface/
@@ -261,6 +260,7 @@ impl VulkanRenderer {
       .all(|b| b)
   }
 
+  /// Logs extensions that are available and what was requested.
   unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &Vec<&CStr>) -> () {
     let available_extensions: Vec<CString> = entry
       .enumerate_instance_extension_properties()
@@ -277,6 +277,8 @@ impl VulkanRenderer {
   // ================================================================================
   //  Debug Extension Helper Methods.
   // ================================================================================
+  /// Creates a debug messenger within the VK_EXT_debug_utils extension that
+  /// counts number of errors, warnings, and info messages and logs them using the [log](https://www.crates.io/crate/log) crate.
   fn setup_debug_callback_messenger(
     entry: &Entry, instance: &Instance, debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> DebugUtilsAndMessenger {
@@ -292,6 +294,10 @@ impl VulkanRenderer {
   // ================================================================================
   //  Physical Device Helper Methods
   // ================================================================================
+  /// Evaluates all the available physical devices in the system and picks the
+  /// best one based on a heuristic.
+  ///
+  /// TODO have this be overridable somehow with config etc.
   fn pick_physical_device(
     instance: &Instance, surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<vk::PhysicalDevice> {
@@ -362,6 +368,9 @@ impl VulkanRenderer {
       .unwrap_or(false)
   }
 
+  /// Finds the queue family indices to use for the rendering command
+  /// submissions.  Right now only picks the first suitable queue family for
+  /// each type of command.
   fn find_queue_families(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
