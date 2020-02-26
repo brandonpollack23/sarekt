@@ -22,6 +22,8 @@ use std::{
   sync::Arc,
 };
 
+// TODO group surface and surface_functions
+// TODO group queues, put in queue_family_indices file and rename just queues.
 // TODO ensure all methods (private included) are documented.
 
 lazy_static! {
