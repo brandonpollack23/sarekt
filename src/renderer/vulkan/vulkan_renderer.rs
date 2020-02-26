@@ -2,7 +2,8 @@ use crate::{
   error::{SarektError, SarektResult},
   renderer::{
     vulkan::{
-      debug_utils_ext::DebugUtilsAndMessenger, queue_family_indices::QueueFamilyIndices,
+      debug_utils_ext::DebugUtilsAndMessenger,
+      queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
     },
     ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
@@ -43,8 +44,7 @@ pub struct VulkanRenderer {
   physical_device: vk::PhysicalDevice,
   logical_device: Device,
 
-  graphics_queue: vk::Queue,
-  presentation_queue: vk::Queue,
+  queues: Queues,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -121,7 +121,7 @@ impl VulkanRenderer {
 
     let physical_device = Self::pick_physical_device(&instance, &surface_and_extension)?;
 
-    let (logical_device, graphics_queue, presentation_queue) =
+    let (logical_device, queues) =
       Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
     Ok(Self {
@@ -131,8 +131,7 @@ impl VulkanRenderer {
       surface_and_extension,
       physical_device,
       logical_device,
-      graphics_queue,
-      presentation_queue,
+      queues,
     })
   }
 }
@@ -399,13 +398,13 @@ impl VulkanRenderer {
   //  Logical Device Helper Methods
   // ================================================================================
   /// Creates the logical device after confirming all the features and queues
-  /// needed are present, and returns the logical device, the graphics queue,
-  /// and the presentation queue, otherwise returns the
-  /// [SarektError](enum.SarektError.html) that occurred.
+  /// needed are present, and returns the logical device, and a
+  /// [Queues](struct.Queues.html) containing all the command queues. otherwise
+  /// returns the [SarektError](enum.SarektError.html) that occurred.
   fn create_logical_device_and_queues(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<(Device, vk::Queue, vk::Queue)> {
+  ) -> SarektResult<(Device, Queues)> {
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
     let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
@@ -436,8 +435,11 @@ impl VulkanRenderer {
           let graphics_queue = device.get_device_queue(graphics_queue_family, 0);
           // TODO when would i have seperate queues even if in the same family for
           // presentation and graphics?
+          // TODO no presentation queue needed when not presenting to a swapchain, right?
           let presentation_queue = device.get_device_queue(presentation_queue_family, 0);
-          Ok((device, graphics_queue, presentation_queue))
+          let queues = Queues::new(graphics_queue, presentation_queue);
+
+          Ok((device, queues))
         })
     }
   }
