@@ -1,9 +1,11 @@
-use std::{
-  ffi::{CStr, CString},
-  pin::Pin,
-  sync::Arc,
+use crate::{
+  error::{SarektError, SarektResult},
+  renderer::{
+    debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
+    queue_family_indices::QueueFamilyIndices,
+    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+  },
 };
-
 use ash::{
   extensions::{ext::DebugUtils, khr::Surface},
   version::{EntryV1_0, InstanceV1_0},
@@ -11,18 +13,16 @@ use ash::{
   vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT},
   Entry, Instance,
 };
+use lazy_static::lazy_static;
 use log::info;
 use raw_window_handle::HasRawWindowHandle;
-
-use lazy_static::lazy_static;
-
-use crate::{
-  error::SarektError,
-  renderer::{
-    debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
-    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
-  },
+use std::{
+  ffi::{CStr, CString},
+  pin::Pin,
+  sync::Arc,
 };
+
+// TODO ensure all methods (private included) are documented.
 
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
@@ -34,6 +34,7 @@ pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
+  physical_device: vk::PhysicalDevice,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -70,7 +71,10 @@ impl VulkanRenderer {
       .into()
       .expect("Sarekt only supports rendering to a window right now :(");
 
+    // Load vulkan driver dynamic library and populate functions.
     let entry = ash::Entry::new().expect("Failed to load dynamic library and create Vulkan Entry");
+
+    // Create client side vulkan instance.
     let instance = Self::create_instance(
       &entry,
       window.as_ref(),
@@ -80,7 +84,9 @@ impl VulkanRenderer {
       engine_details.get_u32_version(),
     )?;
 
-    let debug_utils_and_messenger = if ENABLE_VALIDATION_LAYERS {
+    // Only setup the debug utils extension and callback messenger if we are in
+    // debug mode.
+    let debug_utils_and_messenger = if IS_DEBUG_MODE {
       Some(Self::setup_debug_callback_messenger(
         &entry,
         &instance,
@@ -90,10 +96,13 @@ impl VulkanRenderer {
       None
     };
 
+    let physical_device = Self::pick_physical_device(&instance)?;
+
     Ok(Self {
       _entry: entry,
       instance,
       debug_utils_and_messenger,
+      physical_device,
     })
   }
 }
@@ -250,7 +259,86 @@ impl VulkanRenderer {
   // ================================================================================
   //  Physical Device Helper Methods
   // ================================================================================
-  // fn pick_physical_device() -> vk::PhysicalDevice {}
+  fn pick_physical_device(instance: &Instance) -> SarektResult<vk::PhysicalDevice> {
+    let available_physical_devices = unsafe {
+      instance
+        .enumerate_physical_devices()
+        .expect("Unable to enumerate physical devices")
+    };
+
+    // Assign some rank to all devices and get the highest one.
+    let mut suitable_devices_ranked: Vec<_> = available_physical_devices
+      .into_iter()
+      .map(|device| Self::rank_device(instance, device))
+      .filter(|&(_, rank)| rank > -1i32)
+      .collect();
+    suitable_devices_ranked.sort_by(|&(_, l_rank), &(_, r_rank)| l_rank.cmp(&r_rank));
+
+    info!(
+      "Physical Devices most to least desirable:\n\t{:?}",
+      suitable_devices_ranked
+    );
+
+    suitable_devices_ranked
+      .first()
+      .map(|&(device, _)| device)
+      .ok_or(SarektError::CouldNotSelectPhysicalDevice)
+  }
+
+  /// Rank the devices based on an internal scoring mechanism.
+  /// A score of -1 means the device is not supported.
+  ///
+  /// TODO add ways to configure device selection later.
+  fn rank_device(
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+  ) -> (vk::PhysicalDevice, i32) {
+    let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
+    // TODO utilize?
+    // let device_features = unsafe {
+    // instance.get_physical_device_features(physical_device) };
+
+    if !Self::is_device_suitable(instance, physical_device) {
+      return (physical_device, -1);
+    }
+
+    let mut score = 0;
+    if device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
+      score += 10;
+    } else if device_properties.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU {
+      score += 5;
+    }
+
+    (physical_device, score)
+  }
+
+  /// Tells us if this device is compatible with Sarekt.
+  ///
+  /// This will become more complex as more features are added.
+  ///
+  /// Certain features can be behind cargo feature flags that also affect this
+  /// function.
+  fn is_device_suitable(instance: &Instance, physical_device: vk::PhysicalDevice) -> bool {
+    Self::find_queue_families(instance, physical_device).is_complete()
+  }
+
+  fn find_queue_families(
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+  ) -> QueueFamilyIndices {
+    let mut queue_family_indices = QueueFamilyIndices::default();
+    let queue_family_properties =
+      unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+
+    for (i, queue_family_properties) in queue_family_properties.iter().enumerate() {
+      if queue_family_properties
+        .queue_flags
+        .intersects(vk::QueueFlags::GRAPHICS)
+      {
+        queue_family_indices.graphics_queue_family = Some(i);
+      }
+    }
+
+    queue_family_indices
+  }
 }
 
 #[cfg(test)]
