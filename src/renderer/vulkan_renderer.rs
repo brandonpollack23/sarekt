@@ -133,7 +133,7 @@ impl VulkanRenderer {
       .application_version(application_version)
       .engine_name(CString::new(engine_name)?.as_c_str())
       .engine_version(engine_version)
-      .api_version(ash::vk::make_version(0, 1, 0))
+      .api_version(ash::vk::make_version(1, 2, 131))
       .build();
 
     let mut layer_names: Vec<_> = Vec::new(); // Will not alloc until stuff put in, so no problem.
@@ -232,6 +232,9 @@ impl VulkanRenderer {
     );
   }
 
+  // ================================================================================
+  //  Debug Extension Helper Methods.
+  // ================================================================================
   fn setup_debug_callback_messenger(
     entry: &Entry, instance: &Instance, debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> DebugUtilsAndMessenger {
@@ -243,6 +246,11 @@ impl VulkanRenderer {
       debug_user_data,
     )
   }
+
+  // ================================================================================
+  //  Physical Device Helper Methods
+  // ================================================================================
+  // fn pick_physical_device() -> vk::PhysicalDevice {}
 }
 
 #[cfg(test)]
@@ -267,7 +275,6 @@ mod tests {
 
     assert_eq!(error_counts.error_count, 0);
     assert_eq!(error_counts.warning_count, 0);
-    assert_eq!(error_counts.info_count, 0);
   }
 
   #[test]

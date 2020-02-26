@@ -1,5 +1,5 @@
 use ash::{extensions::ext::DebugUtils, vk, Entry, Instance};
-use log::error;
+use log::{error, info, warn};
 use static_assertions::assert_impl_all;
 use std::{
   ffi::CStr,
@@ -62,7 +62,7 @@ impl DebugUtilsAndMessenger {
   /// DebugUserData, it is set up in new.
   pub unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_types: vk::DebugUtilsMessageTypeFlagsEXT,
+    _message_types: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT, p_user_data: *mut c_void,
   ) -> u32 {
     // Transmute the user data to its appropriate type, but not a box (we don't want
@@ -72,6 +72,7 @@ impl DebugUtilsAndMessenger {
       user_data = Some(std::mem::transmute(p_user_data));
     }
 
+    // Update user data if necessary.
     if let Some(user_data) = user_data {
       match message_severity {
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
@@ -87,15 +88,24 @@ impl DebugUtilsAndMessenger {
       }
     }
 
-    match (message_severity, message_types) {
-      _ => {
-        error!(
-          "Validation Error! {}",
-          CStr::from_ptr((*p_callback_data).p_message as *const i8)
-            .to_str()
-            .unwrap()
-        );
+    // Log messages.
+    let message = CStr::from_ptr((*p_callback_data).p_message as *const i8)
+      .to_str()
+      .unwrap();
+    match message_severity {
+      vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
+        error!("Validation Error! {}", message);
       }
+      vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
+        warn!("Validation Warning! {}", message);
+      }
+      vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
+        info!("Validation Info {}", message);
+      }
+      vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
+        info!("Validation Verbose {}", message);
+      }
+      _ => {}
     }
 
     vk::FALSE // Returning false indicates no error in callback.
