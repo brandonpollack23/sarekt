@@ -29,12 +29,12 @@
 //! - [ ] Moar.
 //!
 //! Things on the TODO list are in a repo TODO file.
-mod debug_utils_ext;
-mod queue_family_indices;
-mod vulkan_renderer;
+mod vulkan;
 
-pub use debug_utils_ext::{DebugUserData, DebugUserDataCopy};
-pub use vulkan_renderer::VulkanRenderer;
+pub use vulkan::{
+  debug_utils_ext::{DebugUserData, DebugUserDataCopy},
+  vulkan_renderer::VulkanRenderer,
+};
 
 // ================================================================================
 //  Compile Time Constants and Configurations

@@ -1,9 +1,9 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
-    queue_family_indices::QueueFamilyIndices,
-    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    vulkan::{debug_utils_ext::DebugUtilsAndMessenger, queue_family_indices::QueueFamilyIndices},
+    ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
+    IS_DEBUG_MODE,
   },
 };
 use ash::{
