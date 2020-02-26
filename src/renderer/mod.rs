@@ -30,6 +30,7 @@
 //!
 //! Things on the TODO list are in a repo TODO file.
 mod debug_utils_ext;
+mod queue_family_indices;
 mod vulkan_renderer;
 
 pub use debug_utils_ext::{DebugUserData, DebugUserDataCopy};
