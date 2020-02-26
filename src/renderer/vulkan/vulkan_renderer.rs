@@ -1,7 +1,10 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    vulkan::{debug_utils_ext::DebugUtilsAndMessenger, queue_family_indices::QueueFamilyIndices},
+    vulkan::{
+      debug_utils_ext::DebugUtilsAndMessenger, queue_family_indices::QueueFamilyIndices,
+      surface::SurfaceAndExtension,
+    },
     ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
     IS_DEBUG_MODE,
   },
@@ -22,7 +25,6 @@ use std::{
   sync::Arc,
 };
 
-// TODO group surface and surface_functions
 // TODO group queues, put in queue_family_indices file and rename just queues.
 // TODO ensure all methods (private included) are documented.
 
@@ -36,8 +38,7 @@ pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
-  surface: vk::SurfaceKHR, // TODO option
-  surface_functions: ash::extensions::khr::Surface,
+  surface_and_extension: SurfaceAndExtension, // TODO option
 
   physical_device: vk::PhysicalDevice,
   logical_device: Device,
@@ -113,24 +114,21 @@ impl VulkanRenderer {
       ash_window::create_surface(&entry, &instance, window.clone().as_ref(), None)
         .or(Err(SarektError::CouldNotCreateSurface))?
     };
-    let surface_functions = ash::extensions::khr::Surface::new(&entry, &instance);
+    let surface_and_extension = SurfaceAndExtension::new(
+      surface,
+      ash::extensions::khr::Surface::new(&entry, &instance),
+    );
 
-    let physical_device = Self::pick_physical_device(&instance, &surface_functions, surface)?;
+    let physical_device = Self::pick_physical_device(&instance, &surface_and_extension)?;
 
     let (logical_device, graphics_queue, presentation_queue) =
-      Self::create_logical_device_and_queues(
-        &instance,
-        physical_device,
-        &surface_functions,
-        surface,
-      )?;
+      Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
     Ok(Self {
       _entry: entry,
       instance,
       debug_utils_and_messenger,
-      surface,
-      surface_functions,
+      surface_and_extension,
       physical_device,
       logical_device,
       graphics_queue,
@@ -296,7 +294,7 @@ impl VulkanRenderer {
   //  Physical Device Helper Methods
   // ================================================================================
   fn pick_physical_device(
-    instance: &Instance, surface_functions: &Surface, surface: vk::SurfaceKHR,
+    instance: &Instance, surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<vk::PhysicalDevice> {
     let available_physical_devices = unsafe {
       instance
@@ -307,7 +305,7 @@ impl VulkanRenderer {
     // Assign some rank to all devices and get the highest one.
     let mut suitable_devices_ranked: Vec<_> = available_physical_devices
       .into_iter()
-      .map(|device| Self::rank_device(instance, device, surface_functions, surface))
+      .map(|device| Self::rank_device(instance, device, surface_and_extension))
       .filter(|&(_, rank)| rank > -1i32)
       .collect();
     suitable_devices_ranked.sort_by(|&(_, l_rank), &(_, r_rank)| l_rank.cmp(&r_rank));
@@ -328,15 +326,15 @@ impl VulkanRenderer {
   ///
   /// TODO add ways to configure device selection later.
   fn rank_device(
-    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
-    surface: vk::SurfaceKHR,
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+    surface_and_extension: &SurfaceAndExtension,
   ) -> (vk::PhysicalDevice, i32) {
     let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
     // TODO utilize?
     // let device_features = unsafe {
     // instance.get_physical_device_features(physical_device) };
 
-    if !Self::is_device_suitable(instance, physical_device, surface_functions, surface) {
+    if !Self::is_device_suitable(instance, physical_device, surface_and_extension) {
       return (physical_device, -1);
     }
 
@@ -357,18 +355,21 @@ impl VulkanRenderer {
   /// Certain features can be behind cargo feature flags that also affect this
   /// function.
   fn is_device_suitable(
-    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
-    surface: vk::SurfaceKHR,
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+    surface_and_extension: &SurfaceAndExtension,
   ) -> bool {
-    Self::find_queue_families(instance, physical_device, surface_functions, surface)
+    Self::find_queue_families(instance, physical_device, surface_and_extension)
       .map(|qf| qf.is_complete())
       .unwrap_or(false)
   }
 
   fn find_queue_families(
-    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
-    surface: vk::SurfaceKHR,
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+    surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<QueueFamilyIndices> {
+    let surface_functions = &surface_and_extension.surface_functions;
+    let surface = surface_and_extension.surface;
+
     let mut queue_family_indices = QueueFamilyIndices::default();
     let queue_family_properties =
       unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -402,11 +403,11 @@ impl VulkanRenderer {
   /// and the presentation queue, otherwise returns the
   /// [SarektError](enum.SarektError.html) that occurred.
   fn create_logical_device_and_queues(
-    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
-    surface: vk::SurfaceKHR,
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+    surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<(Device, vk::Queue, vk::Queue)> {
     let queue_family_indices =
-      Self::find_queue_families(instance, physical_device, surface_functions, surface)?;
+      Self::find_queue_families(instance, physical_device, surface_and_extension)?;
     let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
     let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
 
