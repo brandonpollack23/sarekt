@@ -34,10 +34,14 @@ pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
+  surface: vk::SurfaceKHR, // TODO option
+  surface_functions: ash::extensions::khr::Surface,
+
   physical_device: vk::PhysicalDevice,
   logical_device: Device,
 
   graphics_queue: vk::Queue,
+  presentation_queue: vk::Queue,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -99,18 +103,36 @@ impl VulkanRenderer {
       None
     };
 
-    let physical_device = Self::pick_physical_device(&instance)?;
+    // TODO unit testing, only create surface and swapchain if window was passed,
+    // otherwise make images directly.
+    // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
+    // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
+    let surface = unsafe {
+      ash_window::create_surface(&entry, &instance, window.clone().as_ref(), None)
+        .or(Err(SarektError::CouldNotCreateSurface))?
+    };
+    let surface_functions = ash::extensions::khr::Surface::new(&entry, &instance);
 
-    let (logical_device, graphics_queue) =
-      Self::create_logical_device_and_queues(&instance, physical_device)?;
+    let physical_device = Self::pick_physical_device(&instance, &surface_functions, surface)?;
+
+    let (logical_device, graphics_queue, presentation_queue) =
+      Self::create_logical_device_and_queues(
+        &instance,
+        physical_device,
+        &surface_functions,
+        surface,
+      )?;
 
     Ok(Self {
       _entry: entry,
       instance,
       debug_utils_and_messenger,
+      surface,
+      surface_functions,
       physical_device,
       logical_device,
       graphics_queue,
+      presentation_queue,
     })
   }
 }
@@ -167,12 +189,16 @@ impl VulkanRenderer {
       }
     }
 
-    let extension_names = Self::get_required_extensions(window);
+    let extension_names = Self::get_required_extensions(window)?;
     unsafe {
       if IS_DEBUG_MODE {
         Self::log_extensions_dialog(entry, &extension_names);
       }
     }
+    let extension_names: Vec<_> = extension_names
+      .iter()
+      .map(|&ext| ext.as_ptr() as *const i8)
+      .collect();
 
     let mut debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
       .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
@@ -197,16 +223,18 @@ impl VulkanRenderer {
   // ================================================================================
   //  Instance Helper Methods
   // ================================================================================
-  fn get_required_extensions<W: HasRawWindowHandle>(window: &W) -> Vec<*const i8> {
-    let surface_extension = Surface::name().as_ptr();
-    let window_system_surface_extension = ash_window::enumerate_required_extension(window).as_ptr();
-    let mut extensions = vec![surface_extension, window_system_surface_extension];
+  fn get_required_extensions<W: HasRawWindowHandle>(window: &W) -> SarektResult<Vec<&CStr>> {
+    // Includes VK_KHR_Surface and
+    // VK_KHR_Win32_Surface/VK_KHR_xcb_surface/
+    // VK_GGP_stream_descriptor_surface(stadia)
+    let mut extensions = ash_window::enumerate_required_extensions(window)
+      .or(Err(SarektError::CouldNotEnumerateExtensionsForWindowSystem))?;
 
     if IS_DEBUG_MODE {
-      extensions.push(DebugUtils::name().as_ptr());
+      extensions.push(DebugUtils::name());
     }
 
-    extensions
+    Ok(extensions)
   }
 
   /// Checks if all the validation layers specified are supported supported in
@@ -234,21 +262,16 @@ impl VulkanRenderer {
       .all(|b| b)
   }
 
-  unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &Vec<*const i8>) -> () {
+  unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &Vec<&CStr>) -> () {
     let available_extensions: Vec<CString> = entry
       .enumerate_instance_extension_properties()
       .expect("Couldn't enumerate extensions")
       .iter_mut()
       .map(|e| CStr::from_ptr(e.extension_name.as_mut_ptr()).to_owned())
       .collect();
-    let mut extension_names = extension_names.clone();
-    let extension_names_cstr: Vec<CString> = extension_names
-      .iter_mut()
-      .map(|&mut e| CStr::from_ptr(e).to_owned())
-      .collect();
     info!(
       "Available Instance Extensions:\n\t{:?}\nRequested Instance Extensions:\n\t{:?}\n",
-      available_extensions, extension_names_cstr
+      available_extensions, extension_names
     );
   }
 
@@ -270,7 +293,9 @@ impl VulkanRenderer {
   // ================================================================================
   //  Physical Device Helper Methods
   // ================================================================================
-  fn pick_physical_device(instance: &Instance) -> SarektResult<vk::PhysicalDevice> {
+  fn pick_physical_device(
+    instance: &Instance, surface_functions: &Surface, surface: vk::SurfaceKHR,
+  ) -> SarektResult<vk::PhysicalDevice> {
     let available_physical_devices = unsafe {
       instance
         .enumerate_physical_devices()
@@ -280,7 +305,7 @@ impl VulkanRenderer {
     // Assign some rank to all devices and get the highest one.
     let mut suitable_devices_ranked: Vec<_> = available_physical_devices
       .into_iter()
-      .map(|device| Self::rank_device(instance, device))
+      .map(|device| Self::rank_device(instance, device, surface_functions, surface))
       .filter(|&(_, rank)| rank > -1i32)
       .collect();
     suitable_devices_ranked.sort_by(|&(_, l_rank), &(_, r_rank)| l_rank.cmp(&r_rank));
@@ -301,14 +326,15 @@ impl VulkanRenderer {
   ///
   /// TODO add ways to configure device selection later.
   fn rank_device(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
+    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
+    surface: vk::SurfaceKHR,
   ) -> (vk::PhysicalDevice, i32) {
     let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
     // TODO utilize?
     // let device_features = unsafe {
     // instance.get_physical_device_features(physical_device) };
 
-    if !Self::is_device_suitable(instance, physical_device) {
+    if !Self::is_device_suitable(instance, physical_device, surface_functions, surface) {
       return (physical_device, -1);
     }
 
@@ -328,13 +354,19 @@ impl VulkanRenderer {
   ///
   /// Certain features can be behind cargo feature flags that also affect this
   /// function.
-  fn is_device_suitable(instance: &Instance, physical_device: vk::PhysicalDevice) -> bool {
-    Self::find_queue_families(instance, physical_device).is_complete()
+  fn is_device_suitable(
+    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
+    surface: vk::SurfaceKHR,
+  ) -> bool {
+    Self::find_queue_families(instance, physical_device, surface_functions, surface)
+      .map(|qf| qf.is_complete())
+      .unwrap_or(false)
   }
 
   fn find_queue_families(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-  ) -> QueueFamilyIndices {
+    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
+    surface: vk::SurfaceKHR,
+  ) -> SarektResult<QueueFamilyIndices> {
     let mut queue_family_indices = QueueFamilyIndices::default();
     let queue_family_properties =
       unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -346,30 +378,50 @@ impl VulkanRenderer {
       {
         queue_family_indices.graphics_queue_family = Some(i as u32);
       }
+
+      let presentation_support = unsafe {
+        surface_functions
+          .get_physical_device_surface_support(physical_device, i as u32, surface)
+          .or(Err(SarektError::CouldNotQueryDeviceSurfaceSupport))?
+      };
+      if presentation_support {
+        queue_family_indices.presentation_queue_family = Some(i as u32);
+      }
     }
 
-    queue_family_indices
+    Ok(queue_family_indices)
   }
 
   // ================================================================================
   //  Logical Device Helper Methods
   // ================================================================================
+  /// Creates the logical device after confirming all the features and queues
+  /// needed are present, and returns the logical device, the graphics queue,
+  /// and the presentation queue, otherwise returns the
+  /// [SarektError](enum.SarektError.html) that occurred.
   fn create_logical_device_and_queues(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-  ) -> SarektResult<(Device, vk::Queue)> {
-    let queue_family_indices = Self::find_queue_families(instance, physical_device);
+    instance: &Instance, physical_device: vk::PhysicalDevice, surface_functions: &Surface,
+    surface: vk::SurfaceKHR,
+  ) -> SarektResult<(Device, vk::Queue, vk::Queue)> {
+    let queue_family_indices =
+      Self::find_queue_families(instance, physical_device, surface_functions, surface)?;
     let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
+    let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
+
     let graphics_queue_ci = vk::DeviceQueueCreateInfo::builder()
       .queue_family_index(graphics_queue_family)
       .queue_priorities(&[1.0]) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
+      .build();
+    let presentation_queue_ci = vk::DeviceQueueCreateInfo::builder()
+      .queue_family_index(presentation_queue_family)
+      .queue_priorities(&[1.0])
       .build();
 
     let device_features = vk::PhysicalDeviceFeatures::default();
 
     let device_ci = vk::DeviceCreateInfo::builder()
-      .queue_create_infos(&[graphics_queue_ci])
+      .queue_create_infos(&[graphics_queue_ci, presentation_queue_ci])
       .enabled_features(&device_features)
-      // TODO VK_KHR_swapchain .enabled_extension_names()
       .build();
 
     unsafe {
@@ -379,7 +431,10 @@ impl VulkanRenderer {
           // MULTITHREADING I would create one queue for each thread, right now I'm only
           // using one.
           let graphics_queue = device.get_device_queue(graphics_queue_family, 0);
-          Ok((device, graphics_queue))
+          // TODO when would i have seperate queues even if in the same family for
+          // presentation and graphics?
+          let presentation_queue = device.get_device_queue(presentation_queue_family, 0);
+          Ok((device, graphics_queue, presentation_queue))
         })
     }
   }

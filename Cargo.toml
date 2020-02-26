@@ -14,7 +14,7 @@ path = "examples/01_init_instance.rs"
 
 [dependencies]
 ash = {git = "https://github.com/MaikKlein/ash" }
-ash-window = "0.1.0"
+ash-window = {git = "https://github.com/brandonpollack23/ash-window" }
 static_assertions = "1.1.0"
 lazy_static = "1.4.0"
 log = "0.4.8"

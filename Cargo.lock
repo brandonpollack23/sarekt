@@ -44,21 +44,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ash"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "003d1fb2eb12eb06d4a03dbe02eea67a9fac910fa97932ab9e3a75b96a1ea5e5"
-dependencies = [
- "shared_library",
-]
-
-[[package]]
 name = "ash-window"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8a6613964b02154d1d4729341367349f7ee831b22f60236288486dcd0117cc4"
+version = "0.1.1"
+source = "git+https://github.com/brandonpollack23/ash-window#2204dd0dddc924fdc678b78f6871954a4180ed53"
 dependencies = [
- "ash 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ash",
  "raw-window-handle",
 ]
 
@@ -580,7 +570,7 @@ dependencies = [
 name = "sarekt"
 version = "0.1.0"
 dependencies = [
- "ash 0.29.0 (git+https://github.com/MaikKlein/ash)",
+ "ash",
  "ash-window",
  "lazy_static",
  "log",
