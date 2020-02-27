@@ -1,5 +1,5 @@
 use crate::error::SarektError::CStrError;
-use ash;
+
 use std::{error::Error, ffi::NulError, fmt};
 
 pub type SarektResult<T> = Result<T, SarektError>;

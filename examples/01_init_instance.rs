@@ -16,7 +16,7 @@ impl SarektApp {
 
     let event_loop = EventLoop::new();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
+    let renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
 
     Ok(Self {
       _event_loop: event_loop,
