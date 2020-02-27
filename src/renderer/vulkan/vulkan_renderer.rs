@@ -11,7 +11,7 @@ use crate::{
   },
 };
 use ash::{
-  extensions::{ext::DebugUtils, khr::Surface},
+  extensions::ext::DebugUtils,
   version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
   vk,
   vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT},
@@ -25,6 +25,11 @@ use std::{
   pin::Pin,
   sync::Arc,
 };
+
+// TODO starting with line 370 and anywhere else ? is used, create a converter
+// for ash Result to SarektResult
+//
+// TODO is there VALIDATION_LAYERS defined in ash?
 
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
@@ -132,26 +137,6 @@ impl VulkanRenderer {
     })
   }
 }
-impl Renderer for VulkanRenderer {}
-impl Drop for VulkanRenderer {
-  fn drop(&mut self) {
-    unsafe {
-      info!("Destrying logical device...");
-      self.logical_device.destroy_device(None);
-
-      info!("Destroying debug messenger...");
-      if let Some(dbum) = &self.debug_utils_and_messenger {
-        dbum
-          .debug_utils
-          .destroy_debug_utils_messenger(dbum.messenger, None);
-      }
-
-      info!("Destroying renderer...");
-      self.instance.destroy_instance(None);
-    }
-  }
-}
-
 /// Private implementation details.
 impl VulkanRenderer {
   // ================================================================================
@@ -339,7 +324,8 @@ impl VulkanRenderer {
     // let device_features = unsafe {
     // instance.get_physical_device_features(physical_device) };
 
-    if !Self::is_device_suitable(instance, physical_device, surface_and_extension) {
+    if !Self::is_device_suitable(instance, physical_device, surface_and_extension).unwrap_or(false)
+    {
       return (physical_device, -1);
     }
 
@@ -362,10 +348,36 @@ impl VulkanRenderer {
   fn is_device_suitable(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
-  ) -> bool {
-    Self::find_queue_families(instance, physical_device, surface_and_extension)
+  ) -> SarektResult<bool> {
+    let has_queues = Self::find_queue_families(instance, physical_device, surface_and_extension)
       .map(|qf| qf.is_complete())
-      .unwrap_or(false)
+      .unwrap_or(false);
+
+    let supports_required_extensions =
+      VulkanRenderer::device_supports_required_extensions(instance, physical_device);
+    if supports_required_extensions.is_err() {
+      warning!(
+        "Could not enumerate physical device properties on device {}",
+        physical_device
+      );
+    }
+
+    Ok(has_queues && supports_required_extensions.unwrap_or(false))
+  }
+
+  /// Goes through and checks if the device supports all needed extensions for
+  /// current configuration.
+  fn device_supports_required_extensions(
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+  ) -> SarektResult<bool> {
+    // TODO if drawing to a window.
+    let device_extension_properties =
+      unsafe { instance.enumerate_device_extension_properties(physical_device)? };
+    let supports_swapchain = device_extension_properties
+      .iter()
+      .map(|ext_props| ext_props.extension_name)
+      .contains(ash::extensions::khr::Swapchain::name());
+    supports_swapchain
   }
 
   /// Finds the queue family indices to use for the rendering command
@@ -450,6 +462,25 @@ impl VulkanRenderer {
 
           Ok((device, queues))
         })
+    }
+  }
+}
+impl Renderer for VulkanRenderer {}
+impl Drop for VulkanRenderer {
+  fn drop(&mut self) {
+    unsafe {
+      info!("Destrying logical device...");
+      self.logical_device.destroy_device(None);
+
+      info!("Destroying debug messenger...");
+      if let Some(dbum) = &self.debug_utils_and_messenger {
+        dbum
+          .debug_utils
+          .destroy_debug_utils_messenger(dbum.messenger, None);
+      }
+
+      info!("Destroying renderer...");
+      self.instance.destroy_instance(None);
     }
   }
 }

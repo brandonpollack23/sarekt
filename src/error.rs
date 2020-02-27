@@ -12,6 +12,7 @@ pub enum SarektError {
   CStrError(NulError),
   CouldNotQueryDeviceSurfaceSupport,
   CouldNotEnumerateExtensionsForWindowSystem,
+  CouldNotEnumerateExtensionsForDevice,
   CouldNotSelectPhysicalDevice,
   CouldNotCreateLogicalDevice,
   CouldNotCreateSurface,
@@ -26,8 +27,11 @@ impl fmt::Display for SarektError {
       SarektError::CouldNotQueryDeviceSurfaceSupport => {
         write!(f, "Could Not Query Device Surface Support")
       }
+      SarektError::CouldNotEnumerateExtensionsForDevice => {
+        write!(f, "Could Not Enumerate Extensions for Physical Device")
+      }
       SarektError::CouldNotEnumerateExtensionsForWindowSystem => {
-        write!(f, "Could Not Select Physical Device")
+        write!(f, "Could Not Enumerate Extensions for Window System")
       }
       SarektError::CouldNotSelectPhysicalDevice => write!(f, "Could Not Select Physical Device"),
       SarektError::CouldNotCreateLogicalDevice => write!(f, "Could Not Create Logical Device"),
