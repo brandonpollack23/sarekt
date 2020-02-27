@@ -18,7 +18,7 @@ use ash::{
   Device, Entry, Instance,
 };
 use lazy_static::lazy_static;
-use log::info;
+use log::{info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
   ffi::{CStr, CString},
@@ -356,7 +356,7 @@ impl VulkanRenderer {
     let supports_required_extensions =
       VulkanRenderer::device_supports_required_extensions(instance, physical_device);
     if supports_required_extensions.is_err() {
-      warning!(
+      warn!(
         "Could not enumerate physical device properties on device {}",
         physical_device
       );

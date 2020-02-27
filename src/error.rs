@@ -1,5 +1,5 @@
 use crate::error::SarektError::CStrError;
-use ash::InstanceError;
+use ash;
 use std::{error::Error, ffi::NulError, fmt};
 
 pub type SarektResult<T> = Result<T, SarektError>;
@@ -8,42 +8,32 @@ pub type SarektResult<T> = Result<T, SarektError>;
 #[derive(Debug)]
 pub enum SarektError {
   Unknown,
-  CouldNotCreateInstance(&'static str, InstanceError),
+  InstanceError(ash::InstanceError),
   CStrError(NulError),
-  CouldNotQueryDeviceSurfaceSupport,
-  CouldNotEnumerateExtensionsForWindowSystem,
-  CouldNotEnumerateExtensionsForDevice,
-  CouldNotSelectPhysicalDevice,
-  CouldNotCreateLogicalDevice,
-  CouldNotCreateSurface,
+}
+
+impl From<ash::InstanceError> for SarektError {
+  fn from(instance_error: ash::InstanceError) -> Self {
+    SarektError::InstanceError(instance_error)
+  }
+}
+impl From<NulError> for SarektError {
+  fn from(e: NulError) -> SarektError {
+    CStrError(e)
+  }
 }
 
 impl fmt::Display for SarektError {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
       SarektError::Unknown => write!(f, "Unknown Error"),
-      SarektError::CouldNotCreateInstance(s, ie) => write!(f, "{} caused by {:?}", s, ie),
+      SarektError::InstanceError(ash_error) => {
+        write!(f, "The vulkan wrapper ash produced an error: {}", ash_error)
+      }
       SarektError::CStrError(e) => write!(f, "{}", e),
-      SarektError::CouldNotQueryDeviceSurfaceSupport => {
-        write!(f, "Could Not Query Device Surface Support")
-      }
-      SarektError::CouldNotEnumerateExtensionsForDevice => {
-        write!(f, "Could Not Enumerate Extensions for Physical Device")
-      }
-      SarektError::CouldNotEnumerateExtensionsForWindowSystem => {
-        write!(f, "Could Not Enumerate Extensions for Window System")
-      }
-      SarektError::CouldNotSelectPhysicalDevice => write!(f, "Could Not Select Physical Device"),
-      SarektError::CouldNotCreateLogicalDevice => write!(f, "Could Not Create Logical Device"),
-      SarektError::CouldNotCreateSurface => write!(f, "Could Not Create Surface"),
     }
   }
 }
 
 impl Error for SarektError {}
 
-impl From<NulError> for SarektError {
-  fn from(e: NulError) -> SarektError {
-    CStrError(e)
-  }
-}
