@@ -1,14 +1,17 @@
 use ash::vk;
 pub struct SwapchainAndExtension {
   pub swapchain: vk::SwapchainKHR,
+  pub format: vk::Format,
   pub swapchain_functions: ash::extensions::khr::Swapchain,
 }
 impl SwapchainAndExtension {
   pub fn new(
-    swapchain: vk::SwapchainKHR, swapchain_functions: ash::extensions::khr::Swapchain,
+    swapchain: vk::SwapchainKHR, format: vk::Format,
+    swapchain_functions: ash::extensions::khr::Swapchain,
   ) -> Self {
     SwapchainAndExtension {
       swapchain,
+      format,
       swapchain_functions,
     }
   }

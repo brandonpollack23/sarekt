@@ -3,6 +3,7 @@ use crate::{
   renderer::{
     vulkan::{
       debug_utils_ext::DebugUtilsAndMessenger,
+      images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
@@ -47,7 +48,7 @@ pub struct VulkanRenderer {
   queues: Queues,
 
   swapchain_and_extension: SwapchainAndExtension, // TODO option
-  render_target_images: Vec<vk::Image>,           // aka SwapChainImages if presenting.
+  render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -89,6 +90,8 @@ impl VulkanRenderer {
     // TODO Support rendering to a non window surface if window is None (change it
     // to an Enum of WindowHandle or OtherSurface).
     info!("Creating Sarekt Renderer with Vulkan Backend...");
+
+    // TODO clean up
 
     let window = window
       .into()
@@ -150,6 +153,11 @@ impl VulkanRenderer {
         .swapchain_functions
         .get_swapchain_images(swapchain_and_extension.swapchain)?
     };
+    let render_targets = Self::create_render_target_image_views(
+      &logical_device,
+      &render_target_images,
+      swapchain_and_extension.format,
+    )?;
 
     Ok(Self {
       _entry: entry,
@@ -160,7 +168,7 @@ impl VulkanRenderer {
       logical_device,
       queues,
       swapchain_and_extension,
-      render_target_images,
+      render_targets,
     })
   }
 }
@@ -564,7 +572,11 @@ impl VulkanRenderer {
     let swapchain_extension = ash::extensions::khr::Swapchain::new(instance, logical_device);
     let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
 
-    Ok(SwapchainAndExtension::new(swapchain, swapchain_extension))
+    Ok(SwapchainAndExtension::new(
+      swapchain,
+      format.format,
+      swapchain_extension,
+    ))
   }
 
   /// Retrieves the details of the swapchain's supported formats, present modes,
@@ -654,6 +666,36 @@ impl VulkanRenderer {
     }
 
     vk::Extent2D::builder().width(width).height(height).build()
+  }
+
+  /// Given the render target images and format, create an image view suitable
+  /// for rendering on. (one level, no mipmapping, color bit access).
+  fn create_render_target_image_views(
+    logical_device: &Device, targets: &[vk::Image], format: vk::Format,
+  ) -> SarektResult<Vec<ImageAndView>> {
+    let mut views = Vec::with_capacity(targets.len());
+    for &image in targets.iter() {
+      // Not swizzling rgba around.
+      let component_mapping = vk::ComponentMapping::default();
+      let image_subresource_range = vk::ImageSubresourceRange::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR) // We're writing color to this view
+        .base_mip_level(0) // access to all mipmap levels
+        .level_count(1) // Only one level, no mipmapping
+        .base_array_layer(0) // access to all layers
+        .layer_count(1) // Only one layer. (not sterescopic)
+        .build();
+
+      let ci = vk::ImageViewCreateInfo::builder()
+        .image(image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(format)
+        .components(component_mapping)
+        .subresource_range(image_subresource_range);
+
+      let view = unsafe { logical_device.create_image_view(&ci, None)? };
+      views.push(ImageAndView::new(image, view));
+    }
+    Ok(views)
   }
 }
 impl Renderer for VulkanRenderer {}
