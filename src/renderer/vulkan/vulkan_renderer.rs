@@ -358,7 +358,6 @@ impl VulkanRenderer {
   fn device_supports_required_extensions(
     instance: &Instance, physical_device: vk::PhysicalDevice,
   ) -> SarektResult<bool> {
-    // TODO only if drawing to a window.
     let device_extension_properties =
       unsafe { instance.enumerate_device_extension_properties(physical_device)? };
 
@@ -366,6 +365,7 @@ impl VulkanRenderer {
       .iter()
       .map(|ext_props| ext_props.extension_name)
       .find(|ext_name| unsafe {
+        // TODO only if drawing to a window.
         CStr::from_ptr(ext_name.as_ptr() as *const c_char)
           .eq(ash::extensions::khr::Swapchain::name())
       })
@@ -437,6 +437,8 @@ impl VulkanRenderer {
     let device_ci = vk::DeviceCreateInfo::builder()
       .queue_create_infos(&[graphics_queue_ci, presentation_queue_ci])
       .enabled_features(&device_features)
+      // TODO only if drawing to a window
+      .enabled_extension_names(&[ash::extensions::khr::Swapchain::name().as_ptr()])
       .build();
 
     unsafe {
