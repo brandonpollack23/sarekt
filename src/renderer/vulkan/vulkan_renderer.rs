@@ -5,6 +5,7 @@ use crate::{
       debug_utils_ext::DebugUtilsAndMessenger,
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
+      swap_chain::SwapchainSupportDetails,
     },
     ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
     IS_DEBUG_MODE,
@@ -348,9 +349,18 @@ impl VulkanRenderer {
         "Could not enumerate physical device properties on device {:?}",
         physical_device
       );
+      return Ok(false);
     }
 
-    Ok(has_queues && supports_required_extensions.unwrap_or(false))
+    let sc_support_details =
+      Self::query_swap_chain_support(surface_and_extension, physical_device)?;
+
+    // TODO only if drawing to a window.
+    let swap_chain_adequate =
+      !sc_support_details.formats.is_empty() && !sc_support_details.present_modes.is_empty();
+
+    // TODO only if drawing window need swap chain adequete.
+    Ok(has_queues && supports_required_extensions.unwrap() && swap_chain_adequate)
   }
 
   /// Goes through and checks if the device supports all needed extensions for
@@ -454,6 +464,28 @@ impl VulkanRenderer {
       let queues = Queues::new(graphics_queue, presentation_queue);
       Ok((logical_device, queues))
     }
+  }
+
+  fn query_swap_chain_support(
+    surface_and_extension: &SurfaceAndExtension, physical_device: vk::PhysicalDevice,
+  ) -> SarektResult<SwapchainSupportDetails> {
+    let surface = surface_and_extension.surface;
+    let surface_functions = &surface_and_extension.surface_functions;
+
+    let phys_d_surface_capabilities = unsafe {
+      surface_functions.get_physical_device_surface_capabilities(physical_device, surface)?
+    };
+    let phys_d_formats =
+      unsafe { surface_functions.get_physical_device_surface_formats(physical_device, surface)? };
+    let phys_d_present_modes = unsafe {
+      surface_functions.get_physical_device_surface_present_modes(physical_device, surface)?
+    };
+
+    Ok(SwapchainSupportDetails::new(
+      phys_d_surface_capabilities,
+      phys_d_formats,
+      phys_d_present_modes,
+    ))
   }
 }
 impl Renderer for VulkanRenderer {}
