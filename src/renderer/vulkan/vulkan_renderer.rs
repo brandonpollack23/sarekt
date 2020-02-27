@@ -27,11 +27,6 @@ use std::{
   sync::Arc,
 };
 
-// TODO starting with line 370 and anywhere else ? is used, create a converter
-// for ash Result to SarektResult
-//
-// TODO is there VALIDATION_LAYERS defined in ash?
-
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
@@ -75,9 +70,8 @@ impl VulkanRenderer {
     window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
     debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> Result<Self, SarektError> {
-    // TODO
-    // * Support rendering to a non window surface if window is None (change it to
-    //   an Enum of WindowHandle or OtherSurface).
+    // TODO Support rendering to a non window surface if window is None (change it
+    // to an Enum of WindowHandle or OtherSurface).
     info!("Creating Sarekt Renderer with Vulkan Backend...");
 
     let window = window
@@ -148,8 +142,7 @@ impl VulkanRenderer {
     entry: &Entry, window: &W, application_name: &str, application_version: u32, engine_name: &str,
     engine_version: u32,
   ) -> Result<Instance, SarektError> {
-    // TODO
-    // * Detect vulkan versions available?
+    // TODO Detect vulkan versions available?
     let app_info = vk::ApplicationInfo::builder()
       .application_name(CString::new(application_name)?.as_c_str())
       .application_version(application_version)
@@ -315,7 +308,7 @@ impl VulkanRenderer {
     surface_and_extension: &SurfaceAndExtension,
   ) -> (vk::PhysicalDevice, i32) {
     let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
-    // TODO utilize?
+    // TODO utilize device_features
     // let device_features = unsafe {
     // instance.get_physical_device_features(physical_device) };
 
