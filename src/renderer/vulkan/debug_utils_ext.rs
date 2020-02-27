@@ -67,10 +67,11 @@ impl DebugUtilsAndMessenger {
   ) -> u32 {
     // Transmute the user data to its appropriate type, but not a box (we don't want
     // to drop it), if it exists.
-    let mut user_data: Option<&mut DebugUserData> = None;
-    if p_user_data != std::ptr::null_mut() {
-      user_data = Some(std::mem::transmute(p_user_data));
-    }
+    let user_data: Option<&mut DebugUserData> = if p_user_data.is_null() {
+      Some(&mut *(p_user_data as *mut DebugUserData))
+    } else {
+      None
+    };
 
     // Update user data if necessary.
     if let Some(user_data) = user_data {
@@ -121,11 +122,7 @@ pub struct DebugUserData {
 }
 impl DebugUserData {
   pub fn new() -> Self {
-    Self {
-      info_count: AtomicUsize::new(0),
-      warning_count: AtomicUsize::new(0),
-      error_count: AtomicUsize::new(0),
-    }
+    Self::default()
   }
 
   /// Returns the number of errors, warning, and info messages created by the
@@ -135,6 +132,15 @@ impl DebugUserData {
       info_count: self.info_count.load(Ordering::SeqCst),
       warning_count: self.warning_count.load(Ordering::SeqCst),
       error_count: self.error_count.load(Ordering::SeqCst),
+    }
+  }
+}
+impl Default for DebugUserData {
+  fn default() -> Self {
+    Self {
+      info_count: AtomicUsize::new(0),
+      warning_count: AtomicUsize::new(0),
+      error_count: AtomicUsize::new(0),
     }
   }
 }

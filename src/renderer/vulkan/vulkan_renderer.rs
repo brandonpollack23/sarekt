@@ -123,8 +123,7 @@ impl VulkanRenderer {
     // otherwise make images directly.
     // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
     // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
-    let surface =
-      unsafe { ash_window::create_surface(&entry, &instance, window.clone().as_ref(), None)? };
+    let surface = unsafe { ash_window::create_surface(&entry, &instance, window.as_ref(), None)? };
     let surface_and_extension = SurfaceAndExtension::new(
       surface,
       ash::extensions::khr::Surface::new(&entry, &instance),
@@ -269,7 +268,7 @@ impl VulkanRenderer {
   }
 
   /// Logs extensions that are available and what was requested.
-  unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &Vec<&CStr>) -> () {
+  unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &[&CStr]) {
     let available_extensions: Vec<CString> = entry
       .enumerate_instance_extension_properties()
       .expect("Couldn't enumerate extensions")
@@ -412,12 +411,11 @@ impl VulkanRenderer {
     let supports_swapchain = device_extension_properties
       .iter()
       .map(|ext_props| ext_props.extension_name)
-      .find(|ext_name| unsafe {
+      .any(|ext_name| unsafe {
         // TODO only if drawing to a window.
         CStr::from_ptr(ext_name.as_ptr() as *const c_char)
           .eq(ash::extensions::khr::Swapchain::name())
-      })
-      .is_some();
+      });
 
     Ok(supports_swapchain)
   }
@@ -722,7 +720,7 @@ mod tests {
     let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
+    let renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
 
     assert_no_warnings_or_errors_in_debug_user_data(
       &renderer
@@ -739,7 +737,7 @@ mod tests {
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let renderer = VulkanRenderer::new_detailed(
-      window.clone(),
+      window,
       WIDTH,
       HEIGHT,
       ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
@@ -762,7 +760,7 @@ mod tests {
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let debug_user_data = Arc::pin(DebugUserData::new());
     let renderer = VulkanRenderer::new_detailed_with_debug_user_data(
-      window.clone(),
+      window,
       WIDTH,
       HEIGHT,
       ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
