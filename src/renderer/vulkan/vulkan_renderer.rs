@@ -159,6 +159,12 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
+    let pipeline = Self::create_graphics_pipeline(
+      &logical_device,
+      &queues,
+      &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
+    );
+
     Ok(Self {
       _entry: entry,
       instance,
@@ -697,12 +703,26 @@ impl VulkanRenderer {
     }
     Ok(views)
   }
+
+  // ================================================================================
+  //  Pipeline Helper Methods
+  // ================================================================================
+  fn create_graphics_pipeline(
+    logical_device: &Device, queues: &Queues, render_targets: &[vk::ImageView],
+  ) -> SarektResult<vk::Pipeline> {
+    Err(SarektError::Unknown)
+  }
 }
 impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
-      // TODO if there is one
+      info!("Destrying render target views...");
+      self.render_targets.iter().for_each(|rt| {
+        self.logical_device.destroy_image_view(rt.view, None);
+      });
+
+      // TODO if there is one, if not destroy images
       info!("Destrying swapchain...");
       let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
       let swapchain = self.swapchain_and_extension.swapchain;
