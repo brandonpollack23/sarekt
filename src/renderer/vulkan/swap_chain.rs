@@ -1,4 +1,19 @@
 use ash::vk;
+pub struct SwapchainAndExtension {
+  pub swapchain: vk::SwapchainKHR,
+  pub swapchain_functions: ash::extensions::khr::Swapchain,
+}
+impl SwapchainAndExtension {
+  pub fn new(
+    swapchain: vk::SwapchainKHR, swapchain_functions: ash::extensions::khr::Swapchain,
+  ) -> Self {
+    SwapchainAndExtension {
+      swapchain,
+      swapchain_functions,
+    }
+  }
+}
+
 pub struct SwapchainSupportDetails {
   pub capabilities: vk::SurfaceCapabilitiesKHR,
   pub formats: Vec<vk::SurfaceFormatKHR>,

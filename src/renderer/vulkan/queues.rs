@@ -6,8 +6,24 @@ pub struct QueueFamilyIndices {
   pub presentation_queue_family: Option<u32>,
 }
 impl QueueFamilyIndices {
+  // TODO is_complete_for_offscreen also that doesn't need presentation.
   pub fn is_complete(&self) -> bool {
     self.graphics_queue_family.is_some() && self.presentation_queue_family.is_some()
+  }
+
+  /// Returns all the queue indices as an array for easily handing over to
+  /// Vulkan.  Returns None if not complete
+  pub fn into_vec(self) -> Option<Vec<u32>> {
+    // TODO is_complete_for_offscreen also that doesn't need presentation.
+    if !self.is_complete() {
+      return None;
+    }
+
+    Some(vec![
+      self.graphics_queue_family.unwrap(),
+      // TODO no presentation if it is none since that's allowed.
+      self.presentation_queue_family.unwrap(),
+    ])
   }
 }
 

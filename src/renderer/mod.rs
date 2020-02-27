@@ -13,9 +13,11 @@
 //! # use std::sync::Arc;
 //! # use winit::window::WindowBuilder;
 //! # use winit::event_loop::EventLoop;
+//! const WIDTH: u32 = 800;
+//! const HEIGHT: u32 = 600;
 //! let event_loop = EventLoop::new();
 //! let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-//! let renderer = VulkanRenderer::new(window.clone()).unwrap();
+//! let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 //! ```
 //!
 //! 3) That's all you can do.

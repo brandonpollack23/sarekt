@@ -5,7 +5,7 @@ use crate::{
       debug_utils_ext::DebugUtilsAndMessenger,
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
-      swap_chain::SwapchainSupportDetails,
+      swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
     },
     ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
     IS_DEBUG_MODE,
@@ -40,19 +40,25 @@ pub struct VulkanRenderer {
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
   surface_and_extension: SurfaceAndExtension, // TODO option
 
+  #[allow(dead_code)]
   physical_device: vk::PhysicalDevice,
   logical_device: Device,
-
+  #[allow(dead_code)]
   queues: Queues,
+
+  swapchain_and_extension: SwapchainAndExtension, // TODO option
+  render_target_images: Vec<vk::Image>,           // aka SwapChainImages if presenting.
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
   /// engine, and base versions of 0.1.0.
   pub fn new<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW,
+    window: OW, requested_width: u32, requested_height: u32,
   ) -> Result<Self, SarektError> {
     Self::new_detailed(
       window,
+      requested_width,
+      requested_height,
       ApplicationDetails::default(),
       EngineDetails::default(),
     )
@@ -61,14 +67,23 @@ impl VulkanRenderer {
   /// Creates a VulkanRenderer with a given name/version/engine name/engine
   /// version.
   pub fn new_detailed<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
+    window: OW, requested_width: u32, requested_height: u32,
+    application_details: ApplicationDetails, engine_details: EngineDetails,
   ) -> Result<Self, SarektError> {
-    Self::new_detailed_with_debug_user_data(window, application_details, engine_details, None)
+    Self::new_detailed_with_debug_user_data(
+      window,
+      requested_width,
+      requested_height,
+      application_details,
+      engine_details,
+      None,
+    )
   }
 
   /// Like new_detailed but allows injection of user data, for unit testing.
   fn new_detailed_with_debug_user_data<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW, application_details: ApplicationDetails, engine_details: EngineDetails,
+    window: OW, requested_width: u32, requested_height: u32,
+    application_details: ApplicationDetails, engine_details: EngineDetails,
     debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> Result<Self, SarektError> {
     // TODO Support rendering to a non window surface if window is None (change it
@@ -120,6 +135,23 @@ impl VulkanRenderer {
     let (logical_device, queues) =
       Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
+    // TODO only create if drawing to window
+    let swapchain_and_extension = Self::create_swap_chain(
+      &instance,
+      &logical_device,
+      &surface_and_extension,
+      physical_device,
+      requested_width,
+      requested_height,
+    )?;
+
+    // TODO if not swapchain create images that im rendering to.
+    let render_target_images = unsafe {
+      swapchain_and_extension
+        .swapchain_functions
+        .get_swapchain_images(swapchain_and_extension.swapchain)?
+    };
+
     Ok(Self {
       _entry: entry,
       instance,
@@ -128,6 +160,8 @@ impl VulkanRenderer {
       physical_device,
       logical_device,
       queues,
+      swapchain_and_extension,
+      render_target_images,
     })
   }
 }
@@ -473,6 +507,68 @@ impl VulkanRenderer {
   // ================================================================================
   //  Presentation and Swapchain Helper Methods
   // ================================================================================
+  /// Based on the capabilities of the surface, the physical device, and the
+  /// configuration of sarekt, creates a swapchain with the appropriate
+  /// configuration (format, color space, present mode, and extent).
+  fn create_swap_chain(
+    instance: &Instance, logical_device: &Device, surface_and_extension: &SurfaceAndExtension,
+    physical_device: vk::PhysicalDevice, requested_width: u32, requested_height: u32,
+  ) -> SarektResult<SwapchainAndExtension> {
+    let swapchain_support = Self::query_swap_chain_support(surface_and_extension, physical_device)?;
+
+    let format = Self::choose_swap_surface_format(&swapchain_support.formats);
+    let present_mode = Self::choose_presentation_mode(&swapchain_support.present_modes);
+    let extent = Self::choose_swap_extent(
+      &swapchain_support.capabilities,
+      requested_width,
+      requested_height,
+    );
+
+    // Select minimum number of images to render to.  For triple buffering this
+    // would be 3, etc. But don't exceed the max.  Implementation may create more
+    // than this depending on present mode.
+    // [vulkan tutorial](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Swap_chain)
+    // recommends setting this to min + 1 because if we select minimum we may wait
+    // on internal driver operations.
+    let min_image_count = (swapchain_support.capabilities.min_image_count + 1)
+      .min(swapchain_support.capabilities.max_image_count);
+
+    let queue_family_indices =
+      Self::find_queue_families(instance, physical_device, surface_and_extension)?;
+    let sharing_mode = if queue_family_indices.graphics_queue_family.unwrap()
+      != queue_family_indices.presentation_queue_family.unwrap()
+    {
+      // Concurrent sharing mode because the images will need to be accessed by more
+      // than one queue family.
+      vk::SharingMode::CONCURRENT
+    } else {
+      // Exclusive (probly) has best performance, not sharing the image with other
+      // queue families.
+      vk::SharingMode::EXCLUSIVE
+    };
+
+    let swapchain_ci = vk::SwapchainCreateInfoKHR::builder()
+      .surface(surface_and_extension.surface)
+      .min_image_count(min_image_count)
+      .image_format(format.format)
+      .image_color_space(format.color_space)
+      .image_extent(extent)
+      .image_array_layers(1) // Number of views (multiview/stereo surface for 3D applications with glasses or maybe VR).
+      .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT) // We'll just be rendering colors to this.  We could render to another image and transfer here after post processing but we're not.
+      .image_sharing_mode(sharing_mode)
+      .queue_family_indices(&queue_family_indices.into_vec().unwrap())
+      .pre_transform(swapchain_support.capabilities.current_transform) // Match the transform of the swapchain, I'm not trying to redner upside down!
+      .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // No alpha blending within the window system for now.
+      .present_mode(present_mode)
+      .clipped(true) // Go ahead and discard rendering ops we dont need (window half off screen).
+      .build();
+
+    let swapchain_extension = ash::extensions::khr::Swapchain::new(instance, logical_device);
+    let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
+
+    Ok(SwapchainAndExtension::new(swapchain, swapchain_extension))
+  }
+
   /// Retrieves the details of the swapchain's supported formats, present modes,
   /// and capabilities.
   fn query_swap_chain_support(
@@ -497,12 +593,87 @@ impl VulkanRenderer {
     ))
   }
 
-  fn choose_swap_surface_format(available_formats: &[vk::SurfaceFormatKHR]) {}
+  /// If drawing to a surface, chooses the best format from the ones available
+  /// for the surface.  Tries to use B8G8R8A8_SRGB format with SRGB_NONLINEAR
+  /// colorspace.
+  ///
+  /// If that isn't available, for now we just use the 0th SurfaceFormatKHR.
+  fn choose_swap_surface_format(
+    available_formats: &[vk::SurfaceFormatKHR],
+  ) -> vk::SurfaceFormatKHR {
+    // TODO change to unorm?
+    *available_formats
+      .iter()
+      .find(|format| {
+        format.format == vk::Format::B8G8R8A8_SRGB
+          && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+      })
+      .unwrap_or(&available_formats[0])
+  }
+
+  /// Selects Mailbox if available, but if not tries to fallback to FIFO. See the [spec](https://renderdoc.org/vkspec_chunked/chap32.html#VkPresentModeKHR) for details on modes.
+  ///
+  /// TODO support immediate mode if possible and allow the user to have tearing
+  /// if they wish.
+  fn choose_presentation_mode(
+    available_presentation_modes: &[vk::PresentModeKHR],
+  ) -> vk::PresentModeKHR {
+    *available_presentation_modes
+      .iter()
+      .find(|&pm| *pm == vk::PresentModeKHR::MAILBOX)
+      .unwrap_or(&vk::PresentModeKHR::FIFO)
+  }
+
+  /// Selects the resolution of the swap chain images.
+  /// This is almost always equal to the resolution of the Surface we're drawing
+  /// too, but we need to double check since some window managers allow us to
+  /// differ.
+  fn choose_swap_extent(
+    capabilities: &vk::SurfaceCapabilitiesKHR, requested_width: u32, requested_height: u32,
+  ) -> vk::Extent2D {
+    if capabilities.current_extent.width != u32::max_value() {
+      return capabilities.current_extent;
+    }
+    // The window system indicates that we can specify our own extent if this is
+    // true
+    let clipped_requested_width = requested_width.min(capabilities.max_image_extent.width);
+    let width = capabilities
+      .min_image_extent
+      .width
+      .max(clipped_requested_width);
+    let clipped_requested_height = requested_height.min(capabilities.max_image_extent.height);
+    let height = capabilities
+      .min_image_extent
+      .height
+      .max(clipped_requested_height);
+
+    if width != requested_width || height != requested_height {
+      warn!(
+        "Could not create a swapchain with the requested height and width, rendering to a \
+         resolution of {}x{} instead",
+        width, height
+      );
+    }
+
+    vk::Extent2D::builder().width(width).height(height).build()
+  }
 }
 impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      // TODO if there is one
+      info!("Destrying swapchain...");
+      let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
+      let swapchain = self.swapchain_and_extension.swapchain;
+      swapchain_functions.destroy_swapchain(swapchain, None);
+
+      // TODO if there is one
+      info!("Destrying surface...");
+      let surface_functions = &self.surface_and_extension.surface_functions;
+      let surface = self.surface_and_extension.surface;
+      surface_functions.destroy_surface(surface, None);
+
       info!("Destrying logical device...");
       self.logical_device.destroy_device(None);
 
@@ -532,6 +703,9 @@ mod tests {
   use winit::platform::windows::EventLoopExtWindows;
   use winit::{event_loop::EventLoop, window::WindowBuilder};
 
+  const WIDTH: u32 = 800;
+  const HEIGHT: u32 = 600;
+
   fn assert_no_warnings_or_errors_in_debug_user_data(debug_user_data: &Pin<Arc<DebugUserData>>) {
     if !IS_DEBUG_MODE {
       return;
@@ -548,7 +722,7 @@ mod tests {
     let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = VulkanRenderer::new(window.clone()).unwrap();
+    let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 
     assert_no_warnings_or_errors_in_debug_user_data(
       &renderer
@@ -566,6 +740,8 @@ mod tests {
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let renderer = VulkanRenderer::new_detailed(
       window.clone(),
+      WIDTH,
+      HEIGHT,
       ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
@@ -587,6 +763,8 @@ mod tests {
     let debug_user_data = Arc::pin(DebugUserData::new());
     let renderer = VulkanRenderer::new_detailed_with_debug_user_data(
       window.clone(),
+      WIDTH,
+      HEIGHT,
       ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
       Some(debug_user_data.clone()),
