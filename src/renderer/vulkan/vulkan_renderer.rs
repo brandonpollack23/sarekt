@@ -22,6 +22,7 @@ use log::{info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
   ffi::{CStr, CString},
+  os::raw::c_char,
   pin::Pin,
   sync::Arc,
 };
@@ -112,10 +113,8 @@ impl VulkanRenderer {
     // otherwise make images directly.
     // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
     // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
-    let surface = unsafe {
-      ash_window::create_surface(&entry, &instance, window.clone().as_ref(), None)
-        .or(Err(SarektError::CouldNotCreateSurface))?
-    };
+    let surface =
+      unsafe { ash_window::create_surface(&entry, &instance, window.clone().as_ref(), None)? };
     let surface_and_extension = SurfaceAndExtension::new(
       surface,
       ash::extensions::khr::Surface::new(&entry, &instance),
@@ -194,11 +193,8 @@ impl VulkanRenderer {
       .push_next(&mut debug_create_info)
       .build();
 
-    unsafe {
-      entry
-        .create_instance(&instance_create_info, None)
-        .map_err(|err| SarektError::CouldNotCreateInstance("Error creating instance", err))
-    }
+    let instance = unsafe { entry.create_instance(&instance_create_info, None) }?;
+    Ok(instance)
   }
 
   // ================================================================================
@@ -210,8 +206,7 @@ impl VulkanRenderer {
     // Includes VK_KHR_Surface and
     // VK_KHR_Win32_Surface/VK_KHR_xcb_surface/
     // VK_GGP_stream_descriptor_surface(stadia)
-    let mut extensions = ash_window::enumerate_required_extensions(window)
-      .or(Err(SarektError::CouldNotEnumerateExtensionsForWindowSystem))?;
+    let mut extensions = ash_window::enumerate_required_extensions(window)?;
 
     if IS_DEBUG_MODE {
       extensions.push(DebugUtils::name());
@@ -357,7 +352,7 @@ impl VulkanRenderer {
       VulkanRenderer::device_supports_required_extensions(instance, physical_device);
     if supports_required_extensions.is_err() {
       warn!(
-        "Could not enumerate physical device properties on device {}",
+        "Could not enumerate physical device properties on device {:?}",
         physical_device
       );
     }
@@ -370,14 +365,20 @@ impl VulkanRenderer {
   fn device_supports_required_extensions(
     instance: &Instance, physical_device: vk::PhysicalDevice,
   ) -> SarektResult<bool> {
-    // TODO if drawing to a window.
+    // TODO only if drawing to a window.
     let device_extension_properties =
       unsafe { instance.enumerate_device_extension_properties(physical_device)? };
+
     let supports_swapchain = device_extension_properties
       .iter()
       .map(|ext_props| ext_props.extension_name)
-      .contains(ash::extensions::khr::Swapchain::name());
-    supports_swapchain
+      .find(|ext_name| unsafe {
+        CStr::from_ptr(ext_name.as_ptr() as *const c_char)
+          .eq(ash::extensions::khr::Swapchain::name())
+      })
+      .is_some();
+
+    Ok(supports_swapchain)
   }
 
   /// Finds the queue family indices to use for the rendering command
@@ -403,9 +404,7 @@ impl VulkanRenderer {
       }
 
       let presentation_support = unsafe {
-        surface_functions
-          .get_physical_device_surface_support(physical_device, i as u32, surface)
-          .or(Err(SarektError::CouldNotQueryDeviceSurfaceSupport))?
+        surface_functions.get_physical_device_surface_support(physical_device, i as u32, surface)?
       };
       if presentation_support {
         queue_family_indices.presentation_queue_family = Some(i as u32);
@@ -448,20 +447,17 @@ impl VulkanRenderer {
       .build();
 
     unsafe {
-      instance
-        .create_device(physical_device, &device_ci, None)
-        .map_or(Err(SarektError::CouldNotCreateLogicalDevice), |device| {
-          // MULTITHREADING I would create one queue for each thread, right now I'm only
-          // using one.
-          let graphics_queue = device.get_device_queue(graphics_queue_family, 0);
-          // TODO when would i have seperate queues even if in the same family for
-          // presentation and graphics?
-          // TODO no presentation queue needed when not presenting to a swapchain, right?
-          let presentation_queue = device.get_device_queue(presentation_queue_family, 0);
-          let queues = Queues::new(graphics_queue, presentation_queue);
+      // TODO when would i have seperate queues even if in the same family for
+      // presentation and graphics?
+      // TODO no presentation queue needed when not presenting to a swapchain, right?
+      // MULTITHREADING I would create one queue for each thread, right now I'm only
+      // using one.
+      let logical_device = instance.create_device(physical_device, &device_ci, None)?;
+      let graphics_queue = logical_device.get_device_queue(graphics_queue_family, 0);
+      let presentation_queue = logical_device.get_device_queue(presentation_queue_family, 0);
 
-          Ok((device, queues))
-        })
+      let queues = Queues::new(graphics_queue, presentation_queue);
+      Ok((logical_device, queues))
     }
   }
 }
