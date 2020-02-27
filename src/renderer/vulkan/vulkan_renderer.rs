@@ -329,6 +329,10 @@ impl VulkanRenderer {
   }
 
   /// Tells us if this device is compatible with Sarekt.
+  /// This means it has what is needed by this configuration in terms of:
+  /// * Supported Queue Families (Graphics, Presentation if drawing to a window)
+  /// * Required Extensions (swapchain creation when drawing to a window)
+  /// * Swapchain support for the physical device (when drawing to a window).
   ///
   /// This will become more complex as more features are added.
   ///
@@ -364,7 +368,7 @@ impl VulkanRenderer {
   }
 
   /// Goes through and checks if the device supports all needed extensions for
-  /// current configuration.
+  /// current configuration, such as swapchains when drawing to a window.
   fn device_supports_required_extensions(
     instance: &Instance, physical_device: vk::PhysicalDevice,
   ) -> SarektResult<bool> {
@@ -466,6 +470,11 @@ impl VulkanRenderer {
     }
   }
 
+  // ================================================================================
+  //  Presentation and Swapchain Helper Methods
+  // ================================================================================
+  /// Retrieves the details of the swapchain's supported formats, present modes,
+  /// and capabilities.
   fn query_swap_chain_support(
     surface_and_extension: &SurfaceAndExtension, physical_device: vk::PhysicalDevice,
   ) -> SarektResult<SwapchainSupportDetails> {
@@ -487,6 +496,8 @@ impl VulkanRenderer {
       phys_d_present_modes,
     ))
   }
+
+  fn choose_swap_surface_format(available_formats: &[vk::SurfaceFormatKHR]) {}
 }
 impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
