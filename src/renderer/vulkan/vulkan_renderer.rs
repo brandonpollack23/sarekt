@@ -34,7 +34,6 @@ lazy_static! {
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
 }
 
-// TODO do the below but for image vies first.
 // TODO implement shader store (vec with handles) and load in default shaders,
 // and pass it the logical device to copy the function for deleting them to use
 // in drop.
@@ -707,7 +706,7 @@ impl VulkanRenderer {
         .subresource_range(image_subresource_range);
 
       let view = unsafe { logical_device.create_image_view(&ci, None)? };
-      views.push(ImageAndView::new(image, view));
+      unsafe { views.push(ImageAndView::new(logical_device, image, view)) };
     }
     Ok(views)
   }
@@ -731,11 +730,6 @@ impl Renderer for VulkanRenderer {}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
-      info!("Destrying render target views...");
-      self.render_targets.iter().for_each(|rt| {
-        self.logical_device.destroy_image_view(rt.view, None);
-      });
-
       // TODO if there is one, if not destroy images
       info!("Destrying swapchain...");
       let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
