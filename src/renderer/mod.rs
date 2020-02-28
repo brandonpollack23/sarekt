@@ -33,8 +33,10 @@
 //! Things on the TODO list are in a repo TODO file.
 mod vulkan;
 
+pub use crate::error::SarektResult;
 pub use vulkan::{
   debug_utils_ext::{DebugUserData, DebugUserDataCopy},
+  shaders::{ShaderHandle, ShaderType},
   vulkan_renderer::VulkanRenderer,
 };
 
@@ -134,7 +136,10 @@ impl<'a> Default for EngineDetails<'a> {
 //  Renderer Trait
 // ================================================================================
 /// This is the trait interface that every backend supports.
-pub trait Renderer {}
+pub trait Renderer {
+  fn load_shader(&mut self, spirv: &[u32], shader_type: ShaderType) -> SarektResult<ShaderHandle>;
+  fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()>;
+}
 
 enum RendererBackend {
   Vulkan,
