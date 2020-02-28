@@ -136,6 +136,10 @@ impl<'a> Default for EngineDetails<'a> {
 /// This is the trait interface that every backend supports.
 pub trait Renderer {}
 
+enum RendererBackend {
+  Vulkan,
+}
+
 // TODO for resources. user application in charge of loading, once they are
 // given to the renderer they are loaded into GPU memory and a handle is
 // returned.
