@@ -34,6 +34,11 @@ lazy_static! {
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
 }
 
+// TODO do the below but for image vies first.
+// TODO implement shader store (vec with handles) and load in default shaders,
+// and pass it the logical device to copy the function for deleting them to use
+// in drop.
+
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   _entry: Entry,
