@@ -49,6 +49,8 @@ pub struct VulkanRenderer {
 
   swapchain_and_extension: SwapchainAndExtension, // TODO option
   render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
+
+  base_graphics_pipeline: vk::Pipeline,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -159,11 +161,11 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
-    let pipeline = Self::create_graphics_pipeline(
+    let base_graphics_pipeline = Self::create_base_graphics_pipeline(
       &logical_device,
       &queues,
       &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
-    );
+    )?;
 
     Ok(Self {
       _entry: entry,
@@ -175,6 +177,7 @@ impl VulkanRenderer {
       queues,
       swapchain_and_extension,
       render_targets,
+      base_graphics_pipeline,
     })
   }
 }
@@ -707,7 +710,13 @@ impl VulkanRenderer {
   // ================================================================================
   //  Pipeline Helper Methods
   // ================================================================================
-  fn create_graphics_pipeline(
+  /// Creates the base pipeline for Sarekt.  A user can load custom shaders,
+  /// etc, to create custom pipelines (passed back as opaque handles) based off
+  /// this one that they can pass when requesting a draw.
+  ///
+  /// TODO allow for creating custom pipelines via LoadShaders etc.
+  /// TODO enable pipeline cache.
+  fn create_base_graphics_pipeline(
     logical_device: &Device, queues: &Queues, render_targets: &[vk::ImageView],
   ) -> SarektResult<vk::Pipeline> {
     Err(SarektError::Unknown)

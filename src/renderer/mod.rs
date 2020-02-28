@@ -136,8 +136,6 @@ impl<'a> Default for EngineDetails<'a> {
 /// This is the trait interface that every backend supports.
 pub trait Renderer {}
 
-// TODO some kind of factory for backends?
-
 // TODO for resources. user application in charge of loading, once they are
 // given to the renderer they are loaded into GPU memory and a handle is
 // returned.
@@ -158,3 +156,5 @@ pub trait Renderer {}
 // Uniforms (and maybe SSBOs along with them) specifically in vulkan would be an
 // enum of uniform/ssbo type WITHIN the SarektUniformHandle.  Then i can match
 // and do the write command buffer strategy to draw them.
+
+// TODO some kind of factory for backends?
