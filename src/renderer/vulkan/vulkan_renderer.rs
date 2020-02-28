@@ -5,11 +5,12 @@ use crate::{
       debug_utils_ext::DebugUtilsAndMessenger,
       images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
+      shaders::ShaderStore,
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
     },
-    ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
-    IS_DEBUG_MODE,
+    ApplicationDetails, DebugUserData, EngineDetails, Renderer, ShaderHandle, ShaderType,
+    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
 use ash::{
@@ -40,21 +41,28 @@ lazy_static! {
 
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
+  // Base vulkan items, driver loader, instance, extensions.
   _entry: Entry,
   instance: Instance,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
   surface_and_extension: SurfaceAndExtension, // TODO option
 
+  // Device related fields
   #[allow(dead_code)]
   physical_device: vk::PhysicalDevice,
   logical_device: Device,
   #[allow(dead_code)]
   queues: Queues,
 
+  // Rendering related.
   swapchain_and_extension: SwapchainAndExtension, // TODO option
   render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
 
+  // Pipeline related
   base_graphics_pipeline: vk::Pipeline,
+
+  // Utilities
+  shader_store: ShaderStore,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -171,6 +179,8 @@ impl VulkanRenderer {
       &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
     )?;
 
+    let shader_store = unsafe { ShaderStore::new(&logical_device) };
+
     Ok(Self {
       _entry: entry,
       instance,
@@ -182,6 +192,7 @@ impl VulkanRenderer {
       swapchain_and_extension,
       render_targets,
       base_graphics_pipeline,
+      shader_store,
     })
   }
 }
@@ -726,7 +737,19 @@ impl VulkanRenderer {
     Err(SarektError::Unknown)
   }
 }
-impl Renderer for VulkanRenderer {}
+impl Renderer for VulkanRenderer {
+  fn load_shader(&mut self, spirv: &[u32], shader_type: ShaderType) -> SarektResult<ShaderHandle> {
+    self
+      .shader_store
+      .load_shader(&self.logical_device, spirv, shader_type)
+  }
+
+  fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()> {
+    self
+      .shader_store
+      .destroy_shader(&self.logical_device, handle)
+  }
+}
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {

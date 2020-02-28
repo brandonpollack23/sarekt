@@ -41,9 +41,9 @@ impl ShaderStore {
   }
 
   pub fn destroy_shader(
-    &mut self, logical_device: &Device, handle: DefaultKey,
+    &mut self, logical_device: &Device, handle: ShaderHandle,
   ) -> SarektResult<()> {
-    let shader = self.loaded_shaders.remove(handle);
+    let shader = self.loaded_shaders.remove(handle.0);
     if shader.is_none() {
       return Err(SarektError::UnknownShader);
     }
@@ -88,7 +88,7 @@ impl Shader {
   }
 }
 #[derive(Copy, Clone)]
-enum ShaderType {
+pub enum ShaderType {
   Vertex,
   Fragment,
   Geometry,
