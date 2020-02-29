@@ -1,6 +1,7 @@
 use crate::error::{SarektError, SarektResult};
 use log::{error, info};
 use slotmap::{DefaultKey, SlotMap};
+use std::fmt::Debug;
 
 /// A storage for all shaders to be loaded or destroyed from.  Returns a handle
 /// that can be used to retrieve the associated shader, which includes it's type
@@ -8,7 +9,7 @@ use slotmap::{DefaultKey, SlotMap};
 pub(crate) struct ShaderStore<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy,
+  SL::SBH: ShaderBackendHandle + Copy + Debug,
 {
   loaded_shaders: SlotMap<DefaultKey, Shader<SL::SBH>>,
   shader_loader: SL,
@@ -16,7 +17,7 @@ where
 impl<SL> ShaderStore<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy,
+  SL::SBH: ShaderBackendHandle + Copy + Debug,
 {
   /// Create with a group of methods to load/destroy shaders.
   pub fn new(shader_loader: SL) -> Self {
@@ -63,14 +64,14 @@ where
 impl<SL> Drop for ShaderStore<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy,
+  SL::SBH: ShaderBackendHandle + Copy + Debug,
 {
   fn drop(&mut self) {
     info!("Destroying all shaders...");
     for shader in self.loaded_shaders.iter() {
       let result = self.shader_loader.delete_shader(shader.1.shader_handle);
       if result.is_err() {
-        error!("Error destroying shader");
+        error!("Error destroying shader: {:?}", shader.1);
       }
     }
   }
@@ -113,7 +114,7 @@ pub enum ShaderCode<'a> {
 
 /// The shader in it's backend type along with the type of shader itself (vertex
 /// etc).
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Shader<SBH: ShaderBackendHandle + Copy> {
   pub shader_handle: SBH,
   pub shader_type: ShaderType,
@@ -131,7 +132,7 @@ where
 }
 
 /// The type of shader (vertex, fragment, etc).
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum ShaderType {
   Vertex,
   Fragment,
