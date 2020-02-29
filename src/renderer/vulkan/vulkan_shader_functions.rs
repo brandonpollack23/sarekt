@@ -5,9 +5,14 @@ use crate::{
 use ash::{version::DeviceV1_0, vk, Device};
 use vk_shader_macros::include_glsl;
 
+/// Default vertex shader that contain their own verticies, will be removed in
+/// the future.
 pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
+/// Default fragment shader that contain their own verticies, will be removed in
+/// the future.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.frag");
 
+/// Vulkan implementation of [ShaderLoader](trait.ShaderLoader.html).
 #[derive(Copy, Clone)]
 pub struct VulkanShaderFunctions {
   device_handle: vk::Device,
@@ -57,28 +62,6 @@ unsafe impl ShaderLoader for VulkanShaderFunctions {
   }
 }
 
+/// Allow vk::ShaderModule to be a backend handle for the
+/// [ShaderStore](struct.ShaderStore.html).
 unsafe impl ShaderBackendHandle for vk::ShaderModule {}
-
-// TODO use these
-// pub fn load_shader(code: &ShaderCode, shader_type: ShaderType) ->
-// SarektResult<ShaderHandle> {   let ci =
-// vk::ShaderModuleCreateInfo::builder().code(spirv).build();
-//
-//   let inner_handle = self
-//     .loaded_shaders
-//     .insert(Shader::new(shader_module, shader_type));
-//
-//   Ok(ShaderHandle(inner_handle))
-// }
-// pub fn destroy_shader(
-//   &mut self, logical_device: &Device, handle: ShaderHandle,
-// ) -> SarektResult<()> {
-//   let shader = self.loaded_shaders.remove(handle.0);
-//   if shader.is_none() {
-//     return Err(SarektError::UnknownShader);
-//   }
-//
-//   unsafe {
-// logical_device.destroy_shader_module(shader.unwrap().shader_handle, None) };
-//   Ok(())
-// }
