@@ -30,6 +30,14 @@ use std::{
   pin::Pin,
   sync::Arc,
 };
+use vk_shader_macros::include_glsl;
+
+/// Default vertex shader that contain their own verticies, will be removed in
+/// the future.
+pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
+/// Default fragment shader that contain their own verticies, will be removed in
+/// the future.
+pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.frag");
 
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
@@ -174,13 +182,14 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
+    let mut shader_store = Self::create_shader_store(&logical_device);
+
     let base_graphics_pipeline = Self::create_base_graphics_pipeline(
       &logical_device,
+      &mut shader_store,
       &queues,
       &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
     )?;
-
-    let shader_store = Self::create_shader_store(&logical_device);
 
     Ok(Self {
       _entry: entry,
@@ -733,8 +742,18 @@ impl VulkanRenderer {
   /// TODO allow for creating custom pipelines via LoadShaders etc.
   /// TODO enable pipeline cache.
   fn create_base_graphics_pipeline(
-    logical_device: &Device, queues: &Queues, render_targets: &[vk::ImageView],
+    logical_device: &Device, shader_store: &mut ShaderStore<VulkanShaderFunctions>,
+    queues: &Queues, render_targets: &[vk::ImageView],
   ) -> SarektResult<vk::Pipeline> {
+    let vertex_shader_handle = shader_store.load_shader(
+      &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
+      ShaderType::Vertex,
+    )?;
+    let fragment_shader_handle = shader_store.load_shader(
+      &ShaderCode::Spirv(DEFAULT_FRAGMENT_SHADER),
+      ShaderType::Vertex,
+    )?;
+
     Err(SarektError::Unknown)
   }
 

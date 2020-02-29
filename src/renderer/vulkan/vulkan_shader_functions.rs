@@ -3,14 +3,6 @@ use crate::{
   renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderHandle, ShaderLoader, ShaderType},
 };
 use ash::{version::DeviceV1_0, vk, Device};
-use vk_shader_macros::include_glsl;
-
-/// Default vertex shader that contain their own verticies, will be removed in
-/// the future.
-pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
-/// Default fragment shader that contain their own verticies, will be removed in
-/// the future.
-pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.frag");
 
 /// Vulkan implementation of [ShaderLoader](trait.ShaderLoader.html).
 #[derive(Copy, Clone)]
