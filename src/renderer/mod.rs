@@ -34,12 +34,13 @@
 pub mod shaders;
 mod vulkan;
 
-use crate::{error::SarektResult, renderer::shaders::ShaderCode};
-use shaders::{ShaderHandle, ShaderType};
 pub use vulkan::{
   debug_utils_ext::{DebugUserData, DebugUserDataCopy},
   vulkan_renderer::VulkanRenderer,
 };
+
+use crate::{error::SarektResult, renderer::shaders::ShaderCode};
+use shaders::{ShaderHandle, ShaderType};
 
 // ================================================================================
 //  Compile Time Constants and Configurations

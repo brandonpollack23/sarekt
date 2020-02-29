@@ -6,8 +6,9 @@ use log::info;
 use slotmap::{DefaultKey, SlotMap};
 use static_assertions::_core::ops::Deref;
 
-// TODO if adding more backends move to outer module and make generic.
-
+/// A storage for all shaders to be loaded or destroyed from.  Returns a handle
+/// that can be used to retrieve the associated shader, which includes it's type
+/// and it's handle to whichever backend you're using.
 pub struct ShaderStore<SL>
 where
   SL: ShaderLoader,
@@ -21,6 +22,7 @@ where
   SL: ShaderLoader,
   SL::SBH: ShaderBackendHandle + Copy,
 {
+  /// Create with a group of methods to load/destroy shaders.
   pub fn new(shader_loader: SL) -> Self {
     Self {
       loaded_shaders: SlotMap::new(),
@@ -28,6 +30,7 @@ where
     }
   }
 
+  /// Load a shader into the driver and return a handle.
   pub fn load_shader(
     &mut self, code: &ShaderCode, shader_type: ShaderType,
   ) -> SarektResult<ShaderHandle> {
@@ -40,6 +43,7 @@ where
     Ok(ShaderHandle(inner_handle))
   }
 
+  /// Using the handle, destroy the shader from the backend.
   pub fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()> {
     let shader = self.loaded_shaders.remove(handle.0);
     if shader.is_none() {
@@ -51,6 +55,7 @@ where
     Ok(())
   }
 
+  /// Retrieve a loaded shader to be used in pipeline construction, etc.
   pub fn get(&self, handle: &ShaderHandle) -> SarektResult<&Shader<SL::SBH>> {
     let shader = self.loaded_shaders.get(handle.0);
     if shader.is_none() {
@@ -74,38 +79,8 @@ where
   }
 }
 
+/// A newtype to keep teh keys for the shader store type safe.
 pub struct ShaderHandle(DefaultKey);
-
-#[derive(Copy, Clone)]
-pub struct Shader<SBH: ShaderBackendHandle + Copy> {
-  pub shader_handle: SBH,
-  pub shader_type: ShaderType,
-}
-impl<SBH> Shader<SBH>
-where
-  SBH: ShaderBackendHandle + Copy,
-{
-  fn new(shader_module: SBH, shader_type: ShaderType) -> Self {
-    Self {
-      shader_handle: shader_module,
-      shader_type,
-    }
-  }
-}
-#[derive(Copy, Clone)]
-pub enum ShaderType {
-  Vertex,
-  Fragment,
-  Geometry,
-  Tesselation,
-  Compute,
-}
-
-/// The backing type of the shader, for vulkan this is spirv, gl just uses glsl,
-/// D3D hlsl, etc.
-pub enum ShaderCode<'a> {
-  Spirv(&'a [u32]),
-}
 
 /// A marker to note that the type used is a Shader backend handle (eg
 /// vkShaderModule for Vulkan).
@@ -130,4 +105,39 @@ pub unsafe trait ShaderLoader {
   fn load_shader(&mut self, code: &ShaderCode) -> SarektResult<Self::SBH>;
   /// Deletes the shader using underlying mechanism.
   fn delete_shader(&mut self, shader: Self::SBH) -> SarektResult<()>;
+}
+
+/// The backing type of the shader, for vulkan this is spirv, gl just uses glsl,
+/// D3D hlsl, etc.
+pub enum ShaderCode<'a> {
+  Spirv(&'a [u32]),
+}
+
+/// The shader in it's backend type along with the type of shader itself (vertex
+/// etc).
+#[derive(Copy, Clone)]
+pub struct Shader<SBH: ShaderBackendHandle + Copy> {
+  pub shader_handle: SBH,
+  pub shader_type: ShaderType,
+}
+impl<SBH> Shader<SBH>
+where
+  SBH: ShaderBackendHandle + Copy,
+{
+  fn new(shader_module: SBH, shader_type: ShaderType) -> Self {
+    Self {
+      shader_handle: shader_module,
+      shader_type,
+    }
+  }
+}
+
+/// The type of shader (vertex, fragment, etc).
+#[derive(Copy, Clone)]
+pub enum ShaderType {
+  Vertex,
+  Fragment,
+  Geometry,
+  Tesselation,
+  Compute,
 }
