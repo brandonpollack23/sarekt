@@ -145,9 +145,9 @@ pub trait Renderer {
   fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()>;
 }
 
-enum RendererBackend {
-  Vulkan,
-}
+// enum RendererBackend {
+//   Vulkan,
+// }
 
 // TODO for resources. user application in charge of loading, once they are
 // given to the renderer they are loaded into GPU memory and a handle is

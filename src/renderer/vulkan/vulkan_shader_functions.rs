@@ -1,44 +1,28 @@
 use crate::{
-  error::{SarektError, SarektError::VulkanError, SarektResult},
-  renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderHandle, ShaderLoader, ShaderType},
+  error::{SarektError, SarektResult},
+  renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
 };
 use ash::{version::DeviceV1_0, vk, Device};
+use std::sync::Arc;
 
 /// Vulkan implementation of [ShaderLoader](trait.ShaderLoader.html).
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct VulkanShaderFunctions {
-  device_handle: vk::Device,
-  load_shader_fn: vk::PFN_vkCreateShaderModule,
-  destroy_shader_fn: vk::PFN_vkDestroyShaderModule,
+  logical_device: Arc<Device>,
 }
 impl VulkanShaderFunctions {
-  pub fn new(logical_device: &Device) -> Self {
-    Self {
-      device_handle: logical_device.handle(),
-      load_shader_fn: logical_device.fp_v1_0().create_shader_module,
-      destroy_shader_fn: logical_device.fp_v1_0().destroy_shader_module,
-    }
+  pub fn new(logical_device: Arc<Device>) -> Self {
+    Self { logical_device }
   }
 }
 unsafe impl ShaderLoader for VulkanShaderFunctions {
   type SBH = vk::ShaderModule;
 
   fn load_shader(&mut self, code: &ShaderCode) -> SarektResult<vk::ShaderModule> {
-    let load_shader_fn = self.load_shader_fn;
     if let ShaderCode::Spirv(spirv) = code {
       let ci = vk::ShaderModuleCreateInfo::builder().code(spirv).build();
       unsafe {
-        let mut shader_module = std::mem::zeroed();
-        let err_code = load_shader_fn(
-          self.device_handle,
-          &ci,
-          std::ptr::null(),
-          &mut shader_module,
-        );
-        return match err_code {
-          vk::Result::SUCCESS => Ok(shader_module),
-          _ => Err(VulkanError(err_code)),
-        };
+        self.logical_device.create_shader_module(&ci, None)?;
       }
     }
 
@@ -47,8 +31,7 @@ unsafe impl ShaderLoader for VulkanShaderFunctions {
 
   fn delete_shader(&mut self, shader: vk::ShaderModule) -> SarektResult<()> {
     unsafe {
-      let destroy_shader_fn = &self.destroy_shader_fn;
-      destroy_shader_fn(self.device_handle, shader, std::ptr::null());
+      self.logical_device.destroy_shader_module(shader, None);
     }
     Ok(())
   }
