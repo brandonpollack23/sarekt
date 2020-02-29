@@ -59,7 +59,7 @@ pub struct VulkanRenderer {
   // Device related fields
   #[allow(dead_code)]
   physical_device: vk::PhysicalDevice,
-  logical_device: Device,
+  logical_device: Arc<Device>,
   #[allow(dead_code)]
   queues: Queues,
 
@@ -71,7 +71,7 @@ pub struct VulkanRenderer {
   base_graphics_pipeline: vk::Pipeline,
 
   // Utilities
-  shader_store: ShaderStore<VulkanShaderFunctions>,
+  shader_store: Box<ShaderStore<VulkanShaderFunctions>>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -505,7 +505,7 @@ impl VulkanRenderer {
   fn create_logical_device_and_queues(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<(Device, Queues)> {
+  ) -> SarektResult<(Arc<Device>, Queues)> {
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
     let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
@@ -540,7 +540,7 @@ impl VulkanRenderer {
       let presentation_queue = logical_device.get_device_queue(presentation_queue_family, 0);
 
       let queues = Queues::new(graphics_queue, presentation_queue);
-      Ok((logical_device, queues))
+      Ok((Arc::new(logical_device), queues))
     }
   }
 
@@ -705,7 +705,7 @@ impl VulkanRenderer {
   /// Given the render target images and format, create an image view suitable
   /// for rendering on. (one level, no mipmapping, color bit access).
   fn create_render_target_image_views(
-    logical_device: &Device, targets: &[vk::Image], format: vk::Format,
+    logical_device: &Arc<Device>, targets: &[vk::Image], format: vk::Format,
   ) -> SarektResult<Vec<ImageAndView>> {
     let mut views = Vec::with_capacity(targets.len());
     for &image in targets.iter() {
@@ -727,7 +727,7 @@ impl VulkanRenderer {
         .subresource_range(image_subresource_range);
 
       let view = unsafe { logical_device.create_image_view(&ci, None)? };
-      unsafe { views.push(ImageAndView::new(logical_device, image, view)) };
+      unsafe { views.push(ImageAndView::new(logical_device.clone(), image, view)) };
     }
     Ok(views)
   }
@@ -762,9 +762,9 @@ impl VulkanRenderer {
   // ================================================================================
   /// Creates a shader store in the vulkan backend configuration to load and
   /// delete shaders from.
-  fn create_shader_store(logical_device: &Device) -> ShaderStore<VulkanShaderFunctions> {
-    let functions = VulkanShaderFunctions::new(logical_device);
-    ShaderStore::new(functions)
+  fn create_shader_store(logical_device: &Arc<Device>) -> Box<ShaderStore<VulkanShaderFunctions>> {
+    let functions = VulkanShaderFunctions::new(logical_device.clone());
+    Box::new(ShaderStore::new(functions))
   }
 }
 impl Renderer for VulkanRenderer {

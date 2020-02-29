@@ -1,15 +1,11 @@
-use crate::{
-  error::{SarektError, SarektResult},
-  renderer::RendererBackend,
-};
-use log::info;
+use crate::error::{SarektError, SarektResult};
+use log::{error, info};
 use slotmap::{DefaultKey, SlotMap};
-use static_assertions::_core::ops::Deref;
 
 /// A storage for all shaders to be loaded or destroyed from.  Returns a handle
 /// that can be used to retrieve the associated shader, which includes it's type
 /// and it's handle to whichever backend you're using.
-pub struct ShaderStore<SL>
+pub(crate) struct ShaderStore<SL>
 where
   SL: ShaderLoader,
   SL::SBH: ShaderBackendHandle + Copy,
@@ -70,10 +66,11 @@ where
   SL::SBH: ShaderBackendHandle + Copy,
 {
   fn drop(&mut self) {
-    unsafe {
-      info!("Destroying all shaders...");
-      for shader in self.loaded_shaders.iter() {
-        self.shader_loader.delete_shader(shader.1.shader_handle);
+    info!("Destroying all shaders...");
+    for shader in self.loaded_shaders.iter() {
+      let result = self.shader_loader.delete_shader(shader.1.shader_handle);
+      if result.is_err() {
+        error!("Error destroying shader");
       }
     }
   }
@@ -111,6 +108,7 @@ pub unsafe trait ShaderLoader {
 /// D3D hlsl, etc.
 pub enum ShaderCode<'a> {
   Spirv(&'a [u32]),
+  Glsl(&'a str),
 }
 
 /// The shader in it's backend type along with the type of shader itself (vertex
