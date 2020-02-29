@@ -10,8 +10,8 @@ use vk_shader_macros::include_glsl;
 
 // TODO if adding more backends move to outer module and make generic.
 
-const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
-const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.frag");
+pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
+pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.frag");
 
 pub struct ShaderStore {
   loaded_shaders: SlotMap<DefaultKey, Shader>,
