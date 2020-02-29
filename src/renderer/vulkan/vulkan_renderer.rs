@@ -1,16 +1,17 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
+    shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vulkan::{
       debug_utils_ext::DebugUtilsAndMessenger,
       images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
-      shaders::ShaderStore,
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
+      vulkan_shader_functions::VulkanShaderFunctions,
     },
-    ApplicationDetails, DebugUserData, EngineDetails, Renderer, ShaderHandle, ShaderType,
-    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
+    IS_DEBUG_MODE,
   },
 };
 use ash::{
@@ -62,7 +63,7 @@ pub struct VulkanRenderer {
   base_graphics_pipeline: vk::Pipeline,
 
   // Utilities
-  shader_store: ShaderStore,
+  shader_store: ShaderStore<VulkanShaderFunctions>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -179,7 +180,7 @@ impl VulkanRenderer {
       &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
     )?;
 
-    let shader_store = unsafe { ShaderStore::new(&logical_device) };
+    let shader_store = Self::create_shader_store(&logical_device);
 
     Ok(Self {
       _entry: entry,
@@ -736,18 +737,26 @@ impl VulkanRenderer {
   ) -> SarektResult<vk::Pipeline> {
     Err(SarektError::Unknown)
   }
+
+  // ================================================================================
+  //  Utility Helper Methods
+  // ================================================================================
+  /// Creates a shader store in the vulkan backend configuration to load and
+  /// delete shaders from.
+  fn create_shader_store(logical_device: &Device) -> ShaderStore<VulkanShaderFunctions> {
+    let functions = VulkanShaderFunctions::new(logical_device);
+    ShaderStore::new(functions)
+  }
 }
 impl Renderer for VulkanRenderer {
-  fn load_shader(&mut self, spirv: &[u32], shader_type: ShaderType) -> SarektResult<ShaderHandle> {
-    self
-      .shader_store
-      .load_shader(&self.logical_device, spirv, shader_type)
+  fn load_shader(
+    &mut self, code: &ShaderCode, shader_type: ShaderType,
+  ) -> SarektResult<ShaderHandle> {
+    self.shader_store.load_shader(code, shader_type)
   }
 
   fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()> {
-    self
-      .shader_store
-      .destroy_shader(&self.logical_device, handle)
+    self.shader_store.destroy_shader(handle)
   }
 }
 impl Drop for VulkanRenderer {
