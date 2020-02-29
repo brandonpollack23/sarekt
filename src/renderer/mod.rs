@@ -36,7 +36,7 @@ mod vulkan;
 pub use crate::error::SarektResult;
 pub use vulkan::{
   debug_utils_ext::{DebugUserData, DebugUserDataCopy},
-  shaders::{ShaderHandle, ShaderType},
+  shaders::{ShaderHandle, ShaderType, DEFAULT_FRAGMENT_SHADER, DEFAULT_VERTEX_SHADER},
   vulkan_renderer::VulkanRenderer,
 };
 
