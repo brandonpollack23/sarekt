@@ -28,7 +28,7 @@ use std::{
   ffi::{CStr, CString},
   os::raw::c_char,
   pin::Pin,
-  sync::{Arc, Mutex},
+  sync::{Arc, Mutex, RwLock},
 };
 use vk_shader_macros::include_glsl;
 
@@ -71,7 +71,7 @@ pub struct VulkanRenderer {
   base_graphics_pipeline: vk::Pipeline,
 
   // Utilities
-  shader_store: Arc<Mutex<ShaderStore<VulkanShaderFunctions>>>,
+  shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -742,7 +742,7 @@ impl VulkanRenderer {
   /// TODO allow for creating custom pipelines via LoadShaders etc.
   /// TODO enable pipeline cache.
   fn create_base_graphics_pipeline(
-    logical_device: &Device, shader_store: &Arc<Mutex<ShaderStore<VulkanShaderFunctions>>>,
+    logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     queues: &Queues, render_targets: &[vk::ImageView],
   ) -> SarektResult<vk::Pipeline> {
     let vertex_shader_handle = ShaderStore::load_shader(
@@ -766,9 +766,9 @@ impl VulkanRenderer {
   /// delete shaders from.
   fn create_shader_store(
     logical_device: &Arc<Device>,
-  ) -> Arc<Mutex<ShaderStore<VulkanShaderFunctions>>> {
+  ) -> Arc<RwLock<ShaderStore<VulkanShaderFunctions>>> {
     let functions = VulkanShaderFunctions::new(logical_device.clone());
-    Arc::new(Mutex::new(ShaderStore::new(functions)))
+    Arc::new(RwLock::new(ShaderStore::new(functions)))
   }
 }
 impl Renderer for VulkanRenderer {
