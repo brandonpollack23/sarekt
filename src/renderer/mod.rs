@@ -32,19 +32,18 @@
 //!
 //! Things on the TODO list are in a repo TODO file.
 pub mod shaders;
+
 mod vulkan;
 
-pub use vulkan::{
-  debug_utils_ext::{DebugUserData, DebugUserDataCopy},
-  vulkan_renderer::VulkanRenderer,
-};
-
-use crate::{
+pub use crate::{
   error::SarektResult,
   renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
 };
-use shaders::{ShaderHandle, ShaderType};
+pub use shaders::{ShaderHandle, ShaderType};
+pub use vulkan::vulkan_renderer::VulkanRenderer;
+
 use std::fmt::Debug;
+use vulkan::debug_utils_ext::{DebugUserData, DebugUserDataCopy};
 
 // ================================================================================
 //  Compile Time Constants and Configurations
