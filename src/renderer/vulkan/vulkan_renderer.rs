@@ -3,15 +3,14 @@ use crate::{
   renderer::{
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vulkan::{
-      debug_utils_ext::DebugUtilsAndMessenger,
+      debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
       images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
       vulkan_shader_functions::VulkanShaderFunctions,
     },
-    ApplicationDetails, DebugUserData, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS,
-    IS_DEBUG_MODE,
+    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
 use ash::{
@@ -68,9 +67,12 @@ pub struct VulkanRenderer {
   render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
 
   // Pipeline related
+  forward_render_pass: vk::RenderPass,
   base_graphics_pipeline: vk::Pipeline,
   base_pipeline_ci: vk::GraphicsPipelineCreateInfo,
   base_pipeline_layout: vk::PipelineLayout, // TODO make storage?
+  vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
+  fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -116,8 +118,6 @@ impl VulkanRenderer {
     // to an Enum of WindowHandle or OtherSurface).
     info!("Creating Sarekt Renderer with Vulkan Backend...");
 
-    // TODO clean up
-
     let window = window
       .into()
       .expect("Sarekt only supports rendering to a window right now :(");
@@ -162,8 +162,8 @@ impl VulkanRenderer {
     let (logical_device, queues) =
       Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
-    // TODO only create if drawing to window
-    let (swapchain_and_extension, extent) = Self::create_swap_chain(
+    // TODO only create if drawing to window, get format and extent elsewhere.
+    let (swapchain_and_extension, format, extent) = Self::create_swap_chain(
       &instance,
       &logical_device,
       &surface_and_extension,
@@ -186,14 +186,23 @@ impl VulkanRenderer {
 
     let shader_store = Self::create_shader_store(&logical_device);
 
-    let (base_graphics_pipeline, base_pipeline_ci, base_pipeline_layout) =
-      Self::create_base_graphics_pipeline(
-        &logical_device,
-        &shader_store, // Unlock and get a local mut ref to shaderstore.
-        &queues,
-        &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
-        extent,
-      )?;
+    // TODO support other render pass types.
+    let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
+
+    let (
+      base_graphics_pipeline,
+      base_pipeline_ci,
+      base_pipeline_layout,
+      vertex_shader_handle,
+      fragment_shader_handle,
+    ) = Self::create_base_graphics_pipeline(
+      &logical_device,
+      &shader_store, // Unlock and get a local mut ref to shaderstore.
+      &queues,
+      &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
+      extent,
+      forward_render_pass,
+    )?;
 
     Ok(Self {
       _entry: entry,
@@ -205,9 +214,12 @@ impl VulkanRenderer {
       queues,
       swapchain_and_extension,
       render_targets,
+      forward_render_pass,
       base_graphics_pipeline,
       base_pipeline_ci,
       base_pipeline_layout,
+      vertex_shader_handle,
+      fragment_shader_handle,
       shader_store,
     })
   }
@@ -559,7 +571,7 @@ impl VulkanRenderer {
   fn create_swap_chain(
     instance: &Instance, logical_device: &Device, surface_and_extension: &SurfaceAndExtension,
     physical_device: vk::PhysicalDevice, requested_width: u32, requested_height: u32,
-  ) -> SarektResult<(SwapchainAndExtension, Extent2D)> {
+  ) -> SarektResult<(SwapchainAndExtension, vk::Format, vk::Extent2D)> {
     let swapchain_support = Self::query_swap_chain_support(surface_and_extension, physical_device)?;
 
     let format = Self::choose_swap_surface_format(&swapchain_support.formats);
@@ -614,6 +626,7 @@ impl VulkanRenderer {
 
     Ok((
       SwapchainAndExtension::new(swapchain, format.format, swapchain_extension),
+      format.format,
       extent,
     ))
   }
@@ -732,7 +745,7 @@ impl VulkanRenderer {
         .subresource_range(image_subresource_range);
 
       let view = unsafe { logical_device.create_image_view(&ci, None)? };
-      unsafe { views.push(ImageAndView::new(logical_device.clone(), image, view)) };
+      unsafe { views.push(ImageAndView::new(image, view)) };
     }
     Ok(views)
   }
@@ -749,10 +762,13 @@ impl VulkanRenderer {
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     _queues: &Queues, _render_targets: &[vk::ImageView], extent: Extent2D,
+    render_pass: vk::RenderPass,
   ) -> SarektResult<(
     vk::Pipeline,
     vk::GraphicsPipelineCreateInfo,
     vk::PipelineLayout,
+    ShaderHandle<VulkanShaderFunctions>,
+    ShaderHandle<VulkanShaderFunctions>,
   )> {
     let vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
@@ -766,31 +782,33 @@ impl VulkanRenderer {
     )?;
 
     let shader_store = shader_store.read().unwrap();
+
+    let entry_point_name = CString::new("main").unwrap();
     let vert_shader_stage_ci = vk::PipelineShaderStageCreateInfo::builder()
       .stage(vk::ShaderStageFlags::VERTEX)
       .module(
         shader_store
-          .get_shader(vertex_shader_handle.clone())
+          .get_shader(&vertex_shader_handle)
           .unwrap()
           .shader_handle,
       )
-      .name(CString::new("main").unwrap().as_c_str())
+      .name(&entry_point_name)
       .build();
     let frag_shader_stage_ci = vk::PipelineShaderStageCreateInfo::builder()
       .stage(vk::ShaderStageFlags::FRAGMENT)
       .module(
         shader_store
-          .get_shader(fragment_shader_handle.clone())
+          .get_shader(&fragment_shader_handle)
           .unwrap()
           .shader_handle,
       )
-      .name(CString::new("main").unwrap().as_c_str())
+      .name(&entry_point_name)
       .build();
 
     let shader_stage_cis = [vert_shader_stage_ci, frag_shader_stage_ci];
 
     let vertex_input_ci = vk::PipelineVertexInputStateCreateInfo::builder()
-      .vertex_attribute_descriptions(&[])
+      .vertex_binding_descriptions(&[])
       .vertex_attribute_descriptions(&[])
       .build();
 
@@ -829,7 +847,7 @@ impl VulkanRenderer {
 
     // Pretty much totall disable this.
     // TODO make configurable
-    let mutlisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
+    let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
       .sample_shading_enable(false)
       .rasterization_samples(vk::SampleCountFlags::TYPE_1)
       .min_sample_shading(1.0f32)
@@ -861,14 +879,71 @@ impl VulkanRenderer {
       .input_assembly_state(&input_assembly_ci)
       .viewport_state(&viewport_state_ci)
       .rasterization_state(&raster_state_ci)
-      .multisample_state(&mutlisample_state_ci)
+      .multisample_state(&multisample_state_ci)
       .color_blend_state(&color_blend_ci)
-      // .dynamic_state(&dynamic_state_ci)
-      // .render_pass()
-      // .subpass()
+      .layout(pipeline_layout)
+      .render_pass(render_pass)
+      .subpass(0) // The subpass where the pipeline will be used.
+      // .base_pipeline_handle() // No basepipeline handle, this is the base pipeline!
+      // .base_pipeline_index(-1)
       .build();
 
-    Err(SarektError::Unknown)
+    // TODO use pipeline cache.
+    let pipeline = unsafe {
+      logical_device.create_graphics_pipelines(
+        vk::PipelineCache::null(),
+        &[graphics_pipeline_ci],
+        None,
+      )
+    };
+    if pipeline.is_err() {
+      return Err(pipeline.unwrap_err().1.into());
+    }
+
+    Ok((
+      pipeline.unwrap()[0],
+      graphics_pipeline_ci,
+      pipeline_layout,
+      vertex_shader_handle,
+      fragment_shader_handle,
+    ))
+  }
+
+  /// Creates a simple forward render pass with one subpass.
+  fn create_forward_render_pass(
+    logical_device: &Device, format: vk::Format,
+  ) -> SarektResult<vk::RenderPass> {
+    // Used to reference attachments in render passes.
+    let color_attachment = vk::AttachmentDescription::builder()
+      .format(format)
+      .samples(vk::SampleCountFlags::TYPE_1)
+      .load_op(vk::AttachmentLoadOp::CLEAR) // Clear on loading the color attachment, since we're writing over it.
+      .store_op(vk::AttachmentStoreOp::STORE) // Want to save to this attachment in the pass.
+      .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // Not using stencil.
+      .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // Not using stencil.
+      .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
+      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO only do this if going to present. Otherwise TransferDST optimal would be good.
+      .build();
+    // Used to reference attachments in subpasses.
+    let color_attachment_ref = vk::AttachmentReference::builder()
+      .attachment(0) // Only using 1 (indexed from 0) attachment.
+      .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // We're drawing color so optimize the pass to draw color to this attachment.
+      .build();
+
+    // Subpasses could also reference previous subpasses as input, depth/stencil
+    // data, or preserve attachments to send them to the next subpass.
+    let subpass_description = vk::SubpassDescription::builder()
+      .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS) // This is a graphics subpass
+      // index of this attachment here is a reference to the output of the shader in the form of layout(location = 0).
+      .color_attachments(&[color_attachment_ref])
+      .build();
+
+    let render_pass_ci = vk::RenderPassCreateInfo::builder()
+      .attachments(&[color_attachment])
+      .subpasses(&[subpass_description]) // Only one subpass in this case.
+      .build();
+
+    Ok(unsafe { logical_device.create_render_pass(&render_pass_ci, None)? })
   }
 
   // ================================================================================
@@ -895,12 +970,31 @@ impl Renderer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Destroying all shaders...");
+      self.shader_store.write().unwrap().destroy_all_shaders();
+
+      info!("Destroying base graphics pipeline...");
+      self
+        .logical_device
+        .destroy_pipeline(self.base_graphics_pipeline, None);
+
       info!("Destroying base pipeline layouts...");
       self
         .logical_device
         .destroy_pipeline_layout(self.base_pipeline_layout, None);
 
-      // TODO if there is one, if not destroy images
+      info!("Destroying render pass...");
+      self
+        .logical_device
+        .destroy_render_pass(self.forward_render_pass, None);
+
+      info!("Destrying render target views...");
+      for view in self.render_targets.iter() {
+        self.logical_device.destroy_image_view(view.view, None);
+      }
+      // TODO if images and not swapchain destroy images.
+
+      // TODO if there is one, if not destroy images (as above todo states).
       info!("Destrying swapchain...");
       let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
       let swapchain = self.swapchain_and_extension.swapchain;
@@ -931,7 +1025,8 @@ impl Drop for VulkanRenderer {
 #[cfg(test)]
 mod tests {
   use crate::renderer::{
-    ApplicationDetails, DebugUserData, EngineDetails, Version, VulkanRenderer, IS_DEBUG_MODE,
+    vulkan::debug_utils_ext::DebugUserData, ApplicationDetails, EngineDetails, Version,
+    VulkanRenderer, IS_DEBUG_MODE,
   };
   use log::Level;
   use std::{pin::Pin, sync::Arc};
@@ -984,6 +1079,7 @@ mod tests {
       EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
     )
     .unwrap();
+
     assert_no_warnings_or_errors_in_debug_user_data(
       &renderer
         .debug_utils_and_messenger

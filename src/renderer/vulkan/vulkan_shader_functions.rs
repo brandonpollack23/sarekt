@@ -3,6 +3,7 @@ use crate::{
   renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
 };
 use ash::{version::DeviceV1_0, vk, Device};
+use log::info;
 use std::sync::Arc;
 
 /// Vulkan implementation of [ShaderLoader](trait.ShaderLoader.html).
@@ -22,7 +23,7 @@ unsafe impl ShaderLoader for VulkanShaderFunctions {
     if let ShaderCode::Spirv(spirv) = code {
       let ci = vk::ShaderModuleCreateInfo::builder().code(spirv).build();
       unsafe {
-        self.logical_device.create_shader_module(&ci, None)?;
+        return Ok(self.logical_device.create_shader_module(&ci, None)?);
       }
     }
 
@@ -30,6 +31,7 @@ unsafe impl ShaderLoader for VulkanShaderFunctions {
   }
 
   fn delete_shader(&mut self, shader: vk::ShaderModule) -> SarektResult<()> {
+    info!("Deleting shader {:?}...", shader);
     unsafe {
       self.logical_device.destroy_shader_module(shader, None);
     }
