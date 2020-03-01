@@ -39,8 +39,12 @@ pub use vulkan::{
   vulkan_renderer::VulkanRenderer,
 };
 
-use crate::{error::SarektResult, renderer::shaders::ShaderCode};
+use crate::{
+  error::SarektResult,
+  renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
+};
 use shaders::{ShaderHandle, ShaderType};
+use std::fmt::Debug;
 
 // ================================================================================
 //  Compile Time Constants and Configurations
@@ -138,11 +142,18 @@ impl<'a> Default for EngineDetails<'a> {
 //  Renderer Trait
 // ================================================================================
 /// This is the trait interface that every backend supports.
+///
+/// SL is the [Shader Loader](trait.ShaderLoader.html) for the backing renderer.
 pub trait Renderer {
+  type SL;
+
+  // TODO simplify where?
   fn load_shader(
     &mut self, spirv: &ShaderCode, shader_type: ShaderType,
-  ) -> SarektResult<ShaderHandle>;
-  fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()>;
+  ) -> SarektResult<ShaderHandle<Self::SL>>
+  where
+    Self::SL: ShaderLoader,
+    <<Self as Renderer>::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
 }
 
 // enum RendererBackend {

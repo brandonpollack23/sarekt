@@ -1,10 +1,41 @@
 use crate::error::{SarektError, SarektResult};
 use log::{error, info};
 use slotmap::{DefaultKey, SlotMap};
-use std::fmt::Debug;
+use std::{
+  fmt::Debug,
+  sync::{Arc, Mutex, Weak},
+};
 
-/// A newtype to keep teh keys for the shader store type safe.
-pub struct ShaderHandle(DefaultKey);
+/// A type that can be dereferenced internally to retrieve a shader and that
+/// will destroy the shader when it goes out of scope.
+pub struct ShaderHandle<SL>
+where
+  SL: ShaderLoader,
+  SL::SBH: ShaderBackendHandle + Copy + Debug,
+{
+  inner_key: DefaultKey,
+  shader_store: Weak<Mutex<ShaderStore<SL>>>,
+}
+impl<SL> Drop for ShaderHandle<SL>
+where
+  SL: ShaderLoader,
+  SL::SBH: ShaderBackendHandle + Copy + Debug,
+{
+  fn drop(&mut self) {
+    let mut shader_store = self.shader_store.upgrade();
+    if shader_store.is_none() {
+      // Already cleaned up.
+      return;
+    }
+
+    let mut shader_store = shader_store.unwrap();
+    let mut shader_store_ref = shader_store
+      .lock()
+      .expect("Could not unlock ShaderStore due to previous panic");
+    shader_store_ref.destroy_shader(self.inner_key);
+  }
+}
+
 /// The backing type of the shader, for vulkan this is spirv, gl just uses glsl,
 /// D3D hlsl, etc.
 pub enum ShaderCode<'a> {
@@ -20,6 +51,31 @@ pub enum ShaderType {
   Geometry,
   Tesselation,
   Compute,
+}
+
+/// A marker to note that the type used is a Shader backend handle (eg
+/// vkShaderModule for Vulkan).
+///
+/// Unsafe because:
+/// This must specifically be the handle used to delete your
+/// shader in the driver in [ShaderLoader](trait.ShaderLoader.html).
+pub unsafe trait ShaderBackendHandle {}
+
+/// A trait used by each implementation in order to load shaders in their own
+/// way.
+///
+/// Unsafe because:
+/// * The lifetimes of the functions to create them (which are
+/// usually dynamically loaded) must outlive the Loader itself.
+///
+/// * SBH must be an implementer of
+///   [ShaderBackendHandle](trait.ShaderBackendHandle.html)
+pub unsafe trait ShaderLoader {
+  type SBH;
+  /// Loads the shader using underlying mechanism.
+  fn load_shader(&mut self, code: &ShaderCode) -> SarektResult<Self::SBH>;
+  /// Deletes the shader using underlying mechanism.
+  fn delete_shader(&mut self, shader: Self::SBH) -> SarektResult<()>;
 }
 
 /// A storage for all shaders to be loaded or destroyed from.  Returns a handle
@@ -49,20 +105,26 @@ where
 
   /// Load a shader into the driver and return a handle.
   pub fn load_shader(
-    &mut self, code: &ShaderCode, shader_type: ShaderType,
-  ) -> SarektResult<ShaderHandle> {
-    let shader_backend_handle = self.shader_loader.load_shader(code)?;
+    this: &Arc<Mutex<Self>>, code: &ShaderCode, shader_type: ShaderType,
+  ) -> SarektResult<ShaderHandle<SL>> {
+    let mut shader_store = this
+      .lock()
+      .expect("Could not unlock ShaderStore due to previous panic");
 
-    let inner_handle = self
+    let shader_backend_handle = shader_store.shader_loader.load_shader(code)?;
+    let inner_key = shader_store
       .loaded_shaders
       .insert(Shader::new(shader_backend_handle, shader_type));
 
-    Ok(ShaderHandle(inner_handle))
+    Ok(ShaderHandle {
+      inner_key,
+      shader_store: Arc::downgrade(&this),
+    })
   }
 
   /// Using the handle, destroy the shader from the backend.
-  pub fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()> {
-    let shader = self.loaded_shaders.remove(handle.0);
+  fn destroy_shader(&mut self, inner_key: DefaultKey) -> SarektResult<()> {
+    let shader = self.loaded_shaders.remove(inner_key);
     if shader.is_none() {
       return Err(SarektError::UnknownShader);
     }
@@ -73,8 +135,8 @@ where
   }
 
   /// Retrieve a loaded shader to be used in pipeline construction, etc.
-  pub fn get_shader(&self, handle: &ShaderHandle) -> SarektResult<&Shader<SL::SBH>> {
-    let shader = self.loaded_shaders.get(handle.0);
+  pub fn get_shader(&self, handle: &ShaderHandle<SL>) -> SarektResult<&Shader<SL::SBH>> {
+    let shader = self.loaded_shaders.get(handle.inner_key);
     if shader.is_none() {
       return Err(SarektError::UnknownShader);
     }
@@ -98,30 +160,6 @@ where
   }
 }
 
-/// A marker to note that the type used is a Shader backend handle (eg
-/// vkShaderModule for Vulkan).
-///
-/// Unsafe because:
-/// This must specifically be the handle used to delete your
-/// shader in the driver in [ShaderLoader](trait.ShaderLoader.html).
-pub(crate) unsafe trait ShaderBackendHandle {}
-
-/// A trait used by each implementation in order to load shaders in their own
-/// way.
-///
-/// Unsafe because:
-/// * The lifetimes of the functions to create them (which are
-/// usually dynamically loaded) must outlive the Loader itself.
-///
-/// * SBH must be an implementer of
-///   [ShaderBackendHandle](trait.ShaderBackendHandle.html)
-pub(crate) unsafe trait ShaderLoader {
-  type SBH;
-  /// Loads the shader using underlying mechanism.
-  fn load_shader(&mut self, code: &ShaderCode) -> SarektResult<Self::SBH>;
-  /// Deletes the shader using underlying mechanism.
-  fn delete_shader(&mut self, shader: Self::SBH) -> SarektResult<()>;
-}
 /// The shader in it's backend type along with the type of shader itself (vertex
 /// etc).
 #[derive(Copy, Clone, Debug)]
