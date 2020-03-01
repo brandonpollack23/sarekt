@@ -43,7 +43,7 @@ pub use shaders::{ShaderHandle, ShaderType};
 pub use vulkan::vulkan_renderer::VulkanRenderer;
 
 use std::fmt::Debug;
-use vulkan::debug_utils_ext::{DebugUserData, DebugUserDataCopy};
+use vulkan::debug_utils_ext::{DebugUserData};
 
 // ================================================================================
 //  Compile Time Constants and Configurations
