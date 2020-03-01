@@ -28,7 +28,7 @@ use std::{
   ffi::{CStr, CString},
   os::raw::c_char,
   pin::Pin,
-  sync::{Arc, Mutex, RwLock},
+  sync::{Arc, RwLock},
 };
 use vk_shader_macros::include_glsl;
 
