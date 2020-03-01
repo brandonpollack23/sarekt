@@ -31,7 +31,7 @@ impl SarektApp {
   }
 
   /// Takes full control of the executing thread and runs the event loop for it.
-  fn main_loop(mut self) {
+  fn main_loop(self) {
     info!("Running main loop...");
     let window = self.window;
     let mut renderer = self.renderer;
@@ -84,7 +84,7 @@ impl SarektApp {
           *control_flow = ControlFlow::Exit
         }
       }
-      WindowEvent::Resized(size) => {
+      WindowEvent::Resized(_size) => {
         // TODO
         // If the size is 0, minimization or something like that happened so I
         // toggle drawing.
@@ -100,7 +100,7 @@ impl SarektApp {
 
 fn main() -> Result<(), Box<dyn Error>> {
   simple_logger::init_with_level(Level::Warn)?;
-  let mut app = SarektApp::new().expect("Could not create instance!");
+  let app = SarektApp::new().expect("Could not create instance!");
   app.main_loop();
   Ok(())
 }
