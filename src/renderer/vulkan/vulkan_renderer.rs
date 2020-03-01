@@ -770,6 +770,7 @@ impl VulkanRenderer {
     ShaderHandle<VulkanShaderFunctions>,
     ShaderHandle<VulkanShaderFunctions>,
   )> {
+    // TODO EZ, refactor return tuple into a struct.
     let vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
@@ -896,8 +897,8 @@ impl VulkanRenderer {
         None,
       )
     };
-    if pipeline.is_err() {
-      return Err(pipeline.unwrap_err().1.into());
+    if let Err(err) = pipeline {
+      return Err(err.1.into());
     }
 
     Ok((

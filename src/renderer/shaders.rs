@@ -1,5 +1,6 @@
 use crate::error::{SarektError, SarektResult};
-use log::{error, info};
+
+use log::warn;
 use slotmap::{DefaultKey, SlotMap};
 use std::{
   fmt::Debug,
@@ -30,7 +31,9 @@ where
       .shader_store
       .write()
       .expect("Could not unlock ShaderStore due to previous panic");
-    shader_store_guard.destroy_shader(self.inner_key);
+    if let Err(e) = shader_store_guard.destroy_shader(self.inner_key) {
+      warn!("shader not destroyed, maybe it was already? Error: {:?}", e)
+    }
   }
 }
 
@@ -140,7 +143,12 @@ where
   /// result in errors when they drop, so they must be forgotten.
   pub(crate) unsafe fn destroy_all_shaders(&mut self) {
     for shader in self.loaded_shaders.iter() {
-      self.shader_loader.delete_shader(shader.1.shader_handle);
+      if let Err(err) = self.shader_loader.delete_shader(shader.1.shader_handle) {
+        warn!(
+          "Shader not destroyed, maybe it was already? Error: {:?}",
+          err
+        );
+      }
     }
 
     self.loaded_shaders.clear();
