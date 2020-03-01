@@ -742,15 +742,15 @@ impl VulkanRenderer {
   /// TODO allow for creating custom pipelines via LoadShaders etc.
   /// TODO enable pipeline cache.
   fn create_base_graphics_pipeline(
-    logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    queues: &Queues, render_targets: &[vk::ImageView],
+    _logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
+    _queues: &Queues, _render_targets: &[vk::ImageView],
   ) -> SarektResult<vk::Pipeline> {
-    let vertex_shader_handle = ShaderStore::load_shader(
+    let _vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
       ShaderType::Vertex,
     )?;
-    let fragment_shader_handle = ShaderStore::load_shader(
+    let _fragment_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_FRAGMENT_SHADER),
       ShaderType::Vertex,

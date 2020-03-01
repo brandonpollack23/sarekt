@@ -3,7 +3,7 @@ use log::{error, info};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
   fmt::Debug,
-  sync::{Arc, RwLock, RwLockReadGuard, Weak},
+  sync::{Arc, RwLock},
 };
 
 /// A type that can be dereferenced internally to retrieve a shader and that
