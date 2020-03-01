@@ -73,6 +73,7 @@ pub struct VulkanRenderer {
   base_pipeline_layout: vk::PipelineLayout, // TODO make storage?
   vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
+  framebuffers: Vec<vk::Framebuffer>,
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -204,6 +205,14 @@ impl VulkanRenderer {
       forward_render_pass,
     )?;
 
+    // TODO when I can have multiple render pass types I need new framebuffers.
+    let framebuffers = Self::create_framebuffers(
+      &logical_device,
+      forward_render_pass,
+      &render_targets,
+      extent,
+    )?;
+
     Ok(Self {
       _entry: entry,
       instance,
@@ -220,6 +229,7 @@ impl VulkanRenderer {
       base_pipeline_layout,
       vertex_shader_handle,
       fragment_shader_handle,
+      framebuffers,
       shader_store,
     })
   }
@@ -753,6 +763,43 @@ impl VulkanRenderer {
   // ================================================================================
   //  Pipeline Helper Methods
   // ================================================================================
+  /// Creates a simple forward render pass with one subpass.
+  fn create_forward_render_pass(
+    logical_device: &Device, format: vk::Format,
+  ) -> SarektResult<vk::RenderPass> {
+    // Used to reference attachments in render passes.
+    let color_attachment = vk::AttachmentDescription::builder()
+      .format(format)
+      .samples(vk::SampleCountFlags::TYPE_1)
+      .load_op(vk::AttachmentLoadOp::CLEAR) // Clear on loading the color attachment, since we're writing over it.
+      .store_op(vk::AttachmentStoreOp::STORE) // Want to save to this attachment in the pass.
+      .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // Not using stencil.
+      .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // Not using stencil.
+      .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
+      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO only do this if going to present. Otherwise TransferDST optimal would be good.
+      .build();
+    // Used to reference attachments in subpasses.
+    let color_attachment_ref = vk::AttachmentReference::builder()
+      .attachment(0) // Only using 1 (indexed from 0) attachment.
+      .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // We're drawing color so optimize the pass to draw color to this attachment.
+      .build();
+
+    // Subpasses could also reference previous subpasses as input, depth/stencil
+    // data, or preserve attachments to send them to the next subpass.
+    let subpass_description = vk::SubpassDescription::builder()
+      .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS) // This is a graphics subpass
+      // index of this attachment here is a reference to the output of the shader in the form of layout(location = 0).
+      .color_attachments(&[color_attachment_ref])
+      .build();
+
+    let render_pass_ci = vk::RenderPassCreateInfo::builder()
+      .attachments(&[color_attachment])
+      .subpasses(&[subpass_description]) // Only one subpass in this case.
+      .build();
+
+    Ok(unsafe { logical_device.create_render_pass(&render_pass_ci, None)? })
+  }
+
   /// Creates the base pipeline for Sarekt.  A user can load custom shaders,
   /// etc, to create custom pipelines (passed back as opaque handles) based off
   /// this one that they can pass when requesting a draw.
@@ -910,41 +957,25 @@ impl VulkanRenderer {
     ))
   }
 
-  /// Creates a simple forward render pass with one subpass.
-  fn create_forward_render_pass(
-    logical_device: &Device, format: vk::Format,
-  ) -> SarektResult<vk::RenderPass> {
-    // Used to reference attachments in render passes.
-    let color_attachment = vk::AttachmentDescription::builder()
-      .format(format)
-      .samples(vk::SampleCountFlags::TYPE_1)
-      .load_op(vk::AttachmentLoadOp::CLEAR) // Clear on loading the color attachment, since we're writing over it.
-      .store_op(vk::AttachmentStoreOp::STORE) // Want to save to this attachment in the pass.
-      .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // Not using stencil.
-      .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // Not using stencil.
-      .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
-      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO only do this if going to present. Otherwise TransferDST optimal would be good.
-      .build();
-    // Used to reference attachments in subpasses.
-    let color_attachment_ref = vk::AttachmentReference::builder()
-      .attachment(0) // Only using 1 (indexed from 0) attachment.
-      .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // We're drawing color so optimize the pass to draw color to this attachment.
-      .build();
+  fn create_framebuffers(
+    logical_device: &Device, render_pass: vk::RenderPass, render_target_images: &[ImageAndView],
+    extent: vk::Extent2D,
+  ) -> SarektResult<Vec<vk::Framebuffer>> {
+    let mut framebuffers = Vec::with_capacity(render_target_images.len());
 
-    // Subpasses could also reference previous subpasses as input, depth/stencil
-    // data, or preserve attachments to send them to the next subpass.
-    let subpass_description = vk::SubpassDescription::builder()
-      .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS) // This is a graphics subpass
-      // index of this attachment here is a reference to the output of the shader in the form of layout(location = 0).
-      .color_attachments(&[color_attachment_ref])
-      .build();
+    for image_and_view in render_target_images.iter() {
+      let framebuffer_ci = vk::FramebufferCreateInfo::builder()
+        .render_pass(render_pass)
+        .attachments(&[image_and_view.view])
+        .width(extent.width)
+        .height(extent.height)
+        .layers(1)
+        .build();
+      let framebuffer = unsafe { logical_device.create_framebuffer(&framebuffer_ci, None)? };
+      framebuffers.push(framebuffer);
+    }
 
-    let render_pass_ci = vk::RenderPassCreateInfo::builder()
-      .attachments(&[color_attachment])
-      .subpasses(&[subpass_description]) // Only one subpass in this case.
-      .build();
-
-    Ok(unsafe { logical_device.create_render_pass(&render_pass_ci, None)? })
+    Ok(framebuffers)
   }
 
   // ================================================================================
@@ -971,6 +1002,11 @@ impl Renderer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Destroying all framebuffers...");
+      for &fb in self.framebuffers.iter() {
+        self.logical_device.destroy_framebuffer(fb, None);
+      }
+
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
 
