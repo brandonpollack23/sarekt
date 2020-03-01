@@ -28,7 +28,7 @@ use std::{
   ffi::{CStr, CString},
   os::raw::c_char,
   pin::Pin,
-  sync::Arc,
+  sync::{Arc, Mutex},
 };
 use vk_shader_macros::include_glsl;
 
@@ -71,7 +71,7 @@ pub struct VulkanRenderer {
   base_graphics_pipeline: vk::Pipeline,
 
   // Utilities
-  shader_store: Box<ShaderStore<VulkanShaderFunctions>>,
+  shader_store: Arc<Mutex<ShaderStore<VulkanShaderFunctions>>>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -186,7 +186,7 @@ impl VulkanRenderer {
 
     let base_graphics_pipeline = Self::create_base_graphics_pipeline(
       &logical_device,
-      &mut shader_store,
+      &mut shader_store, // Unlock and get a local mut ref to shaderstore.
       &queues,
       &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
     )?;
@@ -742,14 +742,16 @@ impl VulkanRenderer {
   /// TODO allow for creating custom pipelines via LoadShaders etc.
   /// TODO enable pipeline cache.
   fn create_base_graphics_pipeline(
-    logical_device: &Device, shader_store: &mut ShaderStore<VulkanShaderFunctions>,
+    logical_device: &Device, shader_store: &Arc<Mutex<ShaderStore<VulkanShaderFunctions>>>,
     queues: &Queues, render_targets: &[vk::ImageView],
   ) -> SarektResult<vk::Pipeline> {
-    let vertex_shader_handle = shader_store.load_shader(
+    let vertex_shader_handle = ShaderStore::load_shader(
+      shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
       ShaderType::Vertex,
     )?;
-    let fragment_shader_handle = shader_store.load_shader(
+    let fragment_shader_handle = ShaderStore::load_shader(
+      shader_store,
       &ShaderCode::Spirv(DEFAULT_FRAGMENT_SHADER),
       ShaderType::Vertex,
     )?;
@@ -762,20 +764,20 @@ impl VulkanRenderer {
   // ================================================================================
   /// Creates a shader store in the vulkan backend configuration to load and
   /// delete shaders from.
-  fn create_shader_store(logical_device: &Arc<Device>) -> Box<ShaderStore<VulkanShaderFunctions>> {
+  fn create_shader_store(
+    logical_device: &Arc<Device>,
+  ) -> Arc<Mutex<ShaderStore<VulkanShaderFunctions>>> {
     let functions = VulkanShaderFunctions::new(logical_device.clone());
-    Box::new(ShaderStore::new(functions))
+    Arc::new(Mutex::new(ShaderStore::new(functions)))
   }
 }
 impl Renderer for VulkanRenderer {
+  type SL = VulkanShaderFunctions;
+
   fn load_shader(
     &mut self, code: &ShaderCode, shader_type: ShaderType,
-  ) -> SarektResult<ShaderHandle> {
-    self.shader_store.load_shader(code, shader_type)
-  }
-
-  fn destroy_shader(&mut self, handle: ShaderHandle) -> SarektResult<()> {
-    self.shader_store.destroy_shader(handle)
+  ) -> SarektResult<ShaderHandle<Self::SL>> {
+    ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 }
 impl Drop for VulkanRenderer {
