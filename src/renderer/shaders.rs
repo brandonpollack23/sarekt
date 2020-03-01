@@ -8,6 +8,9 @@ use std::{
 
 /// A type that can be dereferenced internally to retrieve a shader and that
 /// will destroy the shader when it goes out of scope.
+///
+/// Warning you can clone this and pass it around but note that it could result
+/// in a deadlock!
 #[derive(Clone)]
 pub struct ShaderHandle<SL>
 where
@@ -65,6 +68,10 @@ pub unsafe trait ShaderBackendHandle {}
 ///
 /// * SBH must be an implementer of
 ///   [ShaderBackendHandle](trait.ShaderBackendHandle.html)
+///
+///  * It is the responsibility of the implementor to drop anything loaded using
+///    delete_shader cleanly on all elements, if the ShaderHandle dropping
+///    doesn't handle it.
 pub unsafe trait ShaderLoader {
   type SBH;
   /// Loads the shader using underlying mechanism.
@@ -129,29 +136,23 @@ where
     Ok(())
   }
 
+  /// Destroys all the shaders.  Unsafe because any outstanding handles will not
+  /// result in errors when they drop, so they must be forgotten.
+  pub(crate) unsafe fn destroy_all_shaders(&mut self) {
+    for shader in self.loaded_shaders.iter() {
+      self.shader_loader.delete_shader(shader.1.shader_handle);
+    }
+
+    self.loaded_shaders.clear();
+  }
+
   /// Retrieve a loaded shader to be used in pipeline construction, etc.
-  pub fn get_shader(&self, handle: ShaderHandle<SL>) -> SarektResult<&Shader<SL::SBH>> {
+  pub fn get_shader(&self, handle: &ShaderHandle<SL>) -> SarektResult<&Shader<SL::SBH>> {
     let shader = self.loaded_shaders.get(handle.inner_key);
     if shader.is_none() {
       return Err(SarektError::UnknownShader);
     }
     Ok(shader.unwrap())
-  }
-}
-
-impl<SL> Drop for ShaderStore<SL>
-where
-  SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy + Debug,
-{
-  fn drop(&mut self) {
-    info!("Destroying all shaders...");
-    for shader in self.loaded_shaders.iter() {
-      let result = self.shader_loader.delete_shader(shader.1.shader_handle);
-      if result.is_err() {
-        error!("Error destroying shader: {:?}", shader.1);
-      }
-    }
   }
 }
 
