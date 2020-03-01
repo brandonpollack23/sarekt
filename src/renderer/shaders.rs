@@ -8,6 +8,7 @@ use std::{
 
 /// A type that can be dereferenced internally to retrieve a shader and that
 /// will destroy the shader when it goes out of scope.
+#[derive(Clone)]
 pub struct ShaderHandle<SL>
 where
   SL: ShaderLoader,
