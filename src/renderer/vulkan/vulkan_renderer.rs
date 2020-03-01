@@ -18,7 +18,7 @@ use ash::{
   extensions::ext::DebugUtils,
   version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
   vk,
-  vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT},
+  vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, Extent2D, Offset2D},
   Device, Entry, Instance,
 };
 use lazy_static::lazy_static;
@@ -69,6 +69,8 @@ pub struct VulkanRenderer {
 
   // Pipeline related
   base_graphics_pipeline: vk::Pipeline,
+  base_pipeline_ci: vk::GraphicsPipelineCreateInfo,
+  base_pipeline_layout: vk::PipelineLayout, // TODO make storage?
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -161,7 +163,7 @@ impl VulkanRenderer {
       Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
     // TODO only create if drawing to window
-    let swapchain_and_extension = Self::create_swap_chain(
+    let (swapchain_and_extension, extent) = Self::create_swap_chain(
       &instance,
       &logical_device,
       &surface_and_extension,
@@ -182,14 +184,16 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
-    let mut shader_store = Self::create_shader_store(&logical_device);
+    let shader_store = Self::create_shader_store(&logical_device);
 
-    let base_graphics_pipeline = Self::create_base_graphics_pipeline(
-      &logical_device,
-      &mut shader_store, // Unlock and get a local mut ref to shaderstore.
-      &queues,
-      &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
-    )?;
+    let (base_graphics_pipeline, base_pipeline_ci, base_pipeline_layout) =
+      Self::create_base_graphics_pipeline(
+        &logical_device,
+        &shader_store, // Unlock and get a local mut ref to shaderstore.
+        &queues,
+        &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
+        extent,
+      )?;
 
     Ok(Self {
       _entry: entry,
@@ -202,6 +206,8 @@ impl VulkanRenderer {
       swapchain_and_extension,
       render_targets,
       base_graphics_pipeline,
+      base_pipeline_ci,
+      base_pipeline_layout,
       shader_store,
     })
   }
@@ -553,7 +559,7 @@ impl VulkanRenderer {
   fn create_swap_chain(
     instance: &Instance, logical_device: &Device, surface_and_extension: &SurfaceAndExtension,
     physical_device: vk::PhysicalDevice, requested_width: u32, requested_height: u32,
-  ) -> SarektResult<SwapchainAndExtension> {
+  ) -> SarektResult<(SwapchainAndExtension, Extent2D)> {
     let swapchain_support = Self::query_swap_chain_support(surface_and_extension, physical_device)?;
 
     let format = Self::choose_swap_surface_format(&swapchain_support.formats);
@@ -606,10 +612,9 @@ impl VulkanRenderer {
     let swapchain_extension = ash::extensions::khr::Swapchain::new(instance, logical_device);
     let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
 
-    Ok(SwapchainAndExtension::new(
-      swapchain,
-      format.format,
-      swapchain_extension,
+    Ok((
+      SwapchainAndExtension::new(swapchain, format.format, swapchain_extension),
+      extent,
     ))
   }
 
@@ -742,19 +747,126 @@ impl VulkanRenderer {
   /// TODO allow for creating custom pipelines via LoadShaders etc.
   /// TODO enable pipeline cache.
   fn create_base_graphics_pipeline(
-    _logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    _queues: &Queues, _render_targets: &[vk::ImageView],
-  ) -> SarektResult<vk::Pipeline> {
-    let _vertex_shader_handle = ShaderStore::load_shader(
+    logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
+    _queues: &Queues, _render_targets: &[vk::ImageView], extent: Extent2D,
+  ) -> SarektResult<(
+    vk::Pipeline,
+    vk::GraphicsPipelineCreateInfo,
+    vk::PipelineLayout,
+  )> {
+    let vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
       ShaderType::Vertex,
     )?;
-    let _fragment_shader_handle = ShaderStore::load_shader(
+    let fragment_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_FRAGMENT_SHADER),
       ShaderType::Vertex,
     )?;
+
+    let shader_store = shader_store.read().unwrap();
+    let vert_shader_stage_ci = vk::PipelineShaderStageCreateInfo::builder()
+      .stage(vk::ShaderStageFlags::VERTEX)
+      .module(
+        shader_store
+          .get_shader(vertex_shader_handle.clone())
+          .unwrap()
+          .shader_handle,
+      )
+      .name(CString::new("main").unwrap().as_c_str())
+      .build();
+    let frag_shader_stage_ci = vk::PipelineShaderStageCreateInfo::builder()
+      .stage(vk::ShaderStageFlags::FRAGMENT)
+      .module(
+        shader_store
+          .get_shader(fragment_shader_handle.clone())
+          .unwrap()
+          .shader_handle,
+      )
+      .name(CString::new("main").unwrap().as_c_str())
+      .build();
+
+    let shader_stage_cis = [vert_shader_stage_ci, frag_shader_stage_ci];
+
+    let vertex_input_ci = vk::PipelineVertexInputStateCreateInfo::builder()
+      .vertex_attribute_descriptions(&[])
+      .vertex_attribute_descriptions(&[])
+      .build();
+
+    let input_assembly_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
+      .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+      .primitive_restart_enable(false)
+      .build();
+
+    let viewport = vk::Viewport::builder()
+      .x(0f32)
+      .y(0f32)
+      .width(extent.width as f32)
+      .height(extent.height as f32)
+      .min_depth(0f32)
+      .max_depth(1.0f32)
+      .build();
+    let scissor = vk::Rect2D::builder()
+      .offset(Offset2D::default())
+      .extent(extent)
+      .build();
+    let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
+      .viewports(&[viewport])
+      .scissors(&[scissor])
+      .build();
+
+    let raster_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
+      .depth_clamp_enable(false) // Don't clamp things to the edge, cull them.
+      .rasterizer_discard_enable(false) // Don't discard geometry.
+      .polygon_mode(vk::PolygonMode::FILL) // Fill stuff in. Could also be point or line.
+      .line_width(1.0f32)
+      .cull_mode(vk::CullModeFlags::BACK) // Back face culling.
+      .front_face(vk::FrontFace::CLOCKWISE)
+      // Dont turn on depth bias, not adding constants to depth, same with depth_bias_clamp, bias_constant_factor, bias_slope_factor.
+      .depth_bias_enable(false)
+      .build();
+
+    // Pretty much totall disable this.
+    // TODO make configurable
+    let mutlisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
+      .sample_shading_enable(false)
+      .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+      .min_sample_shading(1.0f32)
+      .sample_mask(&[])
+      .alpha_to_coverage_enable(false)
+      .alpha_to_one_enable(false)
+      .build();
+
+    let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
+      .color_write_mask(vk::ColorComponentFlags::all()) // RGBA
+      .blend_enable(false)
+    // everything else optional because its not enabled.
+      .build();
+    let color_blend_ci = vk::PipelineColorBlendStateCreateInfo::builder()
+      .logic_op_enable(false)
+      .logic_op(vk::LogicOp::COPY)
+      .attachments(&[color_blend_attachment_state])
+      .build();
+
+    // No uniforms so there is nothing to layout.
+    let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::default();
+    let pipeline_layout =
+      unsafe { logical_device.create_pipeline_layout(&pipeline_layout_ci, None)? };
+
+    let graphics_pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
+      .flags(vk::PipelineCreateFlags::ALLOW_DERIVATIVES)
+      .stages(&shader_stage_cis)
+      .vertex_input_state(&vertex_input_ci)
+      .input_assembly_state(&input_assembly_ci)
+      .viewport_state(&viewport_state_ci)
+      .rasterization_state(&raster_state_ci)
+      .multisample_state(&mutlisample_state_ci)
+      .color_blend_state(&color_blend_ci)
+      // .dynamic_state(&dynamic_state_ci)
+      // .render_pass()
+      // .subpass()
+      .build();
 
     Err(SarektError::Unknown)
   }
@@ -783,6 +895,11 @@ impl Renderer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Destroying base pipeline layouts...");
+      self
+        .logical_device
+        .destroy_pipeline_layout(self.base_pipeline_layout, None);
+
       // TODO if there is one, if not destroy images
       info!("Destrying swapchain...");
       let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
