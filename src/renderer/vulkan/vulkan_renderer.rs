@@ -75,6 +75,11 @@ pub struct VulkanRenderer {
   fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   framebuffers: Vec<vk::Framebuffer>,
 
+  // Command pools and buffers.
+  primary_gfx_command_pool: vk::CommandPool,
+  primary_present_command_pool: Option<vk::CommandPool>,
+  primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
+
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
 }
@@ -213,6 +218,20 @@ impl VulkanRenderer {
       extent,
     )?;
 
+    let (primary_gfx_command_pool, primary_present_command_pool) =
+      Self::create_primary_command_pools(
+        &instance,
+        physical_device,
+        &surface_and_extension,
+        &logical_device,
+      )?;
+
+    let primary_gfx_command_buffers = Self::create_primary_command_buffers(
+      &logical_device,
+      primary_gfx_command_pool,
+      render_target_images.len() as u32,
+    )?;
+
     Ok(Self {
       _entry: entry,
       instance,
@@ -221,8 +240,10 @@ impl VulkanRenderer {
       physical_device,
       logical_device,
       queues,
+
       swapchain_and_extension,
       render_targets,
+
       forward_render_pass,
       base_graphics_pipeline,
       base_pipeline_ci,
@@ -230,6 +251,11 @@ impl VulkanRenderer {
       vertex_shader_handle,
       fragment_shader_handle,
       framebuffers,
+
+      primary_gfx_command_pool,
+      primary_present_command_pool,
+      primary_gfx_command_buffers,
+
       shader_store,
     })
   }
@@ -979,6 +1005,43 @@ impl VulkanRenderer {
   }
 
   // ================================================================================
+  //  Command Pool/Buffer Methods
+  // ================================================================================
+  /// Creates all command pools needed for drawing and presentation on one
+  /// thread.
+  ///
+  /// return is (gfx command pool, Option<present command pool>).
+  fn create_primary_command_pools(
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+    surface_and_extension: &SurfaceAndExtension, logical_device: &Device,
+  ) -> SarektResult<(vk::CommandPool, Option<vk::CommandPool>)> {
+    let queue_family_indices =
+      Self::find_queue_families(instance, physical_device, surface_and_extension)?;
+
+    // TODO set transient flag since rerecording is likely a thing.
+    let gfx_pool_ci = vk::CommandPoolCreateInfo::builder()
+      .queue_family_index(queue_family_indices.graphics_queue_family.unwrap())
+      .build();
+
+    // TODO only if presenting create present pool.
+
+    let gfx_pool = unsafe { logical_device.create_command_pool(&gfx_pool_ci, None)? };
+    Ok((gfx_pool, None))
+  }
+
+  fn create_primary_command_buffers(
+    logical_device: &Device, primary_gfx_command_pool: vk::CommandPool, image_count: u32,
+  ) -> SarektResult<Vec<vk::CommandBuffer>> {
+    let gfx_command_buffer_ci = vk::CommandBufferAllocateInfo::builder()
+      .command_pool(primary_gfx_command_pool)
+      .level(vk::CommandBufferLevel::PRIMARY)
+      .command_buffer_count(image_count)
+      .build();
+
+    Ok(unsafe { logical_device.allocate_command_buffers(&gfx_command_buffer_ci)? })
+  }
+
+  // ================================================================================
   //  Utility Helper Methods
   // ================================================================================
   /// Creates a shader store in the vulkan backend configuration to load and
@@ -1002,6 +1065,11 @@ impl Renderer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Destroying all command pools...");
+      self
+        .logical_device
+        .destroy_command_pool(self.primary_gfx_command_pool, None);
+
       info!("Destroying all framebuffers...");
       for &fb in self.framebuffers.iter() {
         self.logical_device.destroy_framebuffer(fb, None);
