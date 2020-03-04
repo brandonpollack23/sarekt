@@ -1,4 +1,5 @@
 pub mod debug_utils_ext;
+pub mod draw_synchronization;
 pub mod images;
 pub mod queues;
 pub mod surface;
