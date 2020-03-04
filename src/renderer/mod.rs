@@ -44,7 +44,6 @@ pub use vulkan::vulkan_renderer::VulkanRenderer;
 
 use std::fmt::Debug;
 
-
 // ================================================================================
 //  Compile Time Constants and Configurations
 // ================================================================================
@@ -140,7 +139,9 @@ impl<'a> Default for EngineDetails<'a> {
 // ================================================================================
 //  Renderer Trait
 // ================================================================================
-/// This is the trait interface that every backend supports.
+/// This is the trait interface that every backend supports.  Used to create
+/// [drawers](trait.Drawer.html) for use in other threads (to build up command
+/// buffers in parallel), finalize the frame, etc.
 ///
 /// SL is the [Shader Loader](trait.ShaderLoader.html) for the backing renderer.
 pub trait Renderer {
@@ -153,6 +154,12 @@ pub trait Renderer {
   where
     Self::SL: ShaderLoader,
     <<Self as Renderer>::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
+}
+
+/// Trait that each renderer as well as its secondary drawers (if supported)
+/// implement for multi-threading purposes.
+pub trait Drawer {
+  fn draw() -> SarektResult<()>;
 }
 
 // enum RendererBackend {

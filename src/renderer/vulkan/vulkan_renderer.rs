@@ -10,7 +10,7 @@ use crate::{
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
       vulkan_shader_functions::VulkanShaderFunctions,
     },
-    ApplicationDetails, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
 use ash::{
@@ -229,7 +229,10 @@ impl VulkanRenderer {
     let primary_gfx_command_buffers = Self::create_primary_command_buffers(
       &logical_device,
       primary_gfx_command_pool,
-      render_target_images.len() as u32,
+      &framebuffers,
+      extent,
+      forward_render_pass,
+      base_graphics_pipeline,
     )?;
 
     Ok(Self {
@@ -1030,15 +1033,63 @@ impl VulkanRenderer {
   }
 
   fn create_primary_command_buffers(
-    logical_device: &Device, primary_gfx_command_pool: vk::CommandPool, image_count: u32,
+    logical_device: &Device, primary_gfx_command_pool: vk::CommandPool,
+    framebuffers: &[vk::Framebuffer], extent: vk::Extent2D, render_pass: vk::RenderPass,
+    pipeline: vk::Pipeline,
   ) -> SarektResult<Vec<vk::CommandBuffer>> {
+    let image_count = framebuffers.len() as u32;
     let gfx_command_buffer_ci = vk::CommandBufferAllocateInfo::builder()
       .command_pool(primary_gfx_command_pool)
       .level(vk::CommandBufferLevel::PRIMARY)
       .command_buffer_count(image_count)
       .build();
 
-    Ok(unsafe { logical_device.allocate_command_buffers(&gfx_command_buffer_ci)? })
+    let gfx_command_buffers =
+      unsafe { logical_device.allocate_command_buffers(&gfx_command_buffer_ci)? };
+
+    // TODO make delegate user application work to a secondary buffer.  Same as for
+    // other Drawers for other threads, but just for single threaded.
+    for (i, &buffer) in gfx_command_buffers.iter().enumerate() {
+      // Start recording.
+      let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
+      unsafe { logical_device.begin_command_buffer(buffer, &command_buffer_begin_info)? };
+
+      // Start the (forward) render pass.
+      let render_area = vk::Rect2D::builder()
+        .offset(vk::Offset2D::default())
+        .extent(extent)
+        .build();
+      let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+        .render_pass(render_pass)
+        .framebuffer(framebuffers[i])
+        .render_area(render_area)
+        .clear_values(&[vk::ClearValue::default()]) // Clear to black.
+        .build();
+      // TODO change from inline to secondary command buffers.
+      unsafe {
+        logical_device.cmd_begin_render_pass(
+          buffer,
+          &render_pass_begin_info,
+          vk::SubpassContents::INLINE,
+        )
+      };
+
+      // Bind the pipeline. TODO move this to secondary buffer?
+      unsafe {
+        logical_device.cmd_bind_pipeline(buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
+      };
+
+      // Draw.  TODO make this a secondary buffer execution.
+      unsafe { logical_device.cmd_draw(buffer, 3, 1, 0, 0) };
+
+      // End Render Pass.
+      unsafe { logical_device.cmd_end_render_pass(buffer) };
+
+      // End Command Buffer Recording.
+      unsafe { logical_device.end_command_buffer(buffer)? };
+    }
+
+    Ok(gfx_command_buffers)
   }
 
   // ================================================================================
@@ -1060,6 +1111,11 @@ impl Renderer for VulkanRenderer {
     &mut self, code: &ShaderCode, shader_type: ShaderType,
   ) -> SarektResult<ShaderHandle<Self::SL>> {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
+  }
+}
+impl Drawer for VulkanRenderer {
+  fn draw() -> SarektResult<()> {
+    Ok(())
   }
 }
 impl Drop for VulkanRenderer {
