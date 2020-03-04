@@ -4,6 +4,7 @@ use crate::{
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vulkan::{
       debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
+      draw_synchronization::DrawSynchronization,
       images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
@@ -75,10 +76,11 @@ pub struct VulkanRenderer {
   fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   framebuffers: Vec<vk::Framebuffer>,
 
-  // Command pools and buffers.
+  // Command pools, buffers, and synchronization primitives for drawing.
   primary_gfx_command_pool: vk::CommandPool,
   primary_present_command_pool: Option<vk::CommandPool>,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
+  draw_synchronization: DrawSynchronization,
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -235,6 +237,8 @@ impl VulkanRenderer {
       base_graphics_pipeline,
     )?;
 
+    let draw_synchronization = DrawSynchronization::new(&logical_device)?;
+
     Ok(Self {
       _entry: entry,
       instance,
@@ -258,6 +262,7 @@ impl VulkanRenderer {
       primary_gfx_command_pool,
       primary_present_command_pool,
       primary_gfx_command_buffers,
+      draw_synchronization,
 
       shader_store,
     })
@@ -1112,6 +1117,44 @@ impl Renderer for VulkanRenderer {
   ) -> SarektResult<ShaderHandle<Self::SL>> {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
+
+  // TODO handle off screen rendering.
+  fn frame(&self) -> SarektResult<()> {
+    // Returns whether or not the swapchain is suboptimal.
+    let (image_index, is_suboptimal) = unsafe {
+      self
+        .swapchain_and_extension
+        .swapchain_functions
+        .acquire_next_image(
+          self.swapchain_and_extension.swapchain,
+          u64::max_value(),
+          self.draw_synchronization.image_available_semaphore,
+          vk::Fence::null(),
+        )?
+    };
+    let image_index = image_index as usize;
+
+    if is_suboptimal {
+      warn!("Swapchain is suboptimal!");
+    }
+
+    let submit_info = vk::SubmitInfo::builder()
+      .wait_semaphores(&[self.draw_synchronization.image_available_semaphore]) // Don't draw until it is ready.
+      .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT]) // Don't we only need to wait until Color Attachment is ready to start drawing.  Vertex and other shaders can begin sooner.
+      .command_buffers(&[self.primary_gfx_command_buffers[image_index]]) // Only use the command buffer corresponding to this image index.
+      .signal_semaphores(&[self.draw_synchronization.render_finished_semaphore]) // Signal we're done drawing when we are.
+      .build();
+
+    unsafe {
+      self.logical_device.queue_submit(
+        self.queues.graphics_queue,
+        &[submit_info],
+        vk::Fence::null(),
+      )?
+    };
+
+    Ok(())
+  }
 }
 impl Drawer for VulkanRenderer {
   fn draw() -> SarektResult<()> {
@@ -1121,6 +1164,14 @@ impl Drawer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Destroying all synchronization primitives...");
+      self
+        .logical_device
+        .destroy_semaphore(self.draw_synchronization.render_finished_semaphore, None);
+      self
+        .logical_device
+        .destroy_semaphore(self.draw_synchronization.image_available_semaphore, None);
+
       info!("Destroying all command pools...");
       self
         .logical_device
