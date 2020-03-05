@@ -1,5 +1,5 @@
 use ash::{extensions::ext::DebugUtils, vk, Entry, Instance};
-use log::{error, info, warn};
+use log::{debug, error, warn};
 use static_assertions::assert_impl_all;
 use std::{
   ffi::CStr,
@@ -101,10 +101,10 @@ impl DebugUtilsAndMessenger {
         warn!("Validation Warning! {}", message);
       }
       vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
-        info!("Validation Info {}", message);
+        debug!("Validation Info {}", message);
       }
       vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
-        info!("Validation Verbose {}", message);
+        debug!("Validation Verbose {}", message);
       }
       _ => {}
     }

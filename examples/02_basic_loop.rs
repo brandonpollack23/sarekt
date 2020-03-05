@@ -1,14 +1,19 @@
 use log::{info, Level};
-use sarekt::{self, error::SarektError, renderer::VulkanRenderer};
+use sarekt::{
+  self,
+  error::SarektError,
+  renderer::{Renderer, VulkanRenderer},
+};
 use std::{error::Error, sync::Arc};
 use winit::{
+  dpi::LogicalSize,
   event::{ElementState, Event, VirtualKeyCode, WindowEvent},
   event_loop::{ControlFlow, EventLoop},
   window::{Window, WindowBuilder, WindowId},
 };
 
 const WIDTH: u32 = 800;
-const HEIGHT: u32 = 800;
+const HEIGHT: u32 = 600;
 
 struct SarektApp {
   renderer: VulkanRenderer,
@@ -20,8 +25,17 @@ impl SarektApp {
     info!("Creating App");
 
     let event_loop = EventLoop::new();
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    let window = Arc::new(
+      WindowBuilder::new()
+        .with_inner_size(LogicalSize::new(WIDTH, HEIGHT))
+        .build(&event_loop)
+        .unwrap(),
+    );
     let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
+    // TODO remove
+    renderer.frame();
+    renderer.frame();
+    renderer.frame();
 
     Ok(Self {
       renderer,
@@ -52,8 +66,8 @@ impl SarektApp {
         }
         Event::RedrawRequested(_) => {
           // Redraw requested, this is called after MainEventsCleared.
-          // TODO
-          // renderer.draw_frame();
+          // TODO after frames in flight.
+          // renderer.frame();
         }
         Event::WindowEvent { window_id, event } => {
           Self::main_loop_window_event(&event, &window_id, control_flow, &mut renderer);

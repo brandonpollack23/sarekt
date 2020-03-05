@@ -78,7 +78,6 @@ pub struct VulkanRenderer {
 
   // Command pools, buffers, and synchronization primitives for drawing.
   primary_gfx_command_pool: vk::CommandPool,
-  primary_present_command_pool: Option<vk::CommandPool>,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
   draw_synchronization: DrawSynchronization,
 
@@ -188,7 +187,7 @@ impl VulkanRenderer {
     };
     let render_targets = Self::create_render_target_image_views(
       &logical_device,
-      &render_target_images,
+      render_target_images,
       swapchain_and_extension.format,
     )?;
 
@@ -206,8 +205,6 @@ impl VulkanRenderer {
     ) = Self::create_base_graphics_pipeline(
       &logical_device,
       &shader_store, // Unlock and get a local mut ref to shaderstore.
-      &queues,
-      &render_targets.iter().map(|rt| rt.view).collect::<Vec<_>>(),
       extent,
       forward_render_pass,
     )?;
@@ -220,13 +217,12 @@ impl VulkanRenderer {
       extent,
     )?;
 
-    let (primary_gfx_command_pool, primary_present_command_pool) =
-      Self::create_primary_command_pools(
-        &instance,
-        physical_device,
-        &surface_and_extension,
-        &logical_device,
-      )?;
+    let (primary_gfx_command_pool) = Self::create_primary_command_pools(
+      &instance,
+      physical_device,
+      &surface_and_extension,
+      &logical_device,
+    )?;
 
     let primary_gfx_command_buffers = Self::create_primary_command_buffers(
       &logical_device,
@@ -260,7 +256,6 @@ impl VulkanRenderer {
       framebuffers,
 
       primary_gfx_command_pool,
-      primary_present_command_pool,
       primary_gfx_command_buffers,
       draw_synchronization,
 
@@ -539,18 +534,29 @@ impl VulkanRenderer {
       unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
 
     for (i, queue_family_properties) in queue_family_properties.iter().enumerate() {
-      if queue_family_properties
-        .queue_flags
-        .intersects(vk::QueueFlags::GRAPHICS)
+      if queue_family_indices.graphics_queue_family.is_none()
+        && queue_family_properties
+          .queue_flags
+          .intersects(vk::QueueFlags::GRAPHICS)
       {
         queue_family_indices.graphics_queue_family = Some(i as u32);
       }
 
-      let presentation_support = unsafe {
-        surface_functions.get_physical_device_surface_support(physical_device, i as u32, surface)?
-      };
-      if presentation_support {
-        queue_family_indices.presentation_queue_family = Some(i as u32);
+      if queue_family_indices.presentation_queue_family.is_none() {
+        let presentation_support = unsafe {
+          surface_functions.get_physical_device_surface_support(
+            physical_device,
+            i as u32,
+            surface,
+          )?
+        };
+        if presentation_support {
+          queue_family_indices.presentation_queue_family = Some(i as u32);
+        }
+      }
+
+      if queue_family_indices.is_complete() {
+        return Ok(queue_family_indices);
       }
     }
 
@@ -573,19 +579,22 @@ impl VulkanRenderer {
     let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
     let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
 
-    let graphics_queue_ci = vk::DeviceQueueCreateInfo::builder()
-      .queue_family_index(graphics_queue_family)
-      .queue_priorities(&[1.0]) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
-      .build();
-    let presentation_queue_ci = vk::DeviceQueueCreateInfo::builder()
-      .queue_family_index(presentation_queue_family)
-      .queue_priorities(&[1.0])
-      .build();
+    let mut indices = vec![graphics_queue_family, presentation_queue_family];
+    indices.dedup();
+    let queue_cis: Vec<_> = indices
+      .iter()
+      .map(|&queue_index| {
+        vk::DeviceQueueCreateInfo::builder()
+        .queue_family_index(queue_index)
+        .queue_priorities(&[1.0]) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
+        .build()
+      })
+      .collect();
 
     let device_features = vk::PhysicalDeviceFeatures::default();
 
     let device_ci = vk::DeviceCreateInfo::builder()
-      .queue_create_infos(&[graphics_queue_ci, presentation_queue_ci])
+      .queue_create_infos(&queue_cis)
       .enabled_features(&device_features)
       // TODO only if drawing to a window
       .enabled_extension_names(&[ash::extensions::khr::Swapchain::name().as_ptr()])
@@ -767,7 +776,7 @@ impl VulkanRenderer {
   /// Given the render target images and format, create an image view suitable
   /// for rendering on. (one level, no mipmapping, color bit access).
   fn create_render_target_image_views(
-    logical_device: &Arc<Device>, targets: &[vk::Image], format: vk::Format,
+    logical_device: &Arc<Device>, targets: Vec<vk::Image>, format: vk::Format,
   ) -> SarektResult<Vec<ImageAndView>> {
     let mut views = Vec::with_capacity(targets.len());
     for &image in targets.iter() {
@@ -826,9 +835,19 @@ impl VulkanRenderer {
       .color_attachments(&[color_attachment_ref])
       .build();
 
+    let dependency = vk::SubpassDependency::builder()
+      .src_subpass(vk::SUBPASS_EXTERNAL)
+      .dst_subpass(0u32)
+      .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // We need to wait until the image is not in use (by the swapchain for example).
+      .src_access_mask(vk::AccessFlags::empty()) // We're not going to access the swapchain as a source.
+      .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // Anyone waiting on this should wait in the color attachment stage.
+      .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE) // Dependents should wait if they read or write the color attachment.
+      .build();
+
     let render_pass_ci = vk::RenderPassCreateInfo::builder()
       .attachments(&[color_attachment])
       .subpasses(&[subpass_description]) // Only one subpass in this case.
+      .dependencies(&[dependency]) // Only one dep.
       .build();
 
     Ok(unsafe { logical_device.create_render_pass(&render_pass_ci, None)? })
@@ -842,8 +861,7 @@ impl VulkanRenderer {
   /// TODO enable pipeline cache.
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    _queues: &Queues, _render_targets: &[vk::ImageView], extent: Extent2D,
-    render_pass: vk::RenderPass,
+    extent: Extent2D, render_pass: vk::RenderPass,
   ) -> SarektResult<(
     vk::Pipeline,
     vk::GraphicsPipelineCreateInfo,
@@ -1018,15 +1036,17 @@ impl VulkanRenderer {
   /// Creates all command pools needed for drawing and presentation on one
   /// thread.
   ///
-  /// return is (gfx command pool, Option<present command pool>).
+  /// return is (gfx command pool).  May be expanded in the future (compute
+  /// etc).
   fn create_primary_command_pools(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension, logical_device: &Device,
-  ) -> SarektResult<(vk::CommandPool, Option<vk::CommandPool>)> {
+  ) -> SarektResult<(vk::CommandPool)> {
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
 
-    // TODO set transient flag since rerecording is likely a thing.
+    info!("Command Queues Selected: {:?}", queue_family_indices);
+
     let gfx_pool_ci = vk::CommandPoolCreateInfo::builder()
       .queue_family_index(queue_family_indices.graphics_queue_family.unwrap())
       .build();
@@ -1034,7 +1054,7 @@ impl VulkanRenderer {
     // TODO only if presenting create present pool.
 
     let gfx_pool = unsafe { logical_device.create_command_pool(&gfx_pool_ci, None)? };
-    Ok((gfx_pool, None))
+    Ok((gfx_pool))
   }
 
   fn create_primary_command_buffers(
@@ -1064,11 +1084,16 @@ impl VulkanRenderer {
         .offset(vk::Offset2D::default())
         .extent(extent)
         .build();
+      let clear_value = vk::ClearValue {
+        color: vk::ClearColorValue {
+          float32: [0f32, 0f32, 0f32, 1f32],
+        },
+      };
       let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
         .render_pass(render_pass)
         .framebuffer(framebuffers[i])
         .render_area(render_area)
-        .clear_values(&[vk::ClearValue::default()]) // Clear to black.
+        .clear_values(&[clear_value]) // Clear to black.
         .build();
       // TODO change from inline to secondary command buffers.
       unsafe {
@@ -1132,25 +1157,38 @@ impl Renderer for VulkanRenderer {
           vk::Fence::null(),
         )?
     };
-    let image_index = image_index as usize;
 
     if is_suboptimal {
       warn!("Swapchain is suboptimal!");
     }
 
+    // Submit draw commands.
     let submit_info = vk::SubmitInfo::builder()
       .wait_semaphores(&[self.draw_synchronization.image_available_semaphore]) // Don't draw until it is ready.
       .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT]) // Don't we only need to wait until Color Attachment is ready to start drawing.  Vertex and other shaders can begin sooner.
-      .command_buffers(&[self.primary_gfx_command_buffers[image_index]]) // Only use the command buffer corresponding to this image index.
+      .command_buffers(&[self.primary_gfx_command_buffers[image_index as usize]]) // Only use the command buffer corresponding to this image index.
       .signal_semaphores(&[self.draw_synchronization.render_finished_semaphore]) // Signal we're done drawing when we are.
       .build();
-
     unsafe {
       self.logical_device.queue_submit(
         self.queues.graphics_queue,
         &[submit_info],
         vk::Fence::null(),
       )?
+    };
+
+    // TODO if presenting to swapchain.
+    // Present to swapchain and display completed frame.
+    let present_info = vk::PresentInfoKHR::builder()
+      .wait_semaphores(&[self.draw_synchronization.render_finished_semaphore])
+      .swapchains(&[self.swapchain_and_extension.swapchain])
+      .image_indices(&[image_index])
+      .build();
+    unsafe {
+      self
+        .swapchain_and_extension
+        .swapchain_functions
+        .queue_present(self.queues.presentation_queue, &present_info)?
     };
 
     Ok(())
