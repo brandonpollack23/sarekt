@@ -951,7 +951,6 @@ impl VulkanRenderer {
       .sample_shading_enable(false)
       .rasterization_samples(vk::SampleCountFlags::TYPE_1)
       .min_sample_shading(1.0f32)
-      .sample_mask(&[])
       .alpha_to_coverage_enable(false)
       .alpha_to_one_enable(false)
       .build();
