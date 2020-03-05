@@ -1175,19 +1175,11 @@ impl Renderer for VulkanRenderer {
     }
 
     // Make sure we wait on any fences for that swap chain image in flight.
-    let image_in_flight_fence =
-      self.draw_synchronization.images_in_flight[image_index as usize].get();
-    if image_in_flight_fence != vk::Fence::null() {
-      // It wasn't null, that swapchain images is in flight!
-      unsafe {
-        self
-          .logical_device
-          .wait_for_fences(&[image_in_flight_fence], true, u64::max_value())?
-      };
-    }
-    // Mark the image as in use by this frame.
-    self.draw_synchronization.images_in_flight[image_index as usize]
-      .set(self.draw_synchronization.in_flight_fences[self.current_frame_num.get()]);
+    self.draw_synchronization.ensure_images_not_in_flight(
+      &self.logical_device,
+      image_index as usize,
+      self.current_frame_num.get(),
+    );
 
     // Submit draw commands.
     let submit_info = vk::SubmitInfo::builder()
