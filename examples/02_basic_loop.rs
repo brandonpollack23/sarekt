@@ -62,7 +62,7 @@ impl SarektApp {
         }
         Event::RedrawRequested(_) => {
           // Redraw requested, this is called after MainEventsCleared.
-          renderer.frame();
+          renderer.frame().unwrap();
         }
         Event::WindowEvent { window_id, event } => {
           Self::main_loop_window_event(&event, &window_id, control_flow, &mut renderer);

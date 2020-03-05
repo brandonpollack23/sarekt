@@ -24,7 +24,7 @@ impl DrawSynchronization {
     let mut image_available_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
     let mut render_finished_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
     let mut in_flight_fences = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
-    for i in 0..MAX_FRAMES_IN_FLIGHT {
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
       unsafe {
         image_available_semaphores.push(logical_device.create_semaphore(&semaphore_ci, None)?);
         render_finished_semaphores.push(logical_device.create_semaphore(&semaphore_ci, None)?);

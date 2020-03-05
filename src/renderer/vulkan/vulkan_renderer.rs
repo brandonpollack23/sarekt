@@ -1153,7 +1153,7 @@ impl Renderer for VulkanRenderer {
     unsafe {
       self
         .logical_device
-        .wait_for_fences(&[current_fence], true, u64::max_value());
+        .wait_for_fences(&[current_fence], true, u64::max_value())?;
     }
 
     // TODO OFFSCREEN handle drawing without swapchain.
@@ -1177,7 +1177,7 @@ impl Renderer for VulkanRenderer {
       &self.logical_device,
       image_index as usize,
       self.current_frame_num.get(),
-    );
+    )?;
 
     // Submit draw commands.
     let submit_info = vk::SubmitInfo::builder()
@@ -1187,7 +1187,7 @@ impl Renderer for VulkanRenderer {
       .signal_semaphores(&[render_finished_sem]) // Signal we're done drawing when we are.
       .build();
     unsafe {
-      self.logical_device.reset_fences(&[current_fence]);
+      self.logical_device.reset_fences(&[current_fence])?;
       self
         .logical_device
         .queue_submit(self.queues.graphics_queue, &[submit_info], current_fence)?
@@ -1224,7 +1224,7 @@ impl Drop for VulkanRenderer {
     unsafe {
       info!("Waiting for the device to be idle before cleaning up...");
       if let Err(e) = self.logical_device.device_wait_idle() {
-        error!("Failed to wait for idle!");
+        error!("Failed to wait for idle! {}", e);
       }
 
       self.draw_synchronization.destroy_all(&self.logical_device);
