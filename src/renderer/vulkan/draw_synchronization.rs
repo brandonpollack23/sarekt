@@ -3,6 +3,9 @@ use ash::{version::DeviceV1_0, vk, Device};
 use log::info;
 use std::cell::Cell;
 
+/// Draw synchronization primitives for frames in flight and synchronizing
+/// between acquiring images, presenting them.
+/// Also contains some helper methods.
 pub struct DrawSynchronization {
   pub image_available_semaphores: Vec<vk::Semaphore>,
   pub render_finished_semaphores: Vec<vk::Semaphore>,
@@ -35,6 +38,30 @@ impl DrawSynchronization {
       in_flight_fences,
       images_in_flight: vec![Cell::new(vk::Fence::null()); num_render_targets],
     })
+  }
+
+  /// Ensures that the image is not currently in flight and marks it to be for
+  /// this upcoming draw.
+  pub fn ensure_images_not_in_flight(
+    &self, logical_device: &Device, image_index: usize, current_frame_num: usize,
+  ) -> SarektResult<()> {
+    if current_frame_num >= MAX_FRAMES_IN_FLIGHT || image_index >= self.images_in_flight.len() {
+      panic!(
+        "Invalid input! image_index: {} current_frame_num: {}",
+        image_index, current_frame_num
+      );
+    }
+
+    let image_in_flight_fence = self.images_in_flight[image_index as usize].get();
+    if image_in_flight_fence != vk::Fence::null() {
+      // It wasn't null, that swapchain images is in flight!
+      unsafe { logical_device.wait_for_fences(&[image_in_flight_fence], true, u64::max_value())? };
+    }
+
+    // Mark the image as in use by this frame.
+    self.images_in_flight[image_index as usize].set(self.in_flight_fences[current_frame_num]);
+
+    Ok(())
   }
 
   pub unsafe fn destroy_all(&self, logical_device: &Device) {
