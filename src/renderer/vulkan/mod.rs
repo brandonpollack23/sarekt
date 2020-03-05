@@ -1,3 +1,4 @@
+pub mod base_pipeline_bundle;
 pub mod debug_utils_ext;
 pub mod draw_synchronization;
 pub mod images;
