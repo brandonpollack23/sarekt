@@ -32,10 +32,6 @@ impl SarektApp {
         .unwrap(),
     );
     let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
-    // TODO remove
-    renderer.frame();
-    renderer.frame();
-    renderer.frame();
 
     Ok(Self {
       renderer,
@@ -66,8 +62,7 @@ impl SarektApp {
         }
         Event::RedrawRequested(_) => {
           // Redraw requested, this is called after MainEventsCleared.
-          // TODO after frames in flight.
-          // renderer.frame();
+          renderer.frame();
         }
         Event::WindowEvent { window_id, event } => {
           Self::main_loop_window_event(&event, &window_id, control_flow, &mut renderer);
