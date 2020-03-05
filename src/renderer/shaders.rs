@@ -31,8 +31,13 @@ where
       .shader_store
       .write()
       .expect("Could not unlock ShaderStore due to previous panic");
-    if let Err(e) = shader_store_guard.destroy_shader(self.inner_key) {
-      warn!("shader not destroyed, maybe it was already? Error: {:?}", e)
+    match shader_store_guard.destroy_shader(self.inner_key) {
+      Err(SarektError::UnknownShader) => {
+        // Already deleted, likely shutting down. Nothing to do.
+        return;
+      }
+      Err(e) => warn!("shader not destroyed, maybe it was already? Error: {:?}", e),
+      Ok(()) => {}
     }
   }
 }

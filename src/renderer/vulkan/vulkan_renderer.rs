@@ -22,7 +22,7 @@ use ash::{
   Device, Entry, Instance,
 };
 use lazy_static::lazy_static;
-use log::{info, warn};
+use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
   ffi::{CStr, CString},
@@ -1202,7 +1202,9 @@ impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
       info!("Waiting for the device to be idle before cleaning up...");
-      self.logical_device.device_wait_idle();
+      if let Err(e) = self.logical_device.device_wait_idle() {
+        error!("Failed to wait for idle!");
+      }
 
       info!("Destroying all synchronization primitives...");
       self
