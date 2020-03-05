@@ -1201,6 +1201,9 @@ impl Drawer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      info!("Waiting for the device to be idle before cleaning up...");
+      self.logical_device.device_wait_idle();
+
       info!("Destroying all synchronization primitives...");
       self
         .logical_device
