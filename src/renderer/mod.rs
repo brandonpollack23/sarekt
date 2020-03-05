@@ -53,6 +53,41 @@ const IS_DEBUG_MODE: bool = true;
 const IS_DEBUG_MODE: bool = false;
 const ENABLE_VALIDATION_LAYERS: bool = IS_DEBUG_MODE;
 
+// TODO, wannta know more about what number is good here? [readme](https://software.intel.com/en-us/articles/practical-approach-to-vulkan-part-1)
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+// ================================================================================
+//  Renderer Trait
+// ================================================================================
+/// This is the trait interface that every backend supports.  Used to create
+/// [drawers](trait.Drawer.html) for use in other threads (to build up command
+/// buffers in parallel), finalize the frame, etc.
+///
+/// SL is the [Shader Loader](trait.ShaderLoader.html) for the backing renderer.
+pub trait Renderer {
+  type SL;
+
+  // TODO simplify where?
+  /// Loads a shader and returns a handle to be used for retrieval or pipeline
+  /// creation.
+  fn load_shader(
+    &mut self, spirv: &ShaderCode, shader_type: ShaderType,
+  ) -> SarektResult<ShaderHandle<Self::SL>>
+  where
+    Self::SL: ShaderLoader,
+    <<Self as Renderer>::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
+
+  /// Mark this frame as complete and render it to the target of the renderer
+  /// when ready.
+  fn frame(&self) -> SarektResult<()>;
+}
+
+/// Trait that each renderer as well as its secondary drawers (if supported)
+/// implement for multi-threading purposes.
+pub trait Drawer {
+  fn draw() -> SarektResult<()>;
+}
+
 // ================================================================================
 //  Version struct
 // ================================================================================
@@ -134,38 +169,6 @@ impl<'a> Default for EngineDetails<'a> {
       version: Version::new(0, 1, 0),
     }
   }
-}
-
-// ================================================================================
-//  Renderer Trait
-// ================================================================================
-/// This is the trait interface that every backend supports.  Used to create
-/// [drawers](trait.Drawer.html) for use in other threads (to build up command
-/// buffers in parallel), finalize the frame, etc.
-///
-/// SL is the [Shader Loader](trait.ShaderLoader.html) for the backing renderer.
-pub trait Renderer {
-  type SL;
-
-  // TODO simplify where?
-  /// Loads a shader and returns a handle to be used for retrieval or pipeline
-  /// creation.
-  fn load_shader(
-    &mut self, spirv: &ShaderCode, shader_type: ShaderType,
-  ) -> SarektResult<ShaderHandle<Self::SL>>
-  where
-    Self::SL: ShaderLoader,
-    <<Self as Renderer>::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
-
-  /// Mark this frame as complete and render it to the target of the renderer
-  /// when ready.
-  fn frame(&self) -> SarektResult<()>;
-}
-
-/// Trait that each renderer as well as its secondary drawers (if supported)
-/// implement for multi-threading purposes.
-pub trait Drawer {
-  fn draw() -> SarektResult<()>;
 }
 
 // enum RendererBackend {
