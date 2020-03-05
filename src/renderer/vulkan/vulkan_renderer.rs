@@ -3,6 +3,7 @@ use crate::{
   renderer::{
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vulkan::{
+      base_pipeline_bundle::BasePipelineBundle,
       debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
       draw_synchronization::DrawSynchronization,
       images::ImageAndView,
@@ -52,7 +53,7 @@ pub struct VulkanRenderer {
   _entry: Entry,
   instance: Instance,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
-  surface_and_extension: SurfaceAndExtension, // TODO option
+  surface_and_extension: SurfaceAndExtension, // TODO OFFSCREEN option
 
   // Device related fields
   #[allow(dead_code)]
@@ -62,14 +63,14 @@ pub struct VulkanRenderer {
   queues: Queues,
 
   // Rendering related.
-  swapchain_and_extension: SwapchainAndExtension, // TODO option
+  swapchain_and_extension: SwapchainAndExtension, // TODO OFFSCREEN option
   render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
 
   // Pipeline related
   forward_render_pass: vk::RenderPass,
   base_graphics_pipeline: vk::Pipeline,
   base_pipeline_ci: vk::GraphicsPipelineCreateInfo,
-  base_pipeline_layout: vk::PipelineLayout, // TODO make storage?
+  base_pipeline_layout: vk::PipelineLayout,
   vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   framebuffers: Vec<vk::Framebuffer>,
@@ -120,8 +121,8 @@ impl VulkanRenderer {
     application_details: ApplicationDetails, engine_details: EngineDetails,
     debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> Result<Self, SarektError> {
-    // TODO Support rendering to a non window surface if window is None (change it
-    // to an Enum of WindowHandle or OtherSurface).
+    // TODO OFFSCREEN Support rendering to a non window surface if window is None
+    // (change it to an Enum of WindowHandle or OtherSurface).
     info!("Creating Sarekt Renderer with Vulkan Backend...");
 
     let window = window
@@ -153,8 +154,8 @@ impl VulkanRenderer {
       None
     };
 
-    // TODO unit testing, only create surface and swapchain if window was passed,
-    // otherwise make images directly.
+    // TODO OFFSCREEN only create surface and swapchain if window was
+    // passed, otherwise make images directly.
     // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
     // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
     let surface = unsafe { ash_window::create_surface(&entry, &instance, window.as_ref(), None)? };
@@ -168,7 +169,8 @@ impl VulkanRenderer {
     let (logical_device, queues) =
       Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
-    // TODO only create if drawing to window, get format and extent elsewhere.
+    // TODO OFFSCREEN only create if drawing to window, get format and extent
+    // elsewhere.
     let (swapchain_and_extension, format, extent) = Self::create_swap_chain(
       &instance,
       &logical_device,
@@ -178,7 +180,7 @@ impl VulkanRenderer {
       requested_height,
     )?;
 
-    // TODO if not swapchain create images that im rendering to.
+    // TODO OFFSCREEN if not swapchain create images that im rendering to.
     let render_target_images = unsafe {
       swapchain_and_extension
         .swapchain_functions
@@ -192,16 +194,16 @@ impl VulkanRenderer {
 
     let shader_store = Self::create_shader_store(&logical_device);
 
-    // TODO support other render pass types.
+    // TODO RENDERING_CAPABILITIES support other render pass types.
     let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
 
-    let (
-      base_graphics_pipeline,
-      base_pipeline_ci,
-      base_pipeline_layout,
+    let BasePipelineBundle {
+      pipeline: base_graphics_pipeline,
+      pipeline_layout: base_pipeline_layout,
+      pipeline_create_info: base_pipeline_ci,
       vertex_shader_handle,
       fragment_shader_handle,
-    ) = Self::create_base_graphics_pipeline(
+    } = Self::create_base_graphics_pipeline(
       &logical_device,
       &shader_store, // Unlock and get a local mut ref to shaderstore.
       extent,
@@ -403,7 +405,7 @@ impl VulkanRenderer {
   /// Evaluates all the available physical devices in the system and picks the
   /// best one based on a heuristic.
   ///
-  /// TODO have this be overridable somehow with config etc.
+  /// TODO CONFIG have this be overridable somehow with config etc.
   fn pick_physical_device(
     instance: &Instance, surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<vk::PhysicalDevice> {
@@ -435,15 +437,13 @@ impl VulkanRenderer {
   /// Rank the devices based on an internal scoring mechanism.
   /// A score of -1 means the device is not supported.
   ///
-  /// TODO add ways to configure device selection later.
+  /// TODO CONFIG add ways to configure device selection later.
   fn rank_device(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
   ) -> (vk::PhysicalDevice, i32) {
     let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
-    // TODO utilize device_features
-    // let device_features = unsafe {
-    // instance.get_physical_device_features(physical_device) };
+    // TODO CONFIG utilize physicsl_device_features
 
     if !Self::is_device_suitable(instance, physical_device, surface_and_extension).unwrap_or(false)
     {
@@ -491,11 +491,11 @@ impl VulkanRenderer {
     let sc_support_details =
       Self::query_swap_chain_support(surface_and_extension, physical_device)?;
 
-    // TODO only if drawing to a window.
+    // TODO OFFSCREEN only if drawing to a window.
     let swap_chain_adequate =
       !sc_support_details.formats.is_empty() && !sc_support_details.present_modes.is_empty();
 
-    // TODO only if drawing window need swap chain adequete.
+    // TODO OFFSCREEN only if drawing window need swap chain adequete.
     Ok(has_queues && supports_required_extensions.unwrap() && swap_chain_adequate)
   }
 
@@ -511,7 +511,7 @@ impl VulkanRenderer {
       .iter()
       .map(|ext_props| ext_props.extension_name)
       .any(|ext_name| unsafe {
-        // TODO only if drawing to a window.
+        // TODO OFFSCREEN only if drawing to a window.
         CStr::from_ptr(ext_name.as_ptr() as *const c_char)
           .eq(ash::extensions::khr::Swapchain::name())
       });
@@ -596,16 +596,18 @@ impl VulkanRenderer {
     let device_ci = vk::DeviceCreateInfo::builder()
       .queue_create_infos(&queue_cis)
       .enabled_features(&device_features)
-      // TODO only if drawing to a window
+      // TODO OFFSCREEN only if drawing to a window
       .enabled_extension_names(&[ash::extensions::khr::Swapchain::name().as_ptr()])
       .build();
 
     unsafe {
-      // TODO when would i have seperate queues even if in the same family for
-      // presentation and graphics?
-      // TODO no presentation queue needed when not presenting to a swapchain, right?
-      // MULTITHREADING I would create one queue for each thread, right now I'm only
-      // using one.
+      // TODO VULKAN_INQUIRY when would i have seperate queues even if in the same
+      // family for presentation and graphics?
+      // TODO OFFSCREEN no presentation queue needed when not presenting to a
+      // swapchain, right?
+      //
+      // TODO MULTITHREADING I would create one queue for each
+      // thread, right now I'm only using one.
       let logical_device = instance.create_device(physical_device, &device_ci, None)?;
       let graphics_queue = logical_device.get_device_queue(graphics_queue_family, 0);
       let presentation_queue = logical_device.get_device_queue(presentation_queue_family, 0);
@@ -716,7 +718,6 @@ impl VulkanRenderer {
   fn choose_swap_surface_format(
     available_formats: &[vk::SurfaceFormatKHR],
   ) -> vk::SurfaceFormatKHR {
-    // TODO change to unorm?
     *available_formats
       .iter()
       .find(|format| {
@@ -728,8 +729,8 @@ impl VulkanRenderer {
 
   /// Selects Mailbox if available, but if not tries to fallback to FIFO. See the [spec](https://renderdoc.org/vkspec_chunked/chap32.html#VkPresentModeKHR) for details on modes.
   ///
-  /// TODO support immediate mode if possible and allow the user to have tearing
-  /// if they wish.
+  /// TODO CONFIG support immediate mode if possible and allow the user to have
+  /// tearing if they wish.
   fn choose_presentation_mode(
     available_presentation_modes: &[vk::PresentModeKHR],
   ) -> vk::PresentModeKHR {
@@ -819,7 +820,7 @@ impl VulkanRenderer {
       .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // Not using stencil.
       .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // Not using stencil.
       .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
-      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO only do this if going to present. Otherwise TransferDST optimal would be good.
+      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO OFFSCREEN only do this if going to present. Otherwise TransferDST optimal would be good.
       .build();
     // Used to reference attachments in subpasses.
     let color_attachment_ref = vk::AttachmentReference::builder()
@@ -857,19 +858,14 @@ impl VulkanRenderer {
   /// etc, to create custom pipelines (passed back as opaque handles) based off
   /// this one that they can pass when requesting a draw.
   ///
-  /// TODO allow for creating custom pipelines via LoadShaders etc.
-  /// TODO enable pipeline cache.
+  /// TODO RENDERING_CAPABILITIES allow for creating custom pipelines via
+  /// LoadShaders etc.
+  ///
+  /// TODO RENDERING_CAPABILITIES enable pipeline cache.
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: Extent2D, render_pass: vk::RenderPass,
-  ) -> SarektResult<(
-    vk::Pipeline,
-    vk::GraphicsPipelineCreateInfo,
-    vk::PipelineLayout,
-    ShaderHandle<VulkanShaderFunctions>,
-    ShaderHandle<VulkanShaderFunctions>,
-  )> {
-    // TODO EZ, refactor return tuple into a struct.
+  ) -> SarektResult<BasePipelineBundle> {
     let vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
@@ -946,7 +942,7 @@ impl VulkanRenderer {
       .build();
 
     // Pretty much totall disable this.
-    // TODO make configurable
+    // TODO CONFIG make configurable
     let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
       .sample_shading_enable(false)
       .rasterization_samples(vk::SampleCountFlags::TYPE_1)
@@ -987,7 +983,7 @@ impl VulkanRenderer {
       // .base_pipeline_index(-1)
       .build();
 
-    // TODO use pipeline cache.
+    // TODO CRITICAL RENDERING_CAPABILITIES use pipeline cache.
     let pipeline = unsafe {
       logical_device.create_graphics_pipelines(
         vk::PipelineCache::null(),
@@ -999,10 +995,10 @@ impl VulkanRenderer {
       return Err(err.1.into());
     }
 
-    Ok((
+    Ok(BasePipelineBundle::new(
       pipeline.unwrap()[0],
-      graphics_pipeline_ci,
       pipeline_layout,
+      graphics_pipeline_ci,
       vertex_shader_handle,
       fragment_shader_handle,
     ))
@@ -1050,8 +1046,6 @@ impl VulkanRenderer {
       .queue_family_index(queue_family_indices.graphics_queue_family.unwrap())
       .build();
 
-    // TODO only if presenting create present pool.
-
     let gfx_pool = unsafe { logical_device.create_command_pool(&gfx_pool_ci, None)? };
     Ok((gfx_pool))
   }
@@ -1071,8 +1065,9 @@ impl VulkanRenderer {
     let gfx_command_buffers =
       unsafe { logical_device.allocate_command_buffers(&gfx_command_buffer_ci)? };
 
-    // TODO make delegate user application work to a secondary buffer.  Same as for
-    // other Drawers for other threads, but just for single threaded.
+    // TODO CRITICAL make delegate user application work to a secondary buffer.
+    // Same as for other Drawers for other threads, but just for single
+    // threaded.
     for (i, &buffer) in gfx_command_buffers.iter().enumerate() {
       // Start recording.
       let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
@@ -1103,12 +1098,15 @@ impl VulkanRenderer {
         )
       };
 
-      // Bind the pipeline. TODO move this to secondary buffer?
+      // Bind the pipeline. Can be overridden in secondary buffer by the user.
+      // TODO RENDERING_CAPABILITIES MULTITHREADING we can keep track in each thread's
+      // command buffer waht pipeline is bound so we don't insert extra rebind
+      // commands.
       unsafe {
         logical_device.cmd_bind_pipeline(buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
       };
 
-      // Draw.  TODO make this a secondary buffer execution.
+      // Draw.  TODO CRITICAL make this a secondary buffer execution.
       unsafe { logical_device.cmd_draw(buffer, 3, 1, 0, 0) };
 
       // End Render Pass.
@@ -1142,7 +1140,7 @@ impl Renderer for VulkanRenderer {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 
-  // TODO handle off screen rendering.
+  // TODO OFFSCREEN handle off screen rendering.
   fn frame(&self) -> SarektResult<()> {
     let current_fence = self.draw_synchronization.in_flight_fences[self.current_frame_num.get()];
     let image_available_sem =
@@ -1158,7 +1156,7 @@ impl Renderer for VulkanRenderer {
         .wait_for_fences(&[current_fence], true, u64::max_value());
     }
 
-    // TODO handle drawing without swapchain.
+    // TODO OFFSCREEN handle drawing without swapchain.
     let (image_index, is_suboptimal) = unsafe {
       self
         .swapchain_and_extension
@@ -1195,7 +1193,7 @@ impl Renderer for VulkanRenderer {
         .queue_submit(self.queues.graphics_queue, &[submit_info], current_fence)?
     };
 
-    // TODO only if presenting to swapchain.
+    // TODO OFFSCREEN only if presenting to swapchain.
     // Present to swapchain and display completed frame.
     let present_info = vk::PresentInfoKHR::builder()
       .wait_semaphores(&[render_finished_sem])
@@ -1263,15 +1261,15 @@ impl Drop for VulkanRenderer {
       for view in self.render_targets.iter() {
         self.logical_device.destroy_image_view(view.view, None);
       }
-      // TODO if images and not swapchain destroy images.
+      // TODO OFFSCREEN if images and not swapchain destroy images.
 
-      // TODO if there is one, if not destroy images (as above todo states).
+      // TODO OFFSCREEN if there is one, if not destroy images (as above todo states).
       info!("Destrying swapchain...");
       let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
       let swapchain = self.swapchain_and_extension.swapchain;
       swapchain_functions.destroy_swapchain(swapchain, None);
 
-      // TODO if there is one
+      // TODO OFFSCREEN if there is one
       info!("Destrying surface...");
       let surface_functions = &self.surface_and_extension.surface_functions;
       let surface = self.surface_and_extension.surface;

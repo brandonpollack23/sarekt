@@ -189,5 +189,3 @@ impl<'a> Default for EngineDetails<'a> {
 // Uniforms (and maybe SSBOs along with them) specifically in vulkan would be an
 // enum of uniform/ssbo type WITHIN the SarektUniformHandle.  Then i can match
 // and do the write command buffer strategy to draw them.
-
-// TODO some kind of factory for backends?
