@@ -12,6 +12,7 @@ use crate::{
       vulkan_shader_functions::VulkanShaderFunctions,
     },
     ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    MAX_FRAMES_IN_FLIGHT,
   },
 };
 use ash::{
@@ -25,6 +26,7 @@ use lazy_static::lazy_static;
 use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
+  cell::Cell,
   ffi::{CStr, CString},
   os::raw::c_char,
   pin::Pin,
@@ -43,10 +45,6 @@ lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
 }
-
-// TODO implement shader store (vec with handles) and load in default shaders,
-// and pass it the logical device to copy the function for deleting them to use
-// in drop.
 
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
@@ -76,10 +74,11 @@ pub struct VulkanRenderer {
   fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   framebuffers: Vec<vk::Framebuffer>,
 
-  // Command pools, buffers, and synchronization primitives for drawing.
+  // Command pools, buffers, drawing, and synchronization related primitives and information.
   primary_gfx_command_pool: vk::CommandPool,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
   draw_synchronization: DrawSynchronization,
+  current_frame_num: Cell<usize>,
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -233,7 +232,7 @@ impl VulkanRenderer {
       base_graphics_pipeline,
     )?;
 
-    let draw_synchronization = DrawSynchronization::new(&logical_device)?;
+    let draw_synchronization = DrawSynchronization::new(&logical_device, render_targets.len())?;
 
     Ok(Self {
       _entry: entry,
@@ -258,6 +257,7 @@ impl VulkanRenderer {
       primary_gfx_command_pool,
       primary_gfx_command_buffers,
       draw_synchronization,
+      current_frame_num: Cell::new(0),
 
       shader_store,
     })
@@ -1144,7 +1144,21 @@ impl Renderer for VulkanRenderer {
 
   // TODO handle off screen rendering.
   fn frame(&self) -> SarektResult<()> {
-    // Returns whether or not the swapchain is suboptimal.
+    let current_fence = self.draw_synchronization.in_flight_fences[self.current_frame_num.get()];
+    let image_available_sem =
+      self.draw_synchronization.image_available_semaphores[self.current_frame_num.get()];
+    let render_finished_sem =
+      self.draw_synchronization.render_finished_semaphores[self.current_frame_num.get()];
+
+    // Wait for this frames fence.  Cannot write to the command buffers of this
+    // frame.
+    unsafe {
+      self
+        .logical_device
+        .wait_for_fences(&[current_fence], true, u64::max_value());
+    }
+
+    // TODO handle drawing without swapchain.
     let (image_index, is_suboptimal) = unsafe {
       self
         .swapchain_and_extension
@@ -1152,34 +1166,47 @@ impl Renderer for VulkanRenderer {
         .acquire_next_image(
           self.swapchain_and_extension.swapchain,
           u64::max_value(),
-          self.draw_synchronization.image_available_semaphore,
+          image_available_sem,
           vk::Fence::null(),
         )?
     };
-
     if is_suboptimal {
       warn!("Swapchain is suboptimal!");
     }
 
+    // Make sure we wait on any fences for that swap chain image in flight.
+    let image_in_flight_fence =
+      self.draw_synchronization.images_in_flight[image_index as usize].get();
+    if image_in_flight_fence != vk::Fence::null() {
+      // It wasn't null, that swapchain images is in flight!
+      unsafe {
+        self
+          .logical_device
+          .wait_for_fences(&[image_in_flight_fence], true, u64::max_value())?
+      };
+    }
+    // Mark the image as in use by this frame.
+    self.draw_synchronization.images_in_flight[image_index as usize]
+      .set(self.draw_synchronization.in_flight_fences[self.current_frame_num.get()]);
+
     // Submit draw commands.
     let submit_info = vk::SubmitInfo::builder()
-      .wait_semaphores(&[self.draw_synchronization.image_available_semaphore]) // Don't draw until it is ready.
+      .wait_semaphores(&[image_available_sem]) // Don't draw until it is ready.
       .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT]) // Don't we only need to wait until Color Attachment is ready to start drawing.  Vertex and other shaders can begin sooner.
       .command_buffers(&[self.primary_gfx_command_buffers[image_index as usize]]) // Only use the command buffer corresponding to this image index.
-      .signal_semaphores(&[self.draw_synchronization.render_finished_semaphore]) // Signal we're done drawing when we are.
+      .signal_semaphores(&[render_finished_sem]) // Signal we're done drawing when we are.
       .build();
     unsafe {
-      self.logical_device.queue_submit(
-        self.queues.graphics_queue,
-        &[submit_info],
-        vk::Fence::null(),
-      )?
+      self.logical_device.reset_fences(&[current_fence]);
+      self
+        .logical_device
+        .queue_submit(self.queues.graphics_queue, &[submit_info], current_fence)?
     };
 
     // TODO if presenting to swapchain.
     // Present to swapchain and display completed frame.
     let present_info = vk::PresentInfoKHR::builder()
-      .wait_semaphores(&[self.draw_synchronization.render_finished_semaphore])
+      .wait_semaphores(&[render_finished_sem])
       .swapchains(&[self.swapchain_and_extension.swapchain])
       .image_indices(&[image_index])
       .build();
@@ -1189,6 +1216,10 @@ impl Renderer for VulkanRenderer {
         .swapchain_functions
         .queue_present(self.queues.presentation_queue, &present_info)?
     };
+
+    self
+      .current_frame_num
+      .set((self.current_frame_num.get() + 1) % MAX_FRAMES_IN_FLIGHT);
 
     Ok(())
   }
@@ -1206,13 +1237,7 @@ impl Drop for VulkanRenderer {
         error!("Failed to wait for idle!");
       }
 
-      info!("Destroying all synchronization primitives...");
-      self
-        .logical_device
-        .destroy_semaphore(self.draw_synchronization.render_finished_semaphore, None);
-      self
-        .logical_device
-        .destroy_semaphore(self.draw_synchronization.image_available_semaphore, None);
+      self.draw_synchronization.destroy_all(&self.logical_device);
 
       info!("Destroying all command pools...");
       self
