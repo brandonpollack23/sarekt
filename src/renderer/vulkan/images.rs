@@ -1,5 +1,6 @@
 use ash::vk;
 
+#[derive(Debug)]
 pub struct ImageAndView {
   pub image: vk::Image,
   pub view: vk::ImageView,
