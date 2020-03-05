@@ -35,6 +35,9 @@ use std::{
 };
 use vk_shader_macros::include_glsl;
 
+// TODO NOW try to get rid of all &mut self in here and mark this as !Sync.
+// Utilize Cell for recreate swapchain.
+
 // TODO MAINTENANCE shouldn't # of command buffers be equal to frames in flight,
 // not # of framebuffers?
 
@@ -71,11 +74,7 @@ pub struct VulkanRenderer {
 
   // Pipeline related
   forward_render_pass: vk::RenderPass,
-  base_graphics_pipeline: vk::Pipeline,
-  base_pipeline_ci: vk::GraphicsPipelineCreateInfo,
-  base_pipeline_layout: vk::PipelineLayout,
-  vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
-  fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
+  base_graphics_pipeline_bundle: BasePipelineBundle,
   framebuffers: Vec<vk::Framebuffer>,
 
   // Command pools, buffers, drawing, and synchronization related primitives and information.
@@ -174,14 +173,20 @@ impl VulkanRenderer {
 
     // TODO OFFSCREEN only create if drawing to window, get format and extent
     // elsewhere.
-    let (swapchain_and_extension, format, extent) = Self::create_swap_chain(
+    let swapchain_extension =
+      ash::extensions::khr::Swapchain::new(&instance, logical_device.as_ref());
+    let (swapchain, format, extent) = Self::create_swap_chain(
       &instance,
       &logical_device,
       &surface_and_extension,
+      &swapchain_extension,
       physical_device,
       requested_width,
       requested_height,
+      None,
     )?;
+    let swapchain_and_extension =
+      SwapchainAndExtension::new(swapchain, format, swapchain_extension);
 
     // TODO OFFSCREEN if not swapchain create images that im rendering to.
     let render_target_images = unsafe {
@@ -200,13 +205,7 @@ impl VulkanRenderer {
     // TODO RENDERING_CAPABILITIES support other render pass types.
     let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
 
-    let BasePipelineBundle {
-      pipeline: base_graphics_pipeline,
-      pipeline_layout: base_pipeline_layout,
-      pipeline_create_info: base_pipeline_ci,
-      vertex_shader_handle,
-      fragment_shader_handle,
-    } = Self::create_base_graphics_pipeline(
+    let base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
       &logical_device,
       &shader_store, // Unlock and get a local mut ref to shaderstore.
       extent,
@@ -228,13 +227,13 @@ impl VulkanRenderer {
       &logical_device,
     )?;
 
-    let primary_gfx_command_buffers = Self::create_primary_command_buffers(
+    let primary_gfx_command_buffers = Self::create_primary_gfx_command_buffers(
       &logical_device,
       primary_gfx_command_pool,
       &framebuffers,
       extent,
       forward_render_pass,
-      base_graphics_pipeline,
+      base_graphics_pipeline_bundle.pipeline,
     )?;
 
     let draw_synchronization = DrawSynchronization::new(&logical_device, render_targets.len())?;
@@ -252,11 +251,7 @@ impl VulkanRenderer {
       render_targets,
 
       forward_render_pass,
-      base_graphics_pipeline,
-      base_pipeline_ci,
-      base_pipeline_layout,
-      vertex_shader_handle,
-      fragment_shader_handle,
+      base_graphics_pipeline_bundle,
       framebuffers,
 
       primary_gfx_command_pool,
@@ -628,8 +623,9 @@ impl VulkanRenderer {
   /// configuration (format, color space, present mode, and extent).
   fn create_swap_chain(
     instance: &Instance, logical_device: &Device, surface_and_extension: &SurfaceAndExtension,
-    physical_device: vk::PhysicalDevice, requested_width: u32, requested_height: u32,
-  ) -> SarektResult<(SwapchainAndExtension, vk::Format, vk::Extent2D)> {
+    swapchain_extension: &ash::extensions::khr::Swapchain, physical_device: vk::PhysicalDevice,
+    requested_width: u32, requested_height: u32, old_swapchain: Option<vk::SwapchainKHR>,
+  ) -> SarektResult<(vk::SwapchainKHR, vk::Format, vk::Extent2D)> {
     let swapchain_support = Self::query_swap_chain_support(surface_and_extension, physical_device)?;
 
     let format = Self::choose_swap_surface_format(&swapchain_support.formats);
@@ -677,16 +673,11 @@ impl VulkanRenderer {
       .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // No alpha blending within the window system for now.
       .present_mode(present_mode)
       .clipped(true) // Go ahead and discard rendering ops we dont need (window half off screen).
+      .old_swapchain(old_swapchain.unwrap_or(vk::SwapchainKHR::null())) // Pass old swapchain for recreation.
       .build();
 
-    let swapchain_extension = ash::extensions::khr::Swapchain::new(instance, logical_device);
     let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
-
-    Ok((
-      SwapchainAndExtension::new(swapchain, format.format, swapchain_extension),
-      format.format,
-      extent,
-    ))
+    Ok((swapchain, format.format, extent))
   }
 
   /// Retrieves the details of the swapchain's supported formats, present modes,
@@ -805,6 +796,124 @@ impl VulkanRenderer {
       unsafe { views.push(ImageAndView::new(image, view)) };
     }
     Ok(views)
+  }
+
+  /// When the target dimensions or requirments change, we must recreate a bunch
+  /// of stuff to remain compabible and continue rendering to the new surface.
+  ///
+  /// TODO MAYBE put everything that may need to be recreated in a cell?
+  unsafe fn recreate_swap_chain(&mut self, width: u32, height: u32) -> SarektResult<()> {
+    let instance = &self.instance;
+    let logical_device = &self.logical_device;
+    let surface_and_extension = &self.surface_and_extension;
+    let physical_device = self.physical_device;
+    let old_swapchain = self.swapchain_and_extension.swapchain;
+    let swapchain_extension = &self.swapchain_and_extension.swapchain_functions;
+    let shader_store = &self.shader_store;
+    let primary_gfx_command_pool = self.primary_gfx_command_pool;
+
+    // Procedure: Make new Swapchain (recycling old one), cleanup old resources and
+    // recreate them:
+    // * ImageViews
+    // * Render Passes
+    // * Graphics Pipelines
+    // * Framebuffers
+    // * Command Buffers.
+    let (new_swapchain, new_format, new_extent) = Self::create_swap_chain(
+      instance,
+      logical_device,
+      surface_and_extension,
+      swapchain_extension,
+      physical_device,
+      width,
+      height,
+      Some(old_swapchain),
+    )?;
+    self.cleanup_swapchain();
+
+    // Create all new resources and set them in this struct.
+    self.swapchain_and_extension.swapchain = new_swapchain;
+    self.swapchain_and_extension.format = new_format;
+
+    // TODO OFFSCREEN if not swapchain create images that im rendering to.
+    let render_target_images = swapchain_extension.get_swapchain_images(new_swapchain)?;
+    self.render_targets =
+      Self::create_render_target_image_views(logical_device, render_target_images, new_format)?;
+
+    self.forward_render_pass = Self::create_forward_render_pass(logical_device, new_format)?;
+
+    self.base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
+      logical_device,
+      shader_store,
+      new_extent,
+      self.forward_render_pass,
+    )?;
+
+    self.framebuffers = Self::create_framebuffers(
+      logical_device,
+      self.forward_render_pass,
+      &self.render_targets,
+      new_extent,
+    )?;
+
+    self.primary_gfx_command_buffers = Self::create_primary_gfx_command_buffers(
+      logical_device,
+      primary_gfx_command_pool,
+      &self.framebuffers,
+      new_extent,
+      self.forward_render_pass,
+      self.base_graphics_pipeline_bundle.pipeline,
+    )?;
+
+    Ok(())
+  }
+
+  /// Cleans up all resources dependent on the swapchain and the swapchain
+  /// itself.
+  /// * ImageViews
+  /// * Render Passes
+  /// * Graphics Pipelines
+  /// * Framebuffers
+  /// * Command Buffers.
+  unsafe fn cleanup_swapchain(&self) {
+    // TODO MULTITHREADING do I need to free others?
+    info!("Freeing primary command buffers...");
+    self.logical_device.free_command_buffers(
+      self.primary_gfx_command_pool,
+      &self.primary_gfx_command_buffers,
+    );
+
+    info!("Destroying all framebuffers...");
+    for &fb in self.framebuffers.iter() {
+      self.logical_device.destroy_framebuffer(fb, None);
+    }
+
+    info!("Destroying base graphics pipeline...");
+    self
+      .logical_device
+      .destroy_pipeline(self.base_graphics_pipeline_bundle.pipeline, None);
+
+    info!("Destroying base pipeline layouts...");
+    self
+      .logical_device
+      .destroy_pipeline_layout(self.base_graphics_pipeline_bundle.pipeline_layout, None);
+
+    info!("Destroying render pass...");
+    self
+      .logical_device
+      .destroy_render_pass(self.forward_render_pass, None);
+
+    info!("Destrying render target views...");
+    for view in self.render_targets.iter() {
+      self.logical_device.destroy_image_view(view.view, None);
+    }
+    // TODO OFFSCREEN if images and not swapchain destroy images.
+
+    // TODO OFFSCREEN if there is one, if not destroy images (as above todo states).
+    info!("Destrying swapchain...");
+    let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
+    let swapchain = self.swapchain_and_extension.swapchain;
+    swapchain_functions.destroy_swapchain(swapchain, None);
   }
 
   // ================================================================================
@@ -1053,7 +1162,7 @@ impl VulkanRenderer {
     Ok((gfx_pool))
   }
 
-  fn create_primary_command_buffers(
+  fn create_primary_gfx_command_buffers(
     logical_device: &Device, primary_gfx_command_pool: vk::CommandPool,
     framebuffers: &[vk::Framebuffer], extent: vk::Extent2D, render_pass: vk::RenderPass,
     pipeline: vk::Pipeline,
@@ -1237,40 +1346,10 @@ impl Drop for VulkanRenderer {
         .logical_device
         .destroy_command_pool(self.primary_gfx_command_pool, None);
 
-      info!("Destroying all framebuffers...");
-      for &fb in self.framebuffers.iter() {
-        self.logical_device.destroy_framebuffer(fb, None);
-      }
+      self.cleanup_swapchain();
 
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
-
-      info!("Destroying base graphics pipeline...");
-      self
-        .logical_device
-        .destroy_pipeline(self.base_graphics_pipeline, None);
-
-      info!("Destroying base pipeline layouts...");
-      self
-        .logical_device
-        .destroy_pipeline_layout(self.base_pipeline_layout, None);
-
-      info!("Destroying render pass...");
-      self
-        .logical_device
-        .destroy_render_pass(self.forward_render_pass, None);
-
-      info!("Destrying render target views...");
-      for view in self.render_targets.iter() {
-        self.logical_device.destroy_image_view(view.view, None);
-      }
-      // TODO OFFSCREEN if images and not swapchain destroy images.
-
-      // TODO OFFSCREEN if there is one, if not destroy images (as above todo states).
-      info!("Destrying swapchain...");
-      let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
-      let swapchain = self.swapchain_and_extension.swapchain;
-      swapchain_functions.destroy_swapchain(swapchain, None);
 
       // TODO OFFSCREEN if there is one
       info!("Destrying surface...");
