@@ -35,6 +35,9 @@ use std::{
 };
 use vk_shader_macros::include_glsl;
 
+// TODO MAINTENANCE shouldn't # of command buffers be equal to frames in flight,
+// not # of framebuffers?
+
 /// Default vertex shader that contain their own verticies, will be removed in
 /// the future.
 pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
