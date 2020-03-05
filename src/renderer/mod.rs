@@ -66,7 +66,6 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 pub trait Renderer {
   type SL;
 
-  // TODO simplify where?
   /// Loads a shader and returns a handle to be used for retrieval or pipeline
   /// creation.
   fn load_shader(
@@ -74,7 +73,7 @@ pub trait Renderer {
   ) -> SarektResult<ShaderHandle<Self::SL>>
   where
     Self::SL: ShaderLoader,
-    <<Self as Renderer>::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
+    <Self::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
 
   /// Mark this frame as complete and render it to the target of the renderer
   /// when ready.
