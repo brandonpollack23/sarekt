@@ -29,8 +29,7 @@
 //!   them (for Vulkan that's descriptor sets/layouts)
 //! - [ ] Support Other backends
 //! - [ ] Moar.
-//!
-//! Things on the TODO list are in a repo TODO file.
+//! Also see the file in project root.
 pub mod shaders;
 
 mod vulkan;
@@ -53,7 +52,7 @@ const IS_DEBUG_MODE: bool = true;
 const IS_DEBUG_MODE: bool = false;
 const ENABLE_VALIDATION_LAYERS: bool = IS_DEBUG_MODE;
 
-// TODO, wannta know more about what number is good here? [readme](https://software.intel.com/en-us/articles/practical-approach-to-vulkan-part-1)
+// Wanna know more about what number is good here? [readme](https://software.intel.com/en-us/articles/practical-approach-to-vulkan-part-1)
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 // ================================================================================
@@ -170,10 +169,6 @@ impl<'a> Default for EngineDetails<'a> {
     }
   }
 }
-
-// enum RendererBackend {
-//   Vulkan,
-// }
 
 // TODO for resources. user application in charge of loading, once they are
 // given to the renderer they are loaded into GPU memory and a handle is

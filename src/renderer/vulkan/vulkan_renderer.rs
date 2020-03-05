@@ -1195,7 +1195,7 @@ impl Renderer for VulkanRenderer {
         .queue_submit(self.queues.graphics_queue, &[submit_info], current_fence)?
     };
 
-    // TODO if presenting to swapchain.
+    // TODO only if presenting to swapchain.
     // Present to swapchain and display completed frame.
     let present_info = vk::PresentInfoKHR::builder()
       .wait_semaphores(&[render_finished_sem])
