@@ -9,8 +9,8 @@ pub struct BasePipelineBundle {
   pub pipeline: vk::Pipeline,
   pub pipeline_layout: vk::PipelineLayout,
   pub pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-  pub vertex_shader_handle: VulkanShaderHandle,
-  pub fragment_shader_handle: VulkanShaderHandle,
+  pub vertex_shader_handle: Option<VulkanShaderHandle>,
+  pub fragment_shader_handle: Option<VulkanShaderHandle>,
 }
 impl BasePipelineBundle {
   pub fn new(
@@ -23,8 +23,8 @@ impl BasePipelineBundle {
       pipeline,
       pipeline_layout,
       pipeline_create_info,
-      vertex_shader_handle,
-      fragment_shader_handle,
+      vertex_shader_handle: Some(vertex_shader_handle),
+      fragment_shader_handle: Some(fragment_shader_handle),
     }
   }
 }

@@ -847,15 +847,21 @@ impl VulkanRenderer {
 
     // Save the handles to the base shaders so they don't have to be recreated for
     // no reason.
-    let vertex_shader_handle = self.base_graphics_pipeline_bundle.vertex_shader_handle;
-    let fragment_shader_handle = self.base_graphics_pipeline_bundle.fragment_shader_handle;
+    let vertex_shader_handle = self
+      .base_graphics_pipeline_bundle
+      .vertex_shader_handle
+      .take();
+    let fragment_shader_handle = self
+      .base_graphics_pipeline_bundle
+      .fragment_shader_handle
+      .take();
     self.base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
       logical_device,
       shader_store,
       new_extent,
       self.forward_render_pass,
-      vertex_shader_handle,
-      fragment_shader_handle,
+      vertex_shader_handle.unwrap(),
+      fragment_shader_handle.unwrap(),
     )?;
 
     self.framebuffers = Self::create_framebuffers(
@@ -996,7 +1002,8 @@ impl VulkanRenderer {
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: Extent2D, render_pass: vk::RenderPass,
   ) -> SarektResult<BasePipelineBundle> {
-    let (vertex_shader_handle, fragment_shader_handle) = Self::create_default_shaders();
+    let (vertex_shader_handle, fragment_shader_handle) =
+      Self::create_default_shaders(shader_store)?;
     Self::create_base_graphics_pipeline(
       logical_device,
       shader_store,
@@ -1007,7 +1014,9 @@ impl VulkanRenderer {
     )
   }
 
-  fn create_default_shaders() -> SarektResult<(VulkanShaderHandle, VulkanShaderHandle)> {
+  fn create_default_shaders(
+    shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
+  ) -> SarektResult<(VulkanShaderHandle, VulkanShaderHandle)> {
     let vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
