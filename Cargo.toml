@@ -15,11 +15,13 @@ path = "examples/01_init_instance.rs"
 [dependencies]
 ash = {git = "https://github.com/MaikKlein/ash" }
 ash-window = {git = "https://github.com/brandonpollack23/ash-window" }
-static_assertions = "^1.1.0"
 lazy_static = "^1.4.0"
 log = "^0.4.8"
+memoffset = "0.5.3"
+nalgebra = "^0.20.0"
 raw-window-handle = "^0.3.3"
 slotmap = "^0.4.0"
+static_assertions = "^1.1.0"
 vk-shader-macros = "^0.2.2"
 winit = "^0.21.0"
 

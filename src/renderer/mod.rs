@@ -31,6 +31,7 @@
 //! - [ ] Moar.
 //! Also see the file in project root.
 pub mod shaders;
+pub mod vertex_bindings;
 
 mod vulkan;
 
