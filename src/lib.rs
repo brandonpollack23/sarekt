@@ -3,5 +3,8 @@
 //! supports that...
 //!
 //! See renderer crate for how to use.
+#[macro_use]
+extern crate memoffset;
+
 pub mod error;
 pub mod renderer;

@@ -2,6 +2,7 @@ use crate::{
   error::{SarektError, SarektResult},
   renderer::{
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
+    vertex_bindings::{DefaultForwardShaderVertex, VertexBindings},
     vulkan::{
       base_pipeline_bundle::BasePipelineBundle,
       debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
@@ -11,7 +12,7 @@ use crate::{
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
       vulkan_shader_functions::VulkanShaderFunctions,
-      VulkanShaderHandle,
+      vulkan_vertex_bindings, VulkanShaderHandle,
     },
     ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
     MAX_FRAMES_IN_FLIGHT,
@@ -39,12 +40,12 @@ use vk_shader_macros::include_glsl;
 // TODO MAINTENANCE shouldn't # of command buffers be equal to frames in flight,
 // not # of framebuffers?
 
-/// Default vertex shader that contain their own verticies, will be removed in
+/// Default vertex shader that contain their own vertices, will be removed in
 /// the future.
-pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.vert");
-/// Default fragment shader that contain their own verticies, will be removed in
+pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.vert");
+/// Default fragment shader that contain their own vertices, will be removed in
 /// the future.
-pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/no_buffer_triangle.frag");
+pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
 lazy_static! {
   static ref VALIDATION_LAYERS: Vec<CString> =
@@ -1062,9 +1063,11 @@ impl VulkanRenderer {
 
     let shader_stage_cis = [vert_shader_stage_ci, frag_shader_stage_ci];
 
+    let binding_desc = DefaultForwardShaderVertex::get_binding_description();
+    let attr_descs = DefaultForwardShaderVertex::get_attribute_descriptions();
     let vertex_input_ci = vk::PipelineVertexInputStateCreateInfo::builder()
-      .vertex_binding_descriptions(&[])
-      .vertex_attribute_descriptions(&[])
+      .vertex_binding_descriptions(&[binding_desc])
+      .vertex_attribute_descriptions(&attr_descs)
       .build();
 
     let input_assembly_ci = vk::PipelineInputAssemblyStateCreateInfo::builder()
@@ -1530,4 +1533,7 @@ mod tests {
     std::mem::drop(renderer);
     assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
   }
+
+  // TODO AFTER VERTEX write triangle sanity check that can dump buffer and
+  // compare to golden image.
 }
