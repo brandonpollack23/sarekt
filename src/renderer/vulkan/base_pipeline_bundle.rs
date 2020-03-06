@@ -1,4 +1,7 @@
-use crate::renderer::{vulkan::vulkan_shader_functions::VulkanShaderFunctions, ShaderHandle};
+use crate::renderer::{
+  vulkan::{vulkan_shader_functions::VulkanShaderFunctions, VulkanShaderHandle},
+  ShaderHandle,
+};
 use ash::vk;
 
 /// Just a pipeline bundle to help return when creating the base pipeline.
@@ -6,8 +9,8 @@ pub struct BasePipelineBundle {
   pub pipeline: vk::Pipeline,
   pub pipeline_layout: vk::PipelineLayout,
   pub pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-  pub vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
-  pub fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
+  pub vertex_shader_handle: VulkanShaderHandle,
+  pub fragment_shader_handle: VulkanShaderHandle,
 }
 impl BasePipelineBundle {
   pub fn new(

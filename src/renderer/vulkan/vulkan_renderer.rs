@@ -11,6 +11,7 @@ use crate::{
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
       vulkan_shader_functions::VulkanShaderFunctions,
+      VulkanShaderHandle,
     },
     ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
     MAX_FRAMES_IN_FLIGHT,
@@ -205,7 +206,7 @@ impl VulkanRenderer {
     // TODO RENDERING_CAPABILITIES support other render pass types.
     let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
 
-    let base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
+    let base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline_and_shaders(
       &logical_device,
       &shader_store, // Unlock and get a local mut ref to shaderstore.
       extent,
@@ -844,11 +845,17 @@ impl VulkanRenderer {
 
     self.forward_render_pass = Self::create_forward_render_pass(logical_device, new_format)?;
 
+    // Save the handles to the base shaders so they don't have to be recreated for
+    // no reason.
+    let vertex_shader_handle = self.base_graphics_pipeline_bundle.vertex_shader_handle;
+    let fragment_shader_handle = self.base_graphics_pipeline_bundle.fragment_shader_handle;
     self.base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
       logical_device,
       shader_store,
       new_extent,
       self.forward_render_pass,
+      vertex_shader_handle,
+      fragment_shader_handle,
     )?;
 
     self.framebuffers = Self::create_framebuffers(
@@ -985,10 +992,22 @@ impl VulkanRenderer {
   /// LoadShaders etc.
   ///
   /// TODO RENDERING_CAPABILITIES enable pipeline cache.
-  fn create_base_graphics_pipeline(
+  fn create_base_graphics_pipeline_and_shaders(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: Extent2D, render_pass: vk::RenderPass,
   ) -> SarektResult<BasePipelineBundle> {
+    let (vertex_shader_handle, fragment_shader_handle) = Self::create_default_shaders();
+    Self::create_base_graphics_pipeline(
+      logical_device,
+      shader_store,
+      extent,
+      render_pass,
+      vertex_shader_handle,
+      fragment_shader_handle,
+    )
+  }
+
+  fn create_default_shaders() -> SarektResult<(VulkanShaderHandle, VulkanShaderHandle)> {
     let vertex_shader_handle = ShaderStore::load_shader(
       shader_store,
       &ShaderCode::Spirv(DEFAULT_VERTEX_SHADER),
@@ -1000,6 +1019,14 @@ impl VulkanRenderer {
       ShaderType::Vertex,
     )?;
 
+    Ok((vertex_shader_handle, fragment_shader_handle))
+  }
+
+  fn create_base_graphics_pipeline(
+    logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
+    extent: Extent2D, render_pass: vk::RenderPass, vertex_shader_handle: VulkanShaderHandle,
+    fragment_shader_handle: VulkanShaderHandle,
+  ) -> SarektResult<BasePipelineBundle> {
     let shader_store = shader_store.read().unwrap();
 
     let entry_point_name = CString::new("main").unwrap();
@@ -1077,7 +1104,7 @@ impl VulkanRenderer {
     let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
       .color_write_mask(vk::ColorComponentFlags::all()) // RGBA
       .blend_enable(false)
-    // everything else optional because its not enabled.
+      // everything else optional because its not enabled.
       .build();
     let color_blend_ci = vk::PipelineColorBlendStateCreateInfo::builder()
       .logic_op_enable(false)
