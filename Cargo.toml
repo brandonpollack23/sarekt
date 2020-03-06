@@ -12,6 +12,14 @@ path = "examples/00_base_code.rs"
 name = "01_init_instance"
 path = "examples/01_init_instance.rs"
 
+[[example]]
+name = "02_basic_loop"
+path = "examples/02_basic_loop.rs"
+
+[[example]]
+name = "03_loading_vertices"
+path = "examples/03_loading_vertices.rs"
+
 [dependencies]
 ash = {git = "https://github.com/MaikKlein/ash" }
 ash-window = {git = "https://github.com/brandonpollack23/ash-window" }
