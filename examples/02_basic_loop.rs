@@ -1,4 +1,4 @@
-use log::{info, Level};
+use log::{info, warn, Level};
 use sarekt::{
   self,
   error::SarektError,
@@ -6,7 +6,7 @@ use sarekt::{
 };
 use std::{error::Error, sync::Arc};
 use winit::{
-  dpi::LogicalSize,
+  dpi::{LogicalSize, PhysicalSize},
   event::{ElementState, Event, VirtualKeyCode, WindowEvent},
   event_loop::{ControlFlow, EventLoop},
   window::{Window, WindowBuilder, WindowId},
@@ -62,7 +62,17 @@ impl SarektApp {
         }
         Event::RedrawRequested(_) => {
           // Redraw requested, this is called after MainEventsCleared.
-          renderer.frame().unwrap();
+          renderer.frame().unwrap_or_else(|err| {
+            match err {
+              SarektError::SwapchainOutOfDate => {
+                // Handle window resize etc.
+                warn!("Tried to render without processing window resize event!");
+                let PhysicalSize { width, height } = window.inner_size();
+                renderer.recreate_swapchain(width, height);
+              }
+              e => panic!(e),
+            }
+          });
         }
         Event::WindowEvent { window_id, event } => {
           Self::main_loop_window_event(&event, &window_id, control_flow, &mut renderer);
@@ -74,7 +84,7 @@ impl SarektApp {
 
   fn main_loop_window_event(
     event: &WindowEvent, _id: &WindowId, control_flow: &mut winit::event_loop::ControlFlow,
-    _renderer: &mut VulkanRenderer,
+    renderer: &mut VulkanRenderer,
   ) {
     match event {
       WindowEvent::CloseRequested => {
@@ -93,14 +103,13 @@ impl SarektApp {
           *control_flow = ControlFlow::Exit
         }
       }
-      WindowEvent::Resized(_size) => {
-        // TODO
+      WindowEvent::Resized(size) => {
         // If the size is 0, minimization or something like that happened so I
         // toggle drawing.
-        // let enabled = !(size.height == 0 && size.width == 0);
-        // renderer.set_rendering_enabled(enabled);
-
-        // renderer.notify_window_resized()
+        info!("Window resized, recreating renderer swapchain...");
+        let enabled = !(size.height == 0 && size.width == 0);
+        renderer.set_rendering_enabled(enabled);
+        renderer.recreate_swapchain(size.width, size.height);
       }
       _ => (),
     }
@@ -108,7 +117,7 @@ impl SarektApp {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  simple_logger::init_with_level(Level::Warn)?;
+  simple_logger::init_with_level(Level::Info)?;
   let app = SarektApp::new().expect("Could not create instance!");
   app.main_loop();
   Ok(())
