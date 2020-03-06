@@ -4,6 +4,8 @@ use crate::{
 };
 use ash::vk;
 
+// TODO SHADERS use reflection to generate these at compile time (generically?).
+
 unsafe impl VertexBindings for DefaultForwardShaderVertex {
   type BVA = vk::VertexInputAttributeDescription;
   type BVB = vk::VertexInputBindingDescription;
