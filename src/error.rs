@@ -1,5 +1,6 @@
 use crate::error::SarektError::CStrError;
 
+use ash::vk;
 use std::{error::Error, ffi::NulError, fmt};
 
 pub type SarektResult<T> = Result<T, SarektError>;
@@ -7,7 +8,8 @@ pub type SarektResult<T> = Result<T, SarektError>;
 #[derive(Debug)]
 pub enum SarektError {
   Unknown,
-  VulkanError(ash::vk::Result),
+  SwapchainOutOfDate,
+  VulkanError(vk::Result),
   InstanceError(ash::InstanceError),
   UnknownShader,
   IncompatibleShaderCode,
@@ -15,9 +17,12 @@ pub enum SarektError {
   CStrError(NulError),
 }
 
-impl From<ash::vk::Result> for SarektError {
-  fn from(e: ash::vk::Result) -> Self {
-    SarektError::VulkanError(e)
+impl From<vk::Result> for SarektError {
+  fn from(e: vk::Result) -> Self {
+    match e {
+      vk::Result::SUBOPTIMAL_KHR => SarektError::SwapchainOutOfDate,
+      e => SarektError::VulkanError(e),
+    }
   }
 }
 impl From<ash::InstanceError> for SarektError {
@@ -35,6 +40,10 @@ impl fmt::Display for SarektError {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
       SarektError::Unknown => write!(f, "Unknown Error"),
+      SarektError::SwapchainOutOfDate => write!(
+        f,
+        "Swapchain is out of date, try using recreate_swapchain method"
+      ),
       SarektError::VulkanError(r) => write!(f, "Vulkan Error: {}", r),
       SarektError::InstanceError(e) => write!(f, "The vulkan wrapper ash produced an error: {}", e),
       SarektError::UnknownShader => write!(f, "Tried to act on unknown shader"),

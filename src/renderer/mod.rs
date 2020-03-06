@@ -66,6 +66,12 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 pub trait Renderer {
   type SL;
 
+  /// Mark this frame as complete and render it to the target of the renderer
+  /// when ready.
+  fn frame(&self) -> SarektResult<()>;
+
+  fn set_rendering_enabled(&mut self, enabled: bool);
+
   /// Loads a shader and returns a handle to be used for retrieval or pipeline
   /// creation.
   fn load_shader(
@@ -75,15 +81,14 @@ pub trait Renderer {
     Self::SL: ShaderLoader,
     <Self::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
 
-  /// Mark this frame as complete and render it to the target of the renderer
-  /// when ready.
-  fn frame(&self) -> SarektResult<()>;
+  /// Handle swapchain out of date, such as window changes.
+  fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
 }
 
 /// Trait that each renderer as well as its secondary drawers (if supported)
 /// implement for multi-threading purposes.
 pub trait Drawer {
-  fn draw() -> SarektResult<()>;
+  fn draw(&self) -> SarektResult<()>;
 }
 
 // ================================================================================

@@ -35,9 +35,6 @@ use std::{
 };
 use vk_shader_macros::include_glsl;
 
-// TODO NOW try to get rid of all &mut self in here and mark this as !Sync.
-// Utilize Cell for recreate swapchain.
-
 // TODO MAINTENANCE shouldn't # of command buffers be equal to frames in flight,
 // not # of framebuffers?
 
@@ -82,6 +79,9 @@ pub struct VulkanRenderer {
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
   draw_synchronization: DrawSynchronization,
   current_frame_num: Cell<usize>,
+
+  // Application controllable fields
+  rendering_enabled: bool,
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -258,6 +258,8 @@ impl VulkanRenderer {
       primary_gfx_command_buffers,
       draw_synchronization,
       current_frame_num: Cell::new(0),
+
+      rendering_enabled: true,
 
       shader_store,
     })
@@ -829,7 +831,7 @@ impl VulkanRenderer {
       height,
       Some(old_swapchain),
     )?;
-    self.cleanup_swapchain();
+    self.cleanup_swapchain()?;
 
     // Create all new resources and set them in this struct.
     self.swapchain_and_extension.swapchain = new_swapchain;
@@ -875,7 +877,14 @@ impl VulkanRenderer {
   /// * Graphics Pipelines
   /// * Framebuffers
   /// * Command Buffers.
-  unsafe fn cleanup_swapchain(&self) {
+  unsafe fn cleanup_swapchain(&self) -> SarektResult<()> {
+    // Wait for all in flight frames.
+    self.logical_device.wait_for_fences(
+      &self.draw_synchronization.in_flight_fences,
+      true,
+      u64::max_value(),
+    )?;
+
     // TODO MULTITHREADING do I need to free others?
     info!("Freeing primary command buffers...");
     self.logical_device.free_command_buffers(
@@ -914,6 +923,8 @@ impl VulkanRenderer {
     let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
     let swapchain = self.swapchain_and_extension.swapchain;
     swapchain_functions.destroy_swapchain(swapchain, None);
+
+    Ok(())
   }
 
   // ================================================================================
@@ -1246,14 +1257,12 @@ impl VulkanRenderer {
 impl Renderer for VulkanRenderer {
   type SL = VulkanShaderFunctions;
 
-  fn load_shader(
-    &mut self, code: &ShaderCode, shader_type: ShaderType,
-  ) -> SarektResult<ShaderHandle<Self::SL>> {
-    ShaderStore::load_shader(&self.shader_store, &code, shader_type)
-  }
-
   // TODO OFFSCREEN handle off screen rendering.
   fn frame(&self) -> SarektResult<()> {
+    if !self.rendering_enabled {
+      return Ok(());
+    }
+
     let current_fence = self.draw_synchronization.in_flight_fences[self.current_frame_num.get()];
     let image_available_sem =
       self.draw_synchronization.image_available_semaphores[self.current_frame_num.get()];
@@ -1270,6 +1279,7 @@ impl Renderer for VulkanRenderer {
 
     // TODO OFFSCREEN handle drawing without swapchain.
     let (image_index, is_suboptimal) = unsafe {
+      // Will return if swapchain is out of date.
       self
         .swapchain_and_extension
         .swapchain_functions
@@ -1325,9 +1335,32 @@ impl Renderer for VulkanRenderer {
 
     Ok(())
   }
+
+  fn set_rendering_enabled(&mut self, enabled: bool) {
+    self.rendering_enabled = enabled;
+  }
+
+  fn load_shader(
+    &mut self, code: &ShaderCode, shader_type: ShaderType,
+  ) -> SarektResult<ShaderHandle<Self::SL>> {
+    ShaderStore::load_shader(&self.shader_store, &code, shader_type)
+  }
+
+  fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
+    if width == 0 || height == 0 {
+      // It violates the vulkan spec to make extents this small, rendering should be
+      // disabled explicitly in this case, but its up the application/platform.
+      return Ok(());
+    }
+
+    unsafe { self.recreate_swap_chain(width, height) }
+  }
 }
 impl Drawer for VulkanRenderer {
-  fn draw() -> SarektResult<()> {
+  fn draw(&self) -> SarektResult<()> {
+    if !self.rendering_enabled {
+      return Ok(());
+    }
     Ok(())
   }
 }
@@ -1339,14 +1372,16 @@ impl Drop for VulkanRenderer {
         error!("Failed to wait for idle! {}", e);
       }
 
+      self
+        .cleanup_swapchain()
+        .expect("Could not clean up swapchain while cleaning up VulkanRenderer...");
+
       self.draw_synchronization.destroy_all(&self.logical_device);
 
       info!("Destroying all command pools...");
       self
         .logical_device
         .destroy_command_pool(self.primary_gfx_command_pool, None);
-
-      self.cleanup_swapchain();
 
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
