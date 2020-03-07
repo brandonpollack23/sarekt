@@ -8,13 +8,15 @@ pub type SarektResult<T> = Result<T, SarektError>;
 #[derive(Debug)]
 pub enum SarektError {
   Unknown,
+  CouldNotSelectPhysicalDevice,
   SwapchainOutOfDate,
+  CStrError(NulError),
   VulkanError(vk::Result),
   InstanceError(ash::InstanceError),
   UnknownShader,
   IncompatibleShaderCode,
-  CouldNotSelectPhysicalDevice,
-  CStrError(NulError),
+  UnknownBuffer,
+  NoSuitableMemoryHeap,
 }
 
 impl From<vk::Result> for SarektError {
@@ -47,6 +49,11 @@ impl fmt::Display for SarektError {
       SarektError::VulkanError(r) => write!(f, "Vulkan Error: {}", r),
       SarektError::InstanceError(e) => write!(f, "The vulkan wrapper ash produced an error: {}", e),
       SarektError::UnknownShader => write!(f, "Tried to act on unknown shader"),
+      SarektError::UnknownBuffer => write!(f, "Tried to act on unknown buffer"),
+      SarektError::NoSuitableMemoryHeap => write!(
+        f,
+        "Could not find memory heap that was suitable for the device allocation."
+      ),
       SarektError::IncompatibleShaderCode => {
         write!(f, "Tried to load an incompatible shader type into backend")
       }

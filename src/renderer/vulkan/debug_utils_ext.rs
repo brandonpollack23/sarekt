@@ -127,6 +127,7 @@ impl DebugUserData {
 
   /// Returns the number of errors, warning, and info messages created by the
   /// debug layers.
+  #[allow(dead_code)]
   pub fn get_error_counts(&self) -> DebugUserDataCopy {
     DebugUserDataCopy {
       info_count: self.info_count.load(Ordering::SeqCst),

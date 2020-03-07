@@ -30,6 +30,8 @@
 //! - [ ] Support Other backends
 //! - [ ] Moar.
 //! Also see the file in project root.
+pub mod buffers;
+pub mod drawable_object;
 pub mod shaders;
 pub mod vertex_bindings;
 
@@ -40,8 +42,12 @@ pub use crate::{
   renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
 };
 pub use shaders::{ShaderHandle, ShaderType};
-pub use vulkan::vulkan_renderer::VulkanRenderer;
+pub use vulkan::{vulkan_buffer_functions::VulkanBufferFunctions, vulkan_renderer::VulkanRenderer};
 
+use crate::renderer::{
+  buffers::{BufferBackendHandle, BufferHandle, BufferLoader, BufferType},
+  drawable_object::DrawableObject,
+};
 use std::fmt::Debug;
 
 // ================================================================================
@@ -64,7 +70,9 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 /// buffers in parallel), finalize the frame, etc.
 ///
 /// SL is the [Shader Loader](trait.ShaderLoader.html) for the backing renderer.
+/// BL is the [Buffer Loader](trait.BufferLoader.html) for the backing renderer.
 pub trait Renderer {
+  type BL;
   type SL;
 
   /// Mark this frame as complete and render it to the target of the renderer
@@ -73,14 +81,31 @@ pub trait Renderer {
 
   fn set_rendering_enabled(&mut self, enabled: bool);
 
-  /// Loads a shader and returns a handle to be used for retrieval or pipeline
-  /// creation.
+  // TODO get_shader and get_buffer? with handle
+
+  /// Loads a shader and returns a RAII handle to be used for retrieval or
+  /// pipeline creation.
   fn load_shader(
     &mut self, spirv: &ShaderCode, shader_type: ShaderType,
   ) -> SarektResult<ShaderHandle<Self::SL>>
   where
     Self::SL: ShaderLoader,
     <Self::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
+
+  /// Loads a buffer and returns a RAII handle to be used for retrieval.
+  fn load_buffer<BufElem: Sized>(
+    &mut self, buffer_type: BufferType, buffer: &[BufElem],
+  ) -> SarektResult<BufferHandle<Self::BL>>
+  where
+    Self::BL: BufferLoader,
+    <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+
+  fn get_buffer(
+    &self, handle: &BufferHandle<Self::BL>,
+  ) -> SarektResult<<Self::BL as BufferLoader>::BBH>
+  where
+    Self::BL: BufferLoader,
+    <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
 
   /// Handle swapchain out of date, such as window changes.
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
@@ -89,7 +114,17 @@ pub trait Renderer {
 /// Trait that each renderer as well as its secondary drawers (if supported)
 /// implement for multi-threading purposes.
 pub trait Drawer {
-  fn draw(&self) -> SarektResult<()>;
+  type R;
+
+  fn draw(&self, object: &DrawableObject<Self::R>) -> SarektResult<()>
+  where
+    Self::R: Renderer,
+    <Self::R as Renderer>::BL: BufferLoader,
+    <<Self::R as Renderer>::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+
+  // TODO RENDERING select render pass (predefined set?) log when pipeline not
+  // compatible and dont draw? End previous render pass and keep track of last
+  // render pass to end it as well.
 }
 
 // ================================================================================
@@ -174,24 +209,3 @@ impl<'a> Default for EngineDetails<'a> {
     }
   }
 }
-
-// TODO for resources. user application in charge of loading, once they are
-// given to the renderer they are loaded into GPU memory and a handle is
-// returned.
-//
-// These handles are implemented as enums with a type for each backend
-// containing its actual handle.
-//
-// This includes handles to uniforms (backed by whatever the shader said to be)
-// (if other backends implemented shader_cross has to get them ready to be
-// for that shader type and use them how we like).
-//
-// These handles could be used to change changeable values (eg uniforms).
-//
-// These objects are used to insert an object into the scene, which generates
-// the appropriate pipline (potentially the pipeline can be generated even
-// without full insertion), commands to draw it, etc.
-//
-// Uniforms (and maybe SSBOs along with them) specifically in vulkan would be an
-// enum of uniform/ssbo type WITHIN the SarektUniformHandle.  Then i can match
-// and do the write command buffer strategy to draw them.
