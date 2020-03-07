@@ -1,5 +1,3 @@
-use crate::error::SarektResult;
-use ash::vk;
 use nalgebra as na;
 
 /// A trait that provides a static function that generates backend specific
@@ -30,6 +28,7 @@ pub unsafe trait VertexBindings {
 
 /// Inputs to the sarekt_forward shader set.
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct DefaultForwardShaderVertex {
   pub position: na::Vector2<f32>,
   pub color: na::Vector3<f32>,
@@ -41,4 +40,8 @@ impl DefaultForwardShaderVertex {
       color: na::Vector3::from_row_slice(color),
     }
   }
+
+  // TODO CRITICAL asset based creation (OBJ)
+  // Do it in its own class that builds this and then loads it in without keeping
+  // it in memory, or optionally returns a handle and the in memory handle.
 }

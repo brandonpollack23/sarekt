@@ -1,7 +1,4 @@
-use crate::{
-  error::{SarektError, SarektResult},
-  renderer::vertex_bindings::{DefaultForwardShaderVertex, VertexBindings},
-};
+use crate::renderer::vertex_bindings::{DefaultForwardShaderVertex, VertexBindings};
 use ash::vk;
 
 // TODO SHADERS use reflection to generate these at compile time (generically?).
@@ -29,7 +26,7 @@ unsafe impl VertexBindings for DefaultForwardShaderVertex {
     let color_attr = vk::VertexInputAttributeDescription::builder()
       .binding(0) // Which binding in the shader.
       .location(1) // The layout location in the shader.
-      .format(vk::Format::R32G32_SFLOAT) // RGB is unintuitive but the point is its two floats.
+      .format(vk::Format::R32G32B32_SFLOAT) // RGB is unintuitive but the point is its two floats.
       .offset(offset_of!(DefaultForwardShaderVertex, color) as u32)
       .build();
 

@@ -1,6 +1,8 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
+    buffers::{BufferHandle, BufferLoader, BufferStore, BufferType},
+    drawable_object::DrawableObject,
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vertex_bindings::{DefaultForwardShaderVertex, VertexBindings},
     vulkan::{
@@ -11,8 +13,9 @@ use crate::{
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
+      vulkan_buffer_functions::VulkanBufferFunctions,
       vulkan_shader_functions::VulkanShaderFunctions,
-      vulkan_vertex_bindings, VulkanShaderHandle,
+      VulkanShaderHandle,
     },
     ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
     MAX_FRAMES_IN_FLIGHT,
@@ -37,9 +40,6 @@ use std::{
 };
 use vk_shader_macros::include_glsl;
 
-// TODO MAINTENANCE shouldn't # of command buffers be equal to frames in flight,
-// not # of framebuffers?
-
 /// Default vertex shader that contain their own vertices, will be removed in
 /// the future.
 pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.vert");
@@ -56,7 +56,7 @@ lazy_static! {
 pub struct VulkanRenderer {
   // Base vulkan items, driver loader, instance, extensions.
   _entry: Entry,
-  instance: Instance,
+  instance: Arc<Instance>,
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
   surface_and_extension: SurfaceAndExtension, // TODO OFFSCREEN option
 
@@ -70,6 +70,7 @@ pub struct VulkanRenderer {
   // Rendering related.
   swapchain_and_extension: SwapchainAndExtension, // TODO OFFSCREEN option
   render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
+  extent: vk::Extent2D,
 
   // Pipeline related
   forward_render_pass: vk::RenderPass,
@@ -77,7 +78,7 @@ pub struct VulkanRenderer {
   framebuffers: Vec<vk::Framebuffer>,
 
   // Command pools, buffers, drawing, and synchronization related primitives and information.
-  primary_gfx_command_pool: vk::CommandPool,
+  main_gfx_command_pool: vk::CommandPool,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
   draw_synchronization: DrawSynchronization,
   current_frame_num: Cell<usize>,
@@ -87,6 +88,7 @@ pub struct VulkanRenderer {
 
   // Utilities
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
+  buffer_store: Arc<RwLock<BufferStore<VulkanBufferFunctions>>>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -124,7 +126,7 @@ impl VulkanRenderer {
     window: OW, requested_width: u32, requested_height: u32,
     application_details: ApplicationDetails, engine_details: EngineDetails,
     debug_user_data: Option<Pin<Arc<DebugUserData>>>,
-  ) -> Result<Self, SarektError> {
+  ) -> SarektResult<Self> {
     // TODO OFFSCREEN Support rendering to a non window surface if window is None
     // (change it to an Enum of WindowHandle or OtherSurface).
     info!("Creating Sarekt Renderer with Vulkan Backend...");
@@ -162,10 +164,11 @@ impl VulkanRenderer {
     // passed, otherwise make images directly.
     // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
     // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
-    let surface = unsafe { ash_window::create_surface(&entry, &instance, window.as_ref(), None)? };
+    let surface =
+      unsafe { ash_window::create_surface(&entry, instance.as_ref(), window.as_ref(), None)? };
     let surface_and_extension = SurfaceAndExtension::new(
       surface,
-      ash::extensions::khr::Surface::new(&entry, &instance),
+      ash::extensions::khr::Surface::new(&entry, instance.as_ref()),
     );
 
     let physical_device = Self::pick_physical_device(&instance, &surface_and_extension)?;
@@ -176,10 +179,9 @@ impl VulkanRenderer {
     // TODO OFFSCREEN only create if drawing to window, get format and extent
     // elsewhere.
     let swapchain_extension =
-      ash::extensions::khr::Swapchain::new(&instance, logical_device.as_ref());
+      ash::extensions::khr::Swapchain::new(instance.as_ref(), logical_device.as_ref());
     let (swapchain, format, extent) = Self::create_swap_chain(
       &instance,
-      &logical_device,
       &surface_and_extension,
       &swapchain_extension,
       physical_device,
@@ -203,6 +205,7 @@ impl VulkanRenderer {
     )?;
 
     let shader_store = Self::create_shader_store(&logical_device);
+    let buffer_store = Self::create_buffer_store(&instance, physical_device, &logical_device);
 
     // TODO RENDERING_CAPABILITIES support other render pass types.
     let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
@@ -222,25 +225,19 @@ impl VulkanRenderer {
       extent,
     )?;
 
-    let (primary_gfx_command_pool) = Self::create_primary_command_pools(
+    let main_gfx_command_pool = Self::create_primary_command_pools(
       &instance,
       physical_device,
       &surface_and_extension,
       &logical_device,
     )?;
 
-    let primary_gfx_command_buffers = Self::create_primary_gfx_command_buffers(
-      &logical_device,
-      primary_gfx_command_pool,
-      &framebuffers,
-      extent,
-      forward_render_pass,
-      base_graphics_pipeline_bundle.pipeline,
-    )?;
+    let primary_gfx_command_buffers =
+      Self::create_main_gfx_command_buffers(&logical_device, main_gfx_command_pool, &framebuffers)?;
 
     let draw_synchronization = DrawSynchronization::new(&logical_device, render_targets.len())?;
 
-    Ok(Self {
+    let renderer = Self {
       _entry: entry,
       instance,
       debug_utils_and_messenger,
@@ -251,12 +248,13 @@ impl VulkanRenderer {
 
       swapchain_and_extension,
       render_targets,
+      extent,
 
       forward_render_pass,
       base_graphics_pipeline_bundle,
       framebuffers,
 
-      primary_gfx_command_pool,
+      main_gfx_command_pool,
       primary_gfx_command_buffers,
       draw_synchronization,
       current_frame_num: Cell::new(0),
@@ -264,7 +262,14 @@ impl VulkanRenderer {
       rendering_enabled: true,
 
       shader_store,
-    })
+      buffer_store,
+    };
+
+    // Begin recording first command buffer so the first call to Drawer::draw is
+    // ready to record.  The rest are started by Renderer::frame.
+    renderer.setup_next_main_command_buffer()?;
+
+    Ok(renderer)
   }
 }
 /// Private implementation details.
@@ -278,7 +283,7 @@ impl VulkanRenderer {
   fn create_instance<W: HasRawWindowHandle>(
     entry: &Entry, window: &W, application_name: &str, application_version: u32, engine_name: &str,
     engine_version: u32,
-  ) -> Result<Instance, SarektError> {
+  ) -> SarektResult<Arc<Instance>> {
     // TODO Detect vulkan versions available?
     let app_info = vk::ApplicationInfo::builder()
       .application_name(CString::new(application_name)?.as_c_str())
@@ -324,7 +329,7 @@ impl VulkanRenderer {
       .build();
 
     let instance = unsafe { entry.create_instance(&instance_create_info, None) }?;
-    Ok(instance)
+    Ok(Arc::new(instance))
   }
 
   // ================================================================================
@@ -626,7 +631,7 @@ impl VulkanRenderer {
   /// configuration of sarekt, creates a swapchain with the appropriate
   /// configuration (format, color space, present mode, and extent).
   fn create_swap_chain(
-    instance: &Instance, logical_device: &Device, surface_and_extension: &SurfaceAndExtension,
+    instance: &Instance, surface_and_extension: &SurfaceAndExtension,
     swapchain_extension: &ash::extensions::khr::Swapchain, physical_device: vk::PhysicalDevice,
     requested_width: u32, requested_height: u32, old_swapchain: Option<vk::SwapchainKHR>,
   ) -> SarektResult<(vk::SwapchainKHR, vk::Format, vk::Extent2D)> {
@@ -677,7 +682,7 @@ impl VulkanRenderer {
       .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // No alpha blending within the window system for now.
       .present_mode(present_mode)
       .clipped(true) // Go ahead and discard rendering ops we dont need (window half off screen).
-      .old_swapchain(old_swapchain.unwrap_or(vk::SwapchainKHR::null())) // Pass old swapchain for recreation.
+      .old_swapchain(old_swapchain.unwrap_or_else(vk::SwapchainKHR::null)) // Pass old swapchain for recreation.
       .build();
 
     let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
@@ -814,7 +819,6 @@ impl VulkanRenderer {
     let old_swapchain = self.swapchain_and_extension.swapchain;
     let swapchain_extension = &self.swapchain_and_extension.swapchain_functions;
     let shader_store = &self.shader_store;
-    let primary_gfx_command_pool = self.primary_gfx_command_pool;
 
     // Procedure: Make new Swapchain (recycling old one), cleanup old resources and
     // recreate them:
@@ -825,7 +829,6 @@ impl VulkanRenderer {
     // * Command Buffers.
     let (new_swapchain, new_format, new_extent) = Self::create_swap_chain(
       instance,
-      logical_device,
       surface_and_extension,
       swapchain_extension,
       physical_device,
@@ -872,15 +875,6 @@ impl VulkanRenderer {
       new_extent,
     )?;
 
-    self.primary_gfx_command_buffers = Self::create_primary_gfx_command_buffers(
-      logical_device,
-      primary_gfx_command_pool,
-      &self.framebuffers,
-      new_extent,
-      self.forward_render_pass,
-      self.base_graphics_pipeline_bundle.pipeline,
-    )?;
-
     Ok(())
   }
 
@@ -902,7 +896,7 @@ impl VulkanRenderer {
     // TODO MULTITHREADING do I need to free others?
     info!("Freeing primary command buffers...");
     self.logical_device.free_command_buffers(
-      self.primary_gfx_command_pool,
+      self.main_gfx_command_pool,
       &self.primary_gfx_command_buffers,
     );
 
@@ -1198,7 +1192,7 @@ impl VulkanRenderer {
   fn create_primary_command_pools(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension, logical_device: &Device,
-  ) -> SarektResult<(vk::CommandPool)> {
+  ) -> SarektResult<vk::CommandPool> {
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
 
@@ -1206,16 +1200,19 @@ impl VulkanRenderer {
 
     let gfx_pool_ci = vk::CommandPoolCreateInfo::builder()
       .queue_family_index(queue_family_indices.graphics_queue_family.unwrap())
+      .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER) // TODO CRITICAL create one command pool for each framebuffer to allow resetting individually at the pool level?
       .build();
 
     let gfx_pool = unsafe { logical_device.create_command_pool(&gfx_pool_ci, None)? };
-    Ok((gfx_pool))
+    Ok(gfx_pool)
   }
 
-  fn create_primary_gfx_command_buffers(
+  /// Creates command buffer for main thread to make draw calls on.
+  ///
+  /// TODO MULTITHREADING one secondary per thread.
+  fn create_main_gfx_command_buffers(
     logical_device: &Device, primary_gfx_command_pool: vk::CommandPool,
-    framebuffers: &[vk::Framebuffer], extent: vk::Extent2D, render_pass: vk::RenderPass,
-    pipeline: vk::Pipeline,
+    framebuffers: &[vk::Framebuffer],
   ) -> SarektResult<Vec<vk::CommandBuffer>> {
     let image_count = framebuffers.len() as u32;
     let gfx_command_buffer_ci = vk::CommandBufferAllocateInfo::builder()
@@ -1224,17 +1221,47 @@ impl VulkanRenderer {
       .command_buffer_count(image_count)
       .build();
 
-    let gfx_command_buffers =
+    let primary_gfx_command_buffers =
       unsafe { logical_device.allocate_command_buffers(&gfx_command_buffer_ci)? };
 
-    // TODO CRITICAL make delegate user application work to a secondary buffer.
-    // Same as for other Drawers for other threads, but just for single
-    // threaded.
-    for (i, &buffer) in gfx_command_buffers.iter().enumerate() {
-      // Start recording.
-      let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
-      unsafe { logical_device.begin_command_buffer(buffer, &command_buffer_begin_info)? };
+    Ok(primary_gfx_command_buffers)
+  }
 
+  /// Sets up the command buffers for recording.
+  /// The command buffers are written to by the [Drawer](trait.Drawer.html) draw
+  /// commands.
+  fn setup_next_main_command_buffer(&self) -> SarektResult<()> {
+    let next_frame_num_adjusted =
+      self.current_frame_num.get() % self.primary_gfx_command_buffers.len();
+
+    let command_buffer = self.primary_gfx_command_buffers[next_frame_num_adjusted];
+    let framebuffer = self.framebuffers[next_frame_num_adjusted];
+    let extent = self.extent;
+    let render_pass = self.forward_render_pass;
+    let pipeline = self.base_graphics_pipeline_bundle.pipeline;
+
+    // Make sure we wait on any fences for that swap chain image in flight.  Can't
+    // write to a command buffer if it is in flight.
+    let fence = self.draw_synchronization.images_in_flight[next_frame_num_adjusted].get();
+    if fence != vk::Fence::null() {
+      unsafe {
+        self
+          .logical_device
+          .wait_for_fences(&[fence], true, u64::max_value())?;
+      }
+    }
+
+    // Start recording.
+    unsafe {
+      let begin_ci = vk::CommandBufferBeginInfo::builder()
+        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+        .build();
+      self
+        .logical_device
+        .begin_command_buffer(command_buffer, &begin_ci)?
+    };
+
+    unsafe {
       // Start the (forward) render pass.
       let render_area = vk::Rect2D::builder()
         .offset(vk::Offset2D::default())
@@ -1247,38 +1274,31 @@ impl VulkanRenderer {
       };
       let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
         .render_pass(render_pass)
-        .framebuffer(framebuffers[i])
+        .framebuffer(framebuffer)
         .render_area(render_area)
         .clear_values(&[clear_value]) // Clear to black.
         .build();
-      // TODO change from inline to secondary command buffers.
-      unsafe {
-        logical_device.cmd_begin_render_pass(
-          buffer,
-          &render_pass_begin_info,
-          vk::SubpassContents::INLINE,
-        )
-      };
+
+      self.logical_device.cmd_begin_render_pass(
+        command_buffer,
+        &render_pass_begin_info,
+        vk::SubpassContents::INLINE,
+      );
 
       // Bind the pipeline. Can be overridden in secondary buffer by the user.
       // TODO RENDERING_CAPABILITIES MULTITHREADING we can keep track in each thread's
       // command buffer waht pipeline is bound so we don't insert extra rebind
       // commands.
-      unsafe {
-        logical_device.cmd_bind_pipeline(buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
-      };
+      self.logical_device.cmd_bind_pipeline(
+        command_buffer,
+        vk::PipelineBindPoint::GRAPHICS,
+        pipeline,
+      )
+    };
 
-      // Draw.  TODO CRITICAL make this a secondary buffer execution.
-      unsafe { logical_device.cmd_draw(buffer, 3, 1, 0, 0) };
-
-      // End Render Pass.
-      unsafe { logical_device.cmd_end_render_pass(buffer) };
-
-      // End Command Buffer Recording.
-      unsafe { logical_device.end_command_buffer(buffer)? };
-    }
-
-    Ok(gfx_command_buffers)
+    // Draw occurs in in the Drawer::draw command.
+    // Render pass completion occurs in Renderer::frame
+    Ok(())
   }
 
   // ================================================================================
@@ -1292,8 +1312,17 @@ impl VulkanRenderer {
     let functions = VulkanShaderFunctions::new(logical_device.clone());
     Arc::new(RwLock::new(ShaderStore::new(functions)))
   }
+
+  fn create_buffer_store(
+    instance: &Arc<Instance>, physical_device: vk::PhysicalDevice, logical_device: &Arc<Device>,
+  ) -> Arc<RwLock<BufferStore<VulkanBufferFunctions>>> {
+    let functions =
+      VulkanBufferFunctions::new(instance.clone(), physical_device, logical_device.clone());
+    Arc::new(RwLock::new(BufferStore::new(functions)))
+  }
 }
 impl Renderer for VulkanRenderer {
+  type BL = VulkanBufferFunctions;
   type SL = VulkanShaderFunctions;
 
   // TODO OFFSCREEN handle off screen rendering.
@@ -1302,21 +1331,14 @@ impl Renderer for VulkanRenderer {
       return Ok(());
     }
 
-    let current_fence = self.draw_synchronization.in_flight_fences[self.current_frame_num.get()];
+    let current_frame_num_adjusted = self.current_frame_num.get() % MAX_FRAMES_IN_FLIGHT;
     let image_available_sem =
-      self.draw_synchronization.image_available_semaphores[self.current_frame_num.get()];
+      self.draw_synchronization.image_available_semaphores[current_frame_num_adjusted];
     let render_finished_sem =
-      self.draw_synchronization.render_finished_semaphores[self.current_frame_num.get()];
-
-    // Wait for this frames fence.  Cannot write to the command buffers of this
-    // frame.
-    unsafe {
-      self
-        .logical_device
-        .wait_for_fences(&[current_fence], true, u64::max_value())?;
-    }
+      self.draw_synchronization.render_finished_semaphores[current_frame_num_adjusted];
 
     // TODO OFFSCREEN handle drawing without swapchain.
+    // Get next image to render to.
     let (image_index, is_suboptimal) = unsafe {
       // Will return if swapchain is out of date.
       self
@@ -1333,25 +1355,48 @@ impl Renderer for VulkanRenderer {
       warn!("Swapchain is suboptimal!");
     }
 
-    // Make sure we wait on any fences for that swap chain image in flight.
+    let current_command_buffer = self.primary_gfx_command_buffers[image_index as usize];
+    unsafe {
+      // End Render Pass.
+      self
+        .logical_device
+        .cmd_end_render_pass(current_command_buffer);
+
+      // Finish recording on all command buffers.
+      // TODO MULTITHREADING all of them not just main.
+      self
+        .logical_device
+        .end_command_buffer(current_command_buffer)?;
+    }
+
+    // Wait for max images in flight.
     self.draw_synchronization.ensure_images_not_in_flight(
       &self.logical_device,
       image_index as usize,
-      self.current_frame_num.get(),
+      current_frame_num_adjusted,
     )?;
 
     // Submit draw commands.
     let submit_info = vk::SubmitInfo::builder()
       .wait_semaphores(&[image_available_sem]) // Don't draw until it is ready.
       .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT]) // Don't we only need to wait until Color Attachment is ready to start drawing.  Vertex and other shaders can begin sooner.
-      .command_buffers(&[self.primary_gfx_command_buffers[image_index as usize]]) // Only use the command buffer corresponding to this image index.
+      .command_buffers(&[current_command_buffer]) // Only use the command buffer corresponding to this image index.
       .signal_semaphores(&[render_finished_sem]) // Signal we're done drawing when we are.
       .build();
     unsafe {
-      self.logical_device.reset_fences(&[current_fence])?;
-      self
-        .logical_device
-        .queue_submit(self.queues.graphics_queue, &[submit_info], current_fence)?
+      let current_fence = self.draw_synchronization.in_flight_fences[current_frame_num_adjusted];
+      if current_fence != vk::Fence::null() {
+        // Wait for swap chain image to be ready.
+        self
+          .logical_device
+          .wait_for_fences(&[current_fence], true, u64::max_value())?;
+        self.logical_device.reset_fences(&[current_fence])?;
+      }
+      self.logical_device.queue_submit(
+        self.queues.graphics_queue,
+        &[submit_info],
+        self.draw_synchronization.in_flight_fences[current_frame_num_adjusted],
+      )?
     };
 
     // TODO OFFSCREEN only if presenting to swapchain.
@@ -1368,9 +1413,11 @@ impl Renderer for VulkanRenderer {
         .queue_present(self.queues.presentation_queue, &present_info)?
     };
 
-    self
-      .current_frame_num
-      .set((self.current_frame_num.get() + 1) % MAX_FRAMES_IN_FLIGHT);
+    // Increment frames rendered count.
+    self.current_frame_num.set(self.current_frame_num.get() + 1);
+
+    // Set up the next frame for drawing. Will wait on fence.
+    self.setup_next_main_command_buffer()?;
 
     Ok(())
   }
@@ -1385,6 +1432,22 @@ impl Renderer for VulkanRenderer {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 
+  fn load_buffer<BufElem: Sized>(
+    &mut self, buffer_type: BufferType, buffer: &[BufElem],
+  ) -> SarektResult<BufferHandle<Self::BL>> {
+    BufferStore::load_buffer(&self.buffer_store, buffer_type, buffer)
+  }
+
+  fn get_buffer(
+    &self, handle: &BufferHandle<Self::BL>,
+  ) -> SarektResult<<Self::BL as BufferLoader>::BBH> {
+    let store = self
+      .buffer_store
+      .read()
+      .expect("Panic occured can't read from buffer store");
+    Ok(store.get_buffer(handle)?.buffer_handle)
+  }
+
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
     if width == 0 || height == 0 {
       // It violates the vulkan spec to make extents this small, rendering should be
@@ -1396,10 +1459,34 @@ impl Renderer for VulkanRenderer {
   }
 }
 impl Drawer for VulkanRenderer {
-  fn draw(&self) -> SarektResult<()> {
+  type R = VulkanRenderer;
+
+  fn draw(&self, object: &DrawableObject<Self::R>) -> SarektResult<()> {
     if !self.rendering_enabled {
       return Ok(());
     }
+
+    // Current render target command buffer.
+    let command_buffer = self.primary_gfx_command_buffers
+      [self.current_frame_num.get() % self.primary_gfx_command_buffers.len()];
+
+    unsafe {
+      self.logical_device.cmd_bind_vertex_buffers(
+        command_buffer,
+        0,
+        &[object.vertex_buffer.buffer],
+        &[object.vertex_buffer.offset],
+      );
+
+      // TODO CRITICAL index buffer
+
+      if object.index_buffer.is_none() {
+        self
+          .logical_device
+          .cmd_draw(command_buffer, object.vertex_buffer.length, 1, 0, 0);
+      }
+    }
+
     Ok(())
   }
 }
@@ -1411,6 +1498,9 @@ impl Drop for VulkanRenderer {
         error!("Failed to wait for idle! {}", e);
       }
 
+      info!("Destroying all buffers...");
+      self.buffer_store.write().unwrap().destroy_all_buffers();
+
       self
         .cleanup_swapchain()
         .expect("Could not clean up swapchain while cleaning up VulkanRenderer...");
@@ -1420,7 +1510,7 @@ impl Drop for VulkanRenderer {
       info!("Destroying all command pools...");
       self
         .logical_device
-        .destroy_command_pool(self.primary_gfx_command_pool, None);
+        .destroy_command_pool(self.main_gfx_command_pool, None);
 
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
@@ -1534,6 +1624,6 @@ mod tests {
     assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
   }
 
-  // TODO AFTER VERTEX write triangle sanity check that can dump buffer and
+  // TODO CRITICAL write triangle sanity check that can dump buffer and
   // compare to golden image.
 }

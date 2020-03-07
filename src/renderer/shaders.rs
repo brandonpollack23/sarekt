@@ -7,11 +7,11 @@ use std::{
   sync::{Arc, RwLock},
 };
 
-/// A type that can be dereferenced internally to retrieve a shader and that
-/// will destroy the shader when it goes out of scope.
+/// A type that can be used to retrieve a shader from the renderer and
+/// ShaderStore that will destroy the shader when it goes out of scope.
 ///
-/// Warning you can clone this and pass it around but note that it could result
-/// in a deadlock!
+/// As always, In order to pass this around with multiple ownership, wrap it in
+/// an Arc.
 #[derive(Clone)]
 pub struct ShaderHandle<SL>
 where
@@ -63,7 +63,7 @@ pub enum ShaderType {
 /// Unsafe because:
 /// This must specifically be the handle used to delete your
 /// shader in the driver in [ShaderLoader](trait.ShaderLoader.html).
-pub unsafe trait ShaderBackendHandle {}
+pub unsafe trait ShaderBackendHandle: Copy {}
 
 /// A trait used by each implementation in order to load shaders in their own
 /// way.
@@ -81,9 +81,9 @@ pub unsafe trait ShaderBackendHandle {}
 pub unsafe trait ShaderLoader {
   type SBH;
   /// Loads the shader using underlying mechanism.
-  fn load_shader(&mut self, code: &ShaderCode) -> SarektResult<Self::SBH>;
+  fn load_shader(&self, code: &ShaderCode) -> SarektResult<Self::SBH>;
   /// Deletes the shader using underlying mechanism.
-  fn delete_shader(&mut self, shader: Self::SBH) -> SarektResult<()>;
+  fn delete_shader(&self, shader: Self::SBH) -> SarektResult<()>;
 }
 
 /// A storage for all shaders to be loaded or destroyed from.  Returns a handle
@@ -112,7 +112,7 @@ where
   }
 
   /// Load a shader into the driver and return a handle.
-  pub fn load_shader(
+  pub(crate) fn load_shader(
     this: &Arc<RwLock<Self>>, code: &ShaderCode, shader_type: ShaderType,
   ) -> SarektResult<ShaderHandle<SL>> {
     let mut shader_store = this
@@ -158,12 +158,12 @@ where
   }
 
   /// Retrieve a loaded shader to be used in pipeline construction, etc.
-  pub fn get_shader(&self, handle: &ShaderHandle<SL>) -> SarektResult<&Shader<SL::SBH>> {
+  pub(crate) fn get_shader(&self, handle: &ShaderHandle<SL>) -> SarektResult<&Shader<SL::SBH>> {
     let shader = self.loaded_shaders.get(handle.inner_key);
-    if shader.is_none() {
-      return Err(SarektError::UnknownShader);
+    if let Some(shader) = shader {
+      return Ok(shader);
     }
-    Ok(shader.unwrap())
+    Err(SarektError::UnknownShader)
   }
 }
 

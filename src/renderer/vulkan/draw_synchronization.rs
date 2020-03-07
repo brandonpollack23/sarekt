@@ -53,8 +53,9 @@ impl DrawSynchronization {
     }
 
     let image_in_flight_fence = self.images_in_flight[image_index as usize].get();
+
     if image_in_flight_fence != vk::Fence::null() {
-      // It wasn't null, that swapchain images is in flight!
+      // It wasn't null, that swapchain image is in flight!
       unsafe { logical_device.wait_for_fences(&[image_in_flight_fence], true, u64::max_value())? };
     }
 

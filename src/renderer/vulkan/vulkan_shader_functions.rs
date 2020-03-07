@@ -19,7 +19,7 @@ impl VulkanShaderFunctions {
 unsafe impl ShaderLoader for VulkanShaderFunctions {
   type SBH = vk::ShaderModule;
 
-  fn load_shader(&mut self, code: &ShaderCode) -> SarektResult<vk::ShaderModule> {
+  fn load_shader(&self, code: &ShaderCode) -> SarektResult<vk::ShaderModule> {
     if let ShaderCode::Spirv(spirv) = code {
       let ci = vk::ShaderModuleCreateInfo::builder().code(spirv).build();
       unsafe {
@@ -30,11 +30,9 @@ unsafe impl ShaderLoader for VulkanShaderFunctions {
     Err(SarektError::IncompatibleShaderCode)
   }
 
-  fn delete_shader(&mut self, shader: vk::ShaderModule) -> SarektResult<()> {
+  fn delete_shader(&self, shader: vk::ShaderModule) -> SarektResult<()> {
     info!("Deleting shader {:?}...", shader);
-    unsafe {
-      self.logical_device.destroy_shader_module(shader, None);
-    }
+    unsafe { self.logical_device.destroy_shader_module(shader, None) };
     Ok(())
   }
 }
