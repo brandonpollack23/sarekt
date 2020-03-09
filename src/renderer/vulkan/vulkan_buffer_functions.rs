@@ -1,13 +1,10 @@
 use crate::{
-  error::{SarektError, SarektResult},
+  error::SarektResult,
   renderer::buffers::{BufferBackendHandle, BufferLoader, BufferType},
 };
-use ash::{
-  version::{DeviceV1_0, InstanceV1_0},
-  vk, Device, Instance,
-};
+use ash::vk;
 use log::info;
-use std::sync::Arc;
+use std::{ffi::c_void, sync::Arc};
 
 /// TODO PERFORMANCE stage buffer allocations to be transfered in one staging
 /// buffer commit load operation instead of doing each one seperate and waiting.
@@ -15,49 +12,11 @@ use std::sync::Arc;
 /// Vulkan implementation of [BufferLoader](trait.BufferLoader.html).
 #[derive(Clone)]
 pub struct VulkanBufferFunctions {
-  instance: Arc<Instance>,
-  physical_device: vk::PhysicalDevice,
-  logical_device: Arc<Device>,
+  allocator: Arc<vk_mem::Allocator>,
 }
 impl VulkanBufferFunctions {
-  pub fn new(
-    instance: Arc<Instance>, physical_device: vk::PhysicalDevice, logical_device: Arc<Device>,
-  ) -> Self {
-    Self {
-      instance,
-      physical_device,
-      logical_device,
-    }
-  }
-}
-impl VulkanBufferFunctions {
-  /// Finds the appropriate memory type (by heap index) for the given type.
-  /// This will find a memory heap index to allocate from that can allocate the
-  /// correct memory type specified by suitable_type_filter and has the
-  /// requested properties, such as host visibility.
-  fn find_memory_type(
-    &self, suitable_type_filter: u32, required_properties: vk::MemoryPropertyFlags,
-  ) -> SarektResult<u32> {
-    let mem_properties = unsafe {
-      self
-        .instance
-        .get_physical_device_memory_properties(self.physical_device)
-    };
-    for mem_type_index in 0..mem_properties.memory_type_count as usize {
-      // TODO PERFORMANCE select more appropriate heaps by checking
-      // mem_properties.mem_types[mem_type_index].heap_index
-      let can_alloc_suitable_memory_type = (suitable_type_filter & (1 << mem_type_index)) != 0;
-
-      let has_required_memory_properties =
-        (mem_properties.memory_types[mem_type_index].property_flags & required_properties)
-          == required_properties;
-
-      if can_alloc_suitable_memory_type && has_required_memory_properties {
-        return Ok(mem_type_index as u32);
-      }
-    }
-
-    Err(SarektError::NoSuitableMemoryHeap)
+  pub fn new(allocator: Arc<vk_mem::Allocator>) -> Self {
+    Self { allocator }
   }
 }
 unsafe impl BufferLoader for VulkanBufferFunctions {
@@ -66,7 +25,17 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
   fn load_buffer<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BBH> {
-    // Create the buffer.
+    // I could create a buffer myself and allocate memory with VMA, but their
+    // recomended approach is to allow the library to create a buffer and bind the
+    // memory, effectively replacing all of this code.  See their [docs](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/choosing_memory_type.html).
+    // To see manual creation of this (with super naive memory allocation) see this
+    // file at tag 17_vertex_buffer_creation.
+
+    // So in summary, VMA handles creating the buffer, finding the appropriate
+    // memory type index, allocating the memory, and binding the buffer to the
+    // memory.
+
+    // Create the buffer and memory.
     let buffer_size =
       (std::mem::size_of::<BufElem>() as vk::DeviceSize) * buffer.len() as vk::DeviceSize;
     let buffer_usage = match buffer_type {
@@ -79,61 +48,44 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
       .sharing_mode(vk::SharingMode::EXCLUSIVE)
       .build();
 
-    let vulkan_buffer = unsafe { self.logical_device.create_buffer(&buffer_ci, None)? };
-
-    // Allocate Memory for the buffer.
-    let mem_reqs = unsafe {
-      self
-        .logical_device
-        .get_buffer_memory_requirements(vulkan_buffer)
+    let alloc_create_info = vk_mem::AllocationCreateInfo {
+      usage: vk_mem::MemoryUsage::CpuToGpu, /* All the required and preferred flags such as
+                                             * HOST_VISIBLE, HOST_COHERENT, memory type bits, etc
+                                             * are automagically configured by this usage flag.
+                                             * Which works for my use case */
+      ..vk_mem::AllocationCreateInfo::default()
     };
-    let heap_index = self.find_memory_type(
-      mem_reqs.memory_type_bits,
-      vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )?;
-
-    let alloc_info = vk::MemoryAllocateInfo::builder()
-      .allocation_size(mem_reqs.size) // Size might not be equal to buffer size, so use what Vulkan says to use.
-      .memory_type_index(heap_index)
-      .build();
-
-    // TODO CRITICAL NEXT vulkan memory allocator, offset in bind buffer memory  and
-    // map_memory will change too! Also deleter function, need to save offset in
-    // BufferAndMemory.
-    let buffer_memory = unsafe { self.logical_device.allocate_memory(&alloc_info, None)? };
-    unsafe {
-      self
-        .logical_device
-        .bind_buffer_memory(vulkan_buffer, buffer_memory, 0)?
-    };
+    let (vulkan_buffer, allocation, allocation_info) = self
+      .allocator
+      .create_buffer(&buffer_ci, &alloc_create_info)?;
 
     // TODO CRITICAL staging buffer.
+
     // Copy over all the bytes from host memory to mapped device memory
+    let data = self.allocator.map_memory(&allocation)? as *mut BufElem;
     unsafe {
-      let data = self.logical_device.map_memory(
-        buffer_memory,
-        0,
-        buffer_ci.size,
-        vk::MemoryMapFlags::empty(),
-      )? as *mut BufElem;
-
-      data.copy_from(buffer.as_ptr(), buffer_ci.size as usize);
-
-      self.logical_device.unmap_memory(buffer_memory);
+      data.copy_from(buffer.as_ptr(), allocation_info.get_size());
     }
+    self.allocator.unmap_memory(&allocation)?;
 
-    Ok(BufferAndMemory {
-      buffer: vulkan_buffer,
-      offset: 0u64,
-      length: buffer.len() as u32,
-      memory: buffer_memory,
-    })
+    unsafe {
+      Ok(BufferAndMemory {
+        buffer: vulkan_buffer,
+        offset: allocation_info.get_offset() as u64,
+        length: buffer.len() as u32,
+        memory: std::mem::transmute(allocation),
+      })
+    }
   }
 
   fn delete_buffer(&self, handle: Self::BBH) -> SarektResult<()> {
     info!("Deleting buffer and memory {:?}...", handle);
-    unsafe { self.logical_device.free_memory(handle.memory, None) };
-    unsafe { self.logical_device.destroy_buffer(handle.buffer, None) };
+    unsafe {
+      self
+        .allocator
+        .destroy_buffer(handle.buffer, &std::mem::transmute(handle.memory))
+        .expect("Could not destroy VMA buffer");
+    }
     Ok(())
   }
 }
@@ -143,7 +95,8 @@ pub struct BufferAndMemory {
   pub(crate) buffer: vk::Buffer,
   pub(crate) offset: u64,
   pub(crate) length: u32,
-  memory: vk::DeviceMemory,
+  // TODO CRITICAL Super unsafe hack to get around vk_mem::Allocation not implementing Copy.
+  memory: *mut c_void,
 }
 
 /// Allow vk::ShaderModule to be a backend handle for the
