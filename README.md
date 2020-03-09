@@ -16,4 +16,6 @@ Shran wrapper.  Get it?
 This readme is minimal.  Cargo doc is your friend.  This is far from done.
 
 ## Name
-"Sarek" is the Vulcan father of the character "Spok"  of Star Trek.
+"Sarek" is the Vulcan father of the character "Spok"  of Star Trek. The added t also makes it a portmanteu with rect(angle).
+
+I know and I'm sorry.
