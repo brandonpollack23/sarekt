@@ -88,6 +88,8 @@ pub struct VulkanRenderer {
   rendering_enabled: bool,
 
   // Utilities
+  #[allow(dead_code)]
+  allocator: Arc<vk_mem::Allocator>,
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
   buffer_store: Arc<RwLock<BufferStore<VulkanBufferFunctions>>>,
 }
@@ -205,8 +207,13 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
+    let allocator = Self::create_memory_allocator(
+      instance.as_ref().clone(),
+      physical_device,
+      logical_device.as_ref().clone(),
+    )?;
     let shader_store = Self::create_shader_store(&logical_device);
-    let buffer_store = Self::create_buffer_store(&instance, physical_device, &logical_device);
+    let buffer_store = Self::create_buffer_store(&allocator);
 
     // TODO RENDERING_CAPABILITIES support other render pass types.
     let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
@@ -262,6 +269,7 @@ impl VulkanRenderer {
 
       rendering_enabled: true,
 
+      allocator,
       shader_store,
       buffer_store,
     };
@@ -1311,6 +1319,25 @@ impl VulkanRenderer {
   // ================================================================================
   //  Utility Helper Methods
   // ================================================================================
+  /// Creates a [Vulkan Memory ALlocator](https://github.com/gwihlidal/vk-mem-rs)
+  fn create_memory_allocator(
+    instance: Instance, physical_device: vk::PhysicalDevice, logical_device: Device,
+  ) -> SarektResult<Arc<vk_mem::Allocator>> {
+    let allocator_create_info = vk_mem::AllocatorCreateInfo {
+      physical_device,
+      device: logical_device,
+      instance,
+      flags: vk_mem::AllocatorCreateFlags::default(),
+      preferred_large_heap_block_size: 0,
+      frame_in_use_count: (MAX_FRAMES_IN_FLIGHT - 1) as u32,
+      heap_size_limits: None,
+    };
+
+    vk_mem::Allocator::new(&allocator_create_info)
+      .map(|allocator| Arc::new(allocator))
+      .map_err(|err| err.into())
+  }
+
   /// Creates a shader store in the vulkan backend configuration to load and
   /// delete shaders from.
   fn create_shader_store(
@@ -1321,10 +1348,9 @@ impl VulkanRenderer {
   }
 
   fn create_buffer_store(
-    instance: &Arc<Instance>, physical_device: vk::PhysicalDevice, logical_device: &Arc<Device>,
+    allocator: &Arc<vk_mem::Allocator>,
   ) -> Arc<RwLock<BufferStore<VulkanBufferFunctions>>> {
-    let functions =
-      VulkanBufferFunctions::new(instance.clone(), physical_device, logical_device.clone());
+    let functions = VulkanBufferFunctions::new(allocator.clone());
     Arc::new(RwLock::new(BufferStore::new(functions)))
   }
 

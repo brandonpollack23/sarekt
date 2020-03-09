@@ -17,6 +17,7 @@ pub enum SarektError {
   IncompatibleShaderCode,
   UnknownBuffer,
   NoSuitableMemoryHeap,
+  VulkanMemoryAllocatorError(vk_mem::error::Error),
 }
 
 impl From<vk::Result> for SarektError {
@@ -30,6 +31,11 @@ impl From<vk::Result> for SarektError {
 impl From<ash::InstanceError> for SarektError {
   fn from(e: ash::InstanceError) -> Self {
     SarektError::InstanceError(e)
+  }
+}
+impl From<vk_mem::error::Error> for SarektError {
+  fn from(e: vk_mem::Error) -> Self {
+    SarektError::VulkanMemoryAllocatorError(e)
   }
 }
 impl From<NulError> for SarektError {
@@ -54,6 +60,9 @@ impl fmt::Display for SarektError {
         f,
         "Could not find memory heap that was suitable for the device allocation."
       ),
+      SarektError::VulkanMemoryAllocatorError(e) => {
+        write!(f, "Vulkan memory allocator error: {}", e)
+      }
       SarektError::IncompatibleShaderCode => {
         write!(f, "Tried to load an incompatible shader type into backend")
       }
