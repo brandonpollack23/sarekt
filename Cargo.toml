@@ -22,18 +22,22 @@ path = "examples/03_loading_vertices.rs"
 
 [dependencies]
 # TODO CRITICAL when ash updates their crate remove these git references and use the standard crates..
-ash = {git = "https://github.com/MaikKlein/ash" }
-ash-window = {git = "https://github.com/brandonpollack23/ash-window" }
-lazy_static = "^1.4.0"
-log = "^0.4.8"
+ash = "0.29.0"
+ash-window = "0.1.0"
+lazy_static = "1.4.0"
+log = "0.4.8"
 memoffset = "0.5.3"
-nalgebra = "^0.20.0"
-raw-window-handle = "^0.3.3"
-slotmap = "^0.4.0"
-static_assertions = "^1.1.0"
-vk-mem = {git = "https://github.com/brandonpollack23/vk-mem-rs" }
-vk-shader-macros = "^0.2.2"
-winit = "^0.21.0"
+nalgebra = "0.20.0"
+raw-window-handle = "0.3.3"
+slotmap = "0.4.0"
+static_assertions = "1.1.0"
+vk-mem = "0.2.0"
+vk-shader-macros = "0.2.2"
+winit = "0.21.0"
+
+[patch.crates-io]
+ash = {git = "https://github.com/MaikKlein/ash"}
+ash-window = {git = "https://github.com/norse-rs/ash-window"}
 
 [dev-dependencies]
-simple_logger = "^1.5.0"
+simple_logger = "1.5.0"
