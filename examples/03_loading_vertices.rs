@@ -29,7 +29,7 @@ static ref TRIANGLE_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  simple_logger::init_with_level(Level::Warn)?;
+  simple_logger::init_with_level(Level::Info)?;
   main_loop()?;
   Ok(())
 }

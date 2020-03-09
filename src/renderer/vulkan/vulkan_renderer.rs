@@ -81,6 +81,7 @@ pub struct VulkanRenderer {
   main_gfx_command_pool: vk::CommandPool,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
   draw_synchronization: DrawSynchronization,
+  // Frame count since swapchain creation, not beginning of rendering.
   current_frame_num: Cell<usize>,
 
   // Application controllable fields
@@ -820,13 +821,15 @@ impl VulkanRenderer {
     let swapchain_extension = &self.swapchain_and_extension.swapchain_functions;
     let shader_store = &self.shader_store;
 
-    // Procedure: Make new Swapchain (recycling old one), cleanup old resources and
-    // recreate them:
+    // Procedure: Wait for the device to be idle, make new Swapchain (recycling old
+    // one), cleanup old resources and recreate them:
     // * ImageViews
     // * Render Passes
     // * Graphics Pipelines
     // * Framebuffers
     // * Command Buffers.
+    logical_device.device_wait_idle()?;
+
     let (new_swapchain, new_format, new_extent) = Self::create_swap_chain(
       instance,
       surface_and_extension,
@@ -841,6 +844,7 @@ impl VulkanRenderer {
     // Create all new resources and set them in this struct.
     self.swapchain_and_extension.swapchain = new_swapchain;
     self.swapchain_and_extension.format = new_format;
+    self.extent = new_extent;
 
     // TODO OFFSCREEN if not swapchain create images that im rendering to.
     let render_target_images = swapchain_extension.get_swapchain_images(new_swapchain)?;
@@ -875,6 +879,16 @@ impl VulkanRenderer {
       new_extent,
     )?;
 
+    // Reset render_frame_count
+    self.current_frame_num.set(0);
+
+    // Reset command buffers and rerun setup.
+    logical_device.reset_command_pool(
+      self.main_gfx_command_pool,
+      vk::CommandPoolResetFlags::empty(),
+    )?;
+    self.setup_next_main_command_buffer()?;
+
     Ok(())
   }
 
@@ -892,13 +906,6 @@ impl VulkanRenderer {
       true,
       u64::max_value(),
     )?;
-
-    // TODO MULTITHREADING do I need to free others?
-    info!("Freeing primary command buffers...");
-    self.logical_device.free_command_buffers(
-      self.main_gfx_command_pool,
-      &self.primary_gfx_command_buffers,
-    );
 
     info!("Destroying all framebuffers...");
     for &fb in self.framebuffers.iter() {
@@ -1320,6 +1327,10 @@ impl VulkanRenderer {
       VulkanBufferFunctions::new(instance.clone(), physical_device, logical_device.clone());
     Arc::new(RwLock::new(BufferStore::new(functions)))
   }
+
+  fn increment_frame_count(&self) {
+    self.current_frame_num.set(self.current_frame_num.get() + 1);
+  }
 }
 impl Renderer for VulkanRenderer {
   type BL = VulkanBufferFunctions;
@@ -1414,7 +1425,7 @@ impl Renderer for VulkanRenderer {
     };
 
     // Increment frames rendered count.
-    self.current_frame_num.set(self.current_frame_num.get() + 1);
+    self.increment_frame_count();
 
     // Set up the next frame for drawing. Will wait on fence.
     self.setup_next_main_command_buffer()?;
@@ -1452,6 +1463,11 @@ impl Renderer for VulkanRenderer {
     if width == 0 || height == 0 {
       // It violates the vulkan spec to make extents this small, rendering should be
       // disabled explicitly in this case, but its up the application/platform.
+      return Ok(());
+    }
+
+    if self.extent.width == width && self.extent.height == height {
+      // No change, nothing to do.
       return Ok(());
     }
 
@@ -1500,6 +1516,13 @@ impl Drop for VulkanRenderer {
 
       info!("Destroying all buffers...");
       self.buffer_store.write().unwrap().destroy_all_buffers();
+
+      // TODO MULTITHREADING do I need to free others?
+      info!("Freeing main command buffer...");
+      self.logical_device.free_command_buffers(
+        self.main_gfx_command_pool,
+        &self.primary_gfx_command_buffers,
+      );
 
       self
         .cleanup_swapchain()
