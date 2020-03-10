@@ -80,6 +80,7 @@ pub struct VulkanRenderer {
   // Command pools, buffers, drawing, and synchronization related primitives and information.
   main_gfx_command_pool: vk::CommandPool,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
+  transfer_command_pool: vk::CommandPool,
   draw_synchronization: DrawSynchronization,
   // Frame count since swapchain creation, not beginning of rendering.
   current_frame_num: Cell<usize>,
@@ -176,7 +177,7 @@ impl VulkanRenderer {
 
     let physical_device = Self::pick_physical_device(&instance, &surface_and_extension)?;
 
-    let (logical_device, queues) =
+    let (logical_device, queue_families, queues) =
       Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
     // TODO OFFSCREEN only create if drawing to window, get format and extent
@@ -207,13 +208,30 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
+    let (main_gfx_command_pool, transfer_command_pool) = Self::create_primary_command_pools(
+      &instance,
+      physical_device,
+      &surface_and_extension,
+      &logical_device,
+    )?;
+
     let allocator = Self::create_memory_allocator(
       instance.as_ref().clone(),
       physical_device,
       logical_device.as_ref().clone(),
     )?;
     let shader_store = Self::create_shader_store(&logical_device);
-    let buffer_store = Self::create_buffer_store(&allocator);
+
+    // TODO MULTITHREADING all graphics command pools needed here to specify
+    // concurrent access.
+    let buffer_store = Self::create_buffer_store(
+      &logical_device,
+      &allocator,
+      queue_families.graphics_queue_family.unwrap(),
+      queue_families.transfer_queue_family.unwrap(),
+      transfer_command_pool,
+      queues.transfer_queue,
+    )?;
 
     // TODO RENDERING_CAPABILITIES support other render pass types.
     let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
@@ -231,13 +249,6 @@ impl VulkanRenderer {
       forward_render_pass,
       &render_targets,
       extent,
-    )?;
-
-    let main_gfx_command_pool = Self::create_primary_command_pools(
-      &instance,
-      physical_device,
-      &surface_and_extension,
-      &logical_device,
     )?;
 
     let primary_gfx_command_buffers =
@@ -264,6 +275,7 @@ impl VulkanRenderer {
 
       main_gfx_command_pool,
       primary_gfx_command_buffers,
+      transfer_command_pool,
       draw_synchronization,
       current_frame_num: Cell::new(0),
 
@@ -550,6 +562,19 @@ impl VulkanRenderer {
       unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
 
     for (i, queue_family_properties) in queue_family_properties.iter().enumerate() {
+      if queue_family_indices.transfer_queue_family.is_none()
+        && queue_family_properties
+          .queue_flags
+          .intersects(vk::QueueFlags::TRANSFER)
+        && !queue_family_properties
+          .queue_flags
+          .intersects(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE)
+      {
+        // Is transfer but NOT graphics or compute.  This queue is optimal for
+        // transfer.
+        queue_family_indices.transfer_queue_family = Some(i as u32);
+      }
+
       if queue_family_indices.graphics_queue_family.is_none()
         && queue_family_properties
           .queue_flags
@@ -576,6 +601,10 @@ impl VulkanRenderer {
       }
     }
 
+    // Iterated through all queue types, but explicit transfer queue family not
+    // found, just set it to the same as graphics queue family.
+    queue_family_indices.transfer_queue_family = queue_family_indices.graphics_queue_family;
+
     Ok(queue_family_indices)
   }
 
@@ -589,13 +618,10 @@ impl VulkanRenderer {
   fn create_logical_device_and_queues(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<(Arc<Device>, Queues)> {
+  ) -> SarektResult<(Arc<Device>, QueueFamilyIndices, Queues)> {
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
-    let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
-    let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
-
-    let mut indices = vec![graphics_queue_family, presentation_queue_family];
+    let mut indices = queue_family_indices.as_vec().unwrap();
     indices.dedup();
     let queue_cis: Vec<_> = indices
       .iter()
@@ -624,12 +650,17 @@ impl VulkanRenderer {
       //
       // TODO MULTITHREADING I would create one queue for each
       // thread, right now I'm only using one.
+      let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
+      let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
+      let transfer_queue_family = queue_family_indices.transfer_queue_family.unwrap();
+
       let logical_device = instance.create_device(physical_device, &device_ci, None)?;
       let graphics_queue = logical_device.get_device_queue(graphics_queue_family, 0);
       let presentation_queue = logical_device.get_device_queue(presentation_queue_family, 0);
+      let transfer_queue = logical_device.get_device_queue(transfer_queue_family, 0);
 
-      let queues = Queues::new(graphics_queue, presentation_queue);
-      Ok((Arc::new(logical_device), queues))
+      let queues = Queues::new(graphics_queue, presentation_queue, transfer_queue);
+      Ok((Arc::new(logical_device), queue_family_indices, queues))
     }
   }
 
@@ -686,7 +717,7 @@ impl VulkanRenderer {
       .image_array_layers(1) // Number of views (multiview/stereo surface for 3D applications with glasses or maybe VR).
       .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT) // We'll just be rendering colors to this.  We could render to another image and transfer here after post processing but we're not.
       .image_sharing_mode(sharing_mode)
-      .queue_family_indices(&queue_family_indices.into_vec().unwrap())
+      .queue_family_indices(&queue_family_indices.as_vec().unwrap())
       .pre_transform(swapchain_support.capabilities.current_transform) // Match the transform of the swapchain, I'm not trying to redner upside down!
       .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // No alpha blending within the window system for now.
       .present_mode(present_mode)
@@ -1202,12 +1233,13 @@ impl VulkanRenderer {
   /// Creates all command pools needed for drawing and presentation on one
   /// thread.
   ///
-  /// return is (gfx command pool).  May be expanded in the future (compute
-  /// etc).
+  /// return is (gfx command pool, transfer command pool).
+  ///
+  /// May be expanded in the future (compute etc).
   fn create_primary_command_pools(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension, logical_device: &Device,
-  ) -> SarektResult<vk::CommandPool> {
+  ) -> SarektResult<(vk::CommandPool, vk::CommandPool)> {
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
 
@@ -1215,11 +1247,23 @@ impl VulkanRenderer {
 
     let gfx_pool_ci = vk::CommandPoolCreateInfo::builder()
       .queue_family_index(queue_family_indices.graphics_queue_family.unwrap())
-      .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER) // TODO CRITICAL create one command pool for each framebuffer to allow resetting individually at the pool level?
+      .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER) // TODO PERFORMANCE create one command pool for each framebuffer to allow resetting individually at the pool level?
       .build();
 
     let gfx_pool = unsafe { logical_device.create_command_pool(&gfx_pool_ci, None)? };
-    Ok(gfx_pool)
+
+    let transfer_pool =
+      if queue_family_indices.graphics_queue_family == queue_family_indices.transfer_queue_family {
+        gfx_pool
+      } else {
+        let transfer_pool_ci = vk::CommandPoolCreateInfo::builder()
+          .queue_family_index(queue_family_indices.transfer_queue_family.unwrap())
+          .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+          .build();
+        unsafe { logical_device.create_command_pool(&transfer_pool_ci, None)? }
+      };
+
+    Ok((gfx_pool, transfer_pool))
   }
 
   /// Creates command buffer for main thread to make draw calls on.
@@ -1333,9 +1377,7 @@ impl VulkanRenderer {
       heap_size_limits: None,
     };
 
-    vk_mem::Allocator::new(&allocator_create_info)
-      .map(|allocator| Arc::new(allocator))
-      .map_err(|err| err.into())
+    Ok(vk_mem::Allocator::new(&allocator_create_info).map(|allocator| Arc::new(allocator))?)
   }
 
   /// Creates a shader store in the vulkan backend configuration to load and
@@ -1348,10 +1390,19 @@ impl VulkanRenderer {
   }
 
   fn create_buffer_store(
-    allocator: &Arc<vk_mem::Allocator>,
-  ) -> Arc<RwLock<BufferStore<VulkanBufferFunctions>>> {
-    let functions = VulkanBufferFunctions::new(allocator.clone());
-    Arc::new(RwLock::new(BufferStore::new(functions)))
+    logical_device: &Arc<Device>, allocator: &Arc<vk_mem::Allocator>, graphics_queue_family: u32,
+    transfer_queue_family: u32, transfer_command_pool: vk::CommandPool,
+    transfer_command_queue: vk::Queue,
+  ) -> SarektResult<Arc<RwLock<BufferStore<VulkanBufferFunctions>>>> {
+    let functions = VulkanBufferFunctions::new(
+      logical_device.clone(),
+      allocator.clone(),
+      graphics_queue_family,
+      transfer_queue_family,
+      transfer_command_pool,
+      transfer_command_queue,
+    )?;
+    Ok(Arc::new(RwLock::new(BufferStore::new(functions))))
   }
 
   fn increment_frame_count(&self) {
@@ -1560,6 +1611,11 @@ impl Drop for VulkanRenderer {
       self
         .logical_device
         .destroy_command_pool(self.main_gfx_command_pool, None);
+      if self.main_gfx_command_pool != self.transfer_command_pool {
+        self
+          .logical_device
+          .destroy_command_pool(self.transfer_command_pool, None);
+      }
 
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
