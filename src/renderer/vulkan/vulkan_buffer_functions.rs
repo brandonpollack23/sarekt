@@ -1,12 +1,12 @@
 use crate::{
   error::SarektResult,
-  renderer::buffers::{BufferBackendHandle, BufferLoader, BufferType},
+  renderer::buffers::{BufferBackendHandle, BufferLoader, BufferType, IndexBufferElemSize},
 };
 use ash::{version::DeviceV1_0, vk, Device};
 use log::info;
 use std::{ffi::c_void, sync::Arc};
 
-/// TODO PERFORMANCE special allocation flags for staging buffer?
+/// TODO PERFORMANCE CRITICAL allow swapping memory with "lost" in VMA.
 
 /// TODO PERFORMANCE stage buffer allocations to be transfered in one staging
 /// buffer commit load operation instead of doing each one seperate and waiting.
@@ -87,7 +87,7 @@ impl VulkanBufferFunctions {
     let buffer_usage = vk::BufferUsageFlags::TRANSFER_DST
       | match buffer_type {
         BufferType::Vertex => vk::BufferUsageFlags::VERTEX_BUFFER,
-        BufferType::Index => vk::BufferUsageFlags::INDEX_BUFFER,
+        BufferType::Index(_) => vk::BufferUsageFlags::INDEX_BUFFER,
       };
     let sharing_mode = if self.graphics_queue_family == self.transfer_queue_family {
       vk::SharingMode::EXCLUSIVE
@@ -113,9 +113,7 @@ impl VulkanBufferFunctions {
   }
 
   fn transfer_staging_to_gpu_buffer(
-    &self, buffer_size: u64, staging_buffer: vk::Buffer,
-    transfer_allocation_info: &vk_mem::AllocationInfo, gpu_buffer: vk::Buffer,
-    gpu_allocation_info: &vk_mem::AllocationInfo,
+    &self, buffer_size: u64, staging_buffer: vk::Buffer, gpu_buffer: vk::Buffer,
   ) -> SarektResult<()> {
     info!("Initiating transfer command to transfer from staging buffer to device only memory...");
     let transfer_command_buffer = self.transfer_command_buffer;
@@ -128,8 +126,8 @@ impl VulkanBufferFunctions {
         .logical_device
         .begin_command_buffer(transfer_command_buffer, &command_begin_info)?;
       let copy_region = vk::BufferCopy::builder()
-        .src_offset(transfer_allocation_info.get_offset() as u64)
-        .dst_offset(gpu_allocation_info.get_offset() as u64)
+        .src_offset(0)
+        .dst_offset(0)
         .size(buffer_size)
         .build();
       self.logical_device.cmd_copy_buffer(
@@ -197,16 +195,10 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
-    let (gpu_buffer, gpu_allocation, gpu_allocation_info) =
+    let (gpu_buffer, gpu_allocation, _gpu_allocation_info) =
       self.create_gpu_buffer(buffer_type, buffer_size)?;
 
-    self.transfer_staging_to_gpu_buffer(
-      buffer_size,
-      staging_buffer,
-      &staging_allocation_info,
-      gpu_buffer,
-      &gpu_allocation_info,
-    )?;
+    self.transfer_staging_to_gpu_buffer(buffer_size, staging_buffer, gpu_buffer)?;
 
     // Staging buffer no longer needed, delete it.
     info!("Destroying staging buffer and memory...");
@@ -214,11 +206,18 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
       .allocator
       .destroy_buffer(staging_buffer, &staging_allocation)?;
 
+    // If this is an index buffer, keep track of the size of the elements (16 or
+    // 32).
+    let index_buffer_elem_size = match buffer_type {
+      BufferType::Vertex => None,
+      BufferType::Index(size) => Some(size),
+    };
+
     unsafe {
       Ok(BufferAndMemory {
         buffer: gpu_buffer,
-        offset: gpu_allocation_info.get_offset() as u64,
         length: buffer.len() as u32,
+        index_buffer_elem_size,
         memory: std::mem::transmute(gpu_allocation),
       })
     }
@@ -239,8 +238,9 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
 #[derive(Copy, Clone, Debug)]
 pub struct BufferAndMemory {
   pub(crate) buffer: vk::Buffer,
-  pub(crate) offset: u64,
   pub(crate) length: u32,
+  /// Only present if this is an index buffer.
+  pub(crate) index_buffer_elem_size: Option<IndexBufferElemSize>,
   // TODO CRITICAL Super unsafe hack to get around vk_mem::Allocation not implementing Copy.
   memory: *mut c_void,
 }
