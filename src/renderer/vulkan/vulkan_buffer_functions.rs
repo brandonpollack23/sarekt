@@ -7,7 +7,7 @@ use log::info;
 use std::sync::Arc;
 use vk_mem::ffi;
 
-/// TODO PERFORMANCE CRITICAL allow swapping memory with "lost" in VMA.
+/// TODO PERFORMANCE MEMORY allow swapping memory with "lost" in VMA.
 
 /// TODO PERFORMANCE stage buffer allocations to be transfered in one staging
 /// buffer commit load operation instead of doing each one seperate and waiting.

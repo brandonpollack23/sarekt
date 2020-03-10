@@ -1786,9 +1786,9 @@ mod tests {
     assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
   }
 
-  // TODO CRITICAL write triangle sanity check that can dump buffer and
+  // TODO CRITICAL TESTING write triangle sanity check that can dump buffer and
   // compare to golden image.
 
-  // TODO CRITICAL write tests for public api using this.  rust doesn't run in
-  // test harness so in some platforms calls to frame don't present correctly. also consider [this](https://stackoverflow.com/questions/43458194/is-there-any-way-to-tell-cargo-to-run-its-tests-on-the-main-thread)
+  // TODO CRITICAL TESTING write tests for public api using this.  rust doesn't
+  // run in test harness so in some platforms calls to frame don't present correctly. also consider [this](https://stackoverflow.com/questions/43458194/is-there-any-way-to-tell-cargo-to-run-its-tests-on-the-main-thread)
 }
