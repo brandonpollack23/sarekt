@@ -9,6 +9,7 @@ pub type SarektResult<T> = Result<T, SarektError>;
 pub enum SarektError {
   Unknown,
   CouldNotSelectPhysicalDevice,
+  SuboptimalSwapchain,
   SwapchainOutOfDate,
   CStrError(NulError),
   VulkanError(vk::Result),
@@ -23,7 +24,8 @@ pub enum SarektError {
 impl From<vk::Result> for SarektError {
   fn from(e: vk::Result) -> Self {
     match e {
-      vk::Result::SUBOPTIMAL_KHR => SarektError::SwapchainOutOfDate,
+      vk::Result::SUBOPTIMAL_KHR => SarektError::SuboptimalSwapchain,
+      vk::Result::ERROR_OUT_OF_DATE_KHR => SarektError::SwapchainOutOfDate,
       e => SarektError::VulkanError(e),
     }
   }
@@ -51,6 +53,10 @@ impl fmt::Display for SarektError {
       SarektError::SwapchainOutOfDate => write!(
         f,
         "Swapchain is out of date, try using recreate_swapchain method"
+      ),
+      SarektError::SuboptimalSwapchain => write!(
+        f,
+        "Swapchain suboptimal, try using recreate_swapchain method"
       ),
       SarektError::VulkanError(r) => write!(f, "Vulkan Error: {}", r),
       SarektError::InstanceError(e) => write!(f, "The vulkan wrapper ash produced an error: {}", e),
