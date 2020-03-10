@@ -691,8 +691,14 @@ impl VulkanRenderer {
     // [vulkan tutorial](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Swap_chain)
     // recommends setting this to min + 1 because if we select minimum we may wait
     // on internal driver operations.
+    let max_image_count = swapchain_support.capabilities.max_image_count;
+    let max_image_count = if max_image_count == 0 {
+      u32::max_value()
+    } else {
+      max_image_count
+    };
     let min_image_count = (swapchain_support.capabilities.min_image_count + 1)
-      .min(swapchain_support.capabilities.max_image_count);
+      .min(max_image_count);
 
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
