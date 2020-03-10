@@ -41,7 +41,7 @@ impl DefaultForwardShaderVertex {
     }
   }
 
-  // TODO CRITICAL asset based creation (OBJ)
+  // TODO ASSETS asset based creation (OBJ)
   // Do it in its own class that builds this and then loads it in without keeping
   // it in memory, or optionally returns a handle and the in memory handle.
 }
