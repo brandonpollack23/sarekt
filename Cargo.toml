@@ -1,7 +1,13 @@
 [package]
 name = "sarekt"
-version = "0.1.0"
+version = "0.1.0-alpha"
 authors = ["Brandon Pollack <brandonpollack23@gmail.com>"]
+description = "An rendering engine based on Vulkan, but capable of being expanded to other graphics API backends such as Metal or D3D12"
+license = "MIT"
+repository = "https://github.com/brandonpollack23/sarekt"
+readme = "README.md"
+keywords = ["vulkan", "graphics", "ash", "rendering"]
+documentation = "https://docs.rs/sarekt"
 edition = "2018"
 
 [[example]]
