@@ -44,7 +44,13 @@ where
 #[derive(Copy, Clone, Debug)]
 pub enum BufferType {
   Vertex,
-  Index,
+  Index(IndexBufferElemSize),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum IndexBufferElemSize {
+  UInt16,
+  UInt32,
 }
 
 /// The handle that reperesents a buffer in the backend.

@@ -26,8 +26,11 @@ path = "examples/02_basic_loop.rs"
 name = "03_loading_vertices"
 path = "examples/03_loading_vertices.rs"
 
+[[example]]
+name = "04_loading_indexed_vertices"
+path = "examples/04_loading_indexed_vertices.rs"
+
 [dependencies]
-# TODO CRITICAL when ash updates their crate remove these git references and use the standard crates..
 ash = "0.29.0"
 ash-window = "0.1.0"
 lazy_static = "1.4.0"
@@ -41,6 +44,7 @@ vk-mem = "0.2.0"
 vk-shader-macros = "0.2.2"
 winit = "0.21.0"
 
+# TODO CRITICAL when ash updates their crate remove these patches.
 [patch.crates-io]
 ash = {git = "https://github.com/MaikKlein/ash"}
 ash-window = {git = "https://github.com/norse-rs/ash-window"}

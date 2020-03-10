@@ -12,16 +12,17 @@ use std::fmt::Debug;
 
 /// The object that is passed to Drawer's draw method.  Contains all the
 /// necessary information to perform a draw command.
-pub struct DrawableObject<'a, R: Renderer>
+pub struct DrawableObject<'a, 'b, R: Renderer>
 where
   R::BL: BufferLoader,
   <R::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug,
 {
   pub(crate) vertex_buffer: <R::BL as BufferLoader>::BBH,
   pub(crate) index_buffer: Option<<R::BL as BufferLoader>::BBH>,
-  _marker: std::marker::PhantomData<&'a BufferHandle<R::BL>>,
+  _vertex_marker: std::marker::PhantomData<&'a BufferHandle<R::BL>>,
+  _index_marker: std::marker::PhantomData<&'b BufferHandle<R::BL>>,
 }
-impl<'a, R: Renderer> DrawableObject<'a, R>
+impl<'a, 'b, R: Renderer> DrawableObject<'a, 'b, R>
 where
   R::BL: BufferLoader,
   <R::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug,
@@ -31,18 +32,21 @@ where
     Ok(Self {
       vertex_buffer,
       index_buffer: None,
-      _marker: std::marker::PhantomData,
+      _vertex_marker: std::marker::PhantomData,
+      _index_marker: std::marker::PhantomData,
     })
   }
 
-  // pub fn new_indexed(
-  //   renderer: &R, vertex_buffer: &BufferHandle<R::BL>, index_buffer:
-  // &BufferHandle<R::BL>, ) -> SarektResult<Self> {
-  //   let vertex_buffer = renderer.get_buffer(vertex_buffer)?;
-  //   let index_buffer = renderer.get_buffer(index_buffer)?;
-  //   Ok(Self {
-  //     vertex_buffer,
-  //     index_buffer: Some(index_buffer),
-  //   })
-  // }
+  pub fn new_indexed(
+    renderer: &R, vertex_buffer: &'a BufferHandle<R::BL>, index_buffer: &'b BufferHandle<R::BL>,
+  ) -> SarektResult<Self> {
+    let vertex_buffer = renderer.get_buffer(vertex_buffer)?;
+    let index_buffer = renderer.get_buffer(index_buffer)?;
+    Ok(Self {
+      vertex_buffer,
+      index_buffer: Some(index_buffer),
+      _vertex_marker: std::marker::PhantomData,
+      _index_marker: std::marker::PhantomData,
+    })
+  }
 }

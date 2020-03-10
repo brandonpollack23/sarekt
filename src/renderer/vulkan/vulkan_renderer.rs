@@ -1,7 +1,7 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    buffers::{BufferHandle, BufferLoader, BufferStore, BufferType},
+    buffers::{BufferHandle, BufferLoader, BufferStore, BufferType, IndexBufferElemSize},
     drawable_object::DrawableObject,
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vertex_bindings::{DefaultForwardShaderVertex, VertexBindings},
@@ -764,7 +764,7 @@ impl VulkanRenderer {
     *available_formats
       .iter()
       .find(|format| {
-        format.format == vk::Format::B8G8R8A8_SRGB
+        format.format == vk::Format::B8G8R8A8_UNORM
           && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
       })
       .unwrap_or(&available_formats[0])
@@ -1568,15 +1568,35 @@ impl Drawer for VulkanRenderer {
         command_buffer,
         0,
         &[object.vertex_buffer.buffer],
-        &[object.vertex_buffer.offset],
+        &[0], // There maybe offset into memory, but not into the buffer.
       );
 
-      // TODO CRITICAL index buffer
-
       if object.index_buffer.is_none() {
+        // Non indexed draw.
         self
           .logical_device
           .cmd_draw(command_buffer, object.vertex_buffer.length, 1, 0, 0);
+      } else {
+        // Indexed Draw.
+        let index_buffer = &object.index_buffer.unwrap();
+        let index_buffer_element_size = match index_buffer.index_buffer_elem_size.unwrap() {
+          IndexBufferElemSize::UInt16 => vk::IndexType::UINT16,
+          IndexBufferElemSize::UInt32 => vk::IndexType::UINT32,
+        };
+        self.logical_device.cmd_bind_index_buffer(
+          command_buffer,
+          index_buffer.buffer,
+          0,
+          index_buffer_element_size,
+        );
+        self.logical_device.cmd_draw_indexed(
+          command_buffer,
+          index_buffer.length,
+          1, // One instance
+          0, // No index offset
+          0, // No vertex offset
+          0, // Zeroth instance.
+        )
       }
     }
 
