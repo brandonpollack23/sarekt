@@ -65,6 +65,25 @@ impl DrawSynchronization {
     Ok(())
   }
 
+  /// Makes new semaphores for draw synchronization.  Useful for swapchain
+  /// recreation.
+  ///
+  /// Unsafe because they must not be in use.
+  pub unsafe fn recreate_semaphores(&mut self, logical_device: &Device) -> SarektResult<()> {
+    let semaphore_ci = vk::SemaphoreCreateInfo::default();
+    for i in 0..MAX_FRAMES_IN_FLIGHT {
+      let to_destroy = self.image_available_semaphores[i];
+      self.image_available_semaphores[i] = logical_device.create_semaphore(&semaphore_ci, None)?;
+      logical_device.destroy_semaphore(to_destroy, None);
+
+      let to_destroy = self.render_finished_semaphores[i];
+      self.render_finished_semaphores[i] = logical_device.create_semaphore(&semaphore_ci, None)?;
+      logical_device.destroy_semaphore(to_destroy, None);
+    }
+
+    Ok(())
+  }
+
   pub unsafe fn destroy_all(&self, logical_device: &Device) {
     info!("Destroying all synchronization primitives...");
     for &sem in self.image_available_semaphores.iter() {

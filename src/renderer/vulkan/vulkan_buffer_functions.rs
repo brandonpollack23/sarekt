@@ -94,11 +94,12 @@ impl VulkanBufferFunctions {
     } else {
       vk::SharingMode::CONCURRENT
     };
+    let queue_family_indices = [self.graphics_queue_family, self.transfer_queue_family];
     let buffer_ci = vk::BufferCreateInfo::builder()
       .size(buffer_size)
       .usage(buffer_usage)
       .sharing_mode(sharing_mode)
-      .queue_family_indices(&[self.graphics_queue_family, self.transfer_queue_family]) // Ignored if exclusive.
+      .queue_family_indices(&queue_family_indices) // Ignored if exclusive.
       .build();
     let alloc_ci = vk_mem::AllocationCreateInfo {
       usage: vk_mem::MemoryUsage::GpuOnly,
@@ -141,8 +142,9 @@ impl VulkanBufferFunctions {
         .logical_device
         .end_command_buffer(transfer_command_buffer)?;
 
+      let command_buffers = [transfer_command_buffer];
       let submit_info = vk::SubmitInfo::builder()
-        .command_buffers(&[transfer_command_buffer])
+        .command_buffers(&command_buffers)
         .build();
       self.logical_device.queue_submit(
         self.transfer_command_queue,
