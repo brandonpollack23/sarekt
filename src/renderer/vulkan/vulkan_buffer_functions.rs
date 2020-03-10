@@ -4,7 +4,8 @@ use crate::{
 };
 use ash::{version::DeviceV1_0, vk, Device};
 use log::info;
-use std::{ffi::c_void, sync::Arc};
+use std::sync::Arc;
+use vk_mem::ffi;
 
 /// TODO PERFORMANCE CRITICAL allow swapping memory with "lost" in VMA.
 
@@ -216,11 +217,14 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     };
 
     unsafe {
+      // TODO CRITICAL remove this dirty hack.
+      let gpu_allocation: Allocation = std::mem::transmute(gpu_allocation);
+
       Ok(BufferAndMemory {
         buffer: gpu_buffer,
         length: buffer.len() as u32,
         index_buffer_elem_size,
-        memory: std::mem::transmute(gpu_allocation),
+        allocation: gpu_allocation,
       })
     }
   }
@@ -228,9 +232,12 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
   fn delete_buffer(&self, handle: Self::BBH) -> SarektResult<()> {
     info!("Deleting buffer and memory {:?}...", handle);
     unsafe {
+      // TODO CRITICAL remove this dirty hack.
+      let gpu_allocation: vk_mem::Allocation = std::mem::transmute(handle.allocation);
+
       self
         .allocator
-        .destroy_buffer(handle.buffer, &std::mem::transmute(handle.memory))
+        .destroy_buffer(handle.buffer, &gpu_allocation)
         .expect("Could not destroy VMA buffer");
     }
     Ok(())
@@ -244,9 +251,17 @@ pub struct BufferAndMemory {
   /// Only present if this is an index buffer.
   pub(crate) index_buffer_elem_size: Option<IndexBufferElemSize>,
   // TODO CRITICAL Super unsafe hack to get around vk_mem::Allocation not implementing Copy.
-  memory: *mut c_void,
+  allocation: Allocation,
 }
 
 /// Allow vk::ShaderModule to be a backend handle for the
 /// [ShaderStore](struct.ShaderStore.html).
 unsafe impl BufferBackendHandle for BufferAndMemory {}
+
+// TODO CRITICAL this is part of a dirty hack to access the VmaAllocation
+// pointer in the raw.
+#[derive(Copy, Clone, Debug)]
+struct Allocation {
+  /// Pointer to internal VmaAllocation instance
+  internal: ffi::VmaAllocation,
+}

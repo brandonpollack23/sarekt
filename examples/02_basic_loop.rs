@@ -68,7 +68,7 @@ impl SarektApp {
                 // Handle window resize etc.
                 warn!("Tried to render without processing window resize event!");
                 let PhysicalSize { width, height } = window.inner_size();
-                renderer.recreate_swapchain(width, height);
+                renderer.recreate_swapchain(width, height).unwrap();
               }
               e => panic!(e),
             }
@@ -109,7 +109,9 @@ impl SarektApp {
         info!("Window resized, recreating renderer swapchain...");
         let enabled = !(size.height == 0 && size.width == 0);
         renderer.set_rendering_enabled(enabled);
-        renderer.recreate_swapchain(size.width, size.height);
+        renderer
+          .recreate_swapchain(size.width, size.height)
+          .unwrap();
       }
       _ => (),
     }
