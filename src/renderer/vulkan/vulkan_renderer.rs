@@ -1550,7 +1550,7 @@ impl Renderer for VulkanRenderer {
     }
 
     if self.extent.width == width && self.extent.height == height {
-      // No change, nothing to do.
+      info!("No change, nothing to do");
       return Ok(());
     }
 
