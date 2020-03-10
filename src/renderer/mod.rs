@@ -56,8 +56,7 @@ use std::fmt::Debug;
 #[cfg(debug_assertions)]
 const IS_DEBUG_MODE: bool = true;
 #[cfg(not(debug_assertions))]
-// TODO NOW FALSE
-const IS_DEBUG_MODE: bool = true;
+const IS_DEBUG_MODE: bool = false;
 const ENABLE_VALIDATION_LAYERS: bool = IS_DEBUG_MODE;
 
 // Wanna know more about what number is good here? [readme](https://software.intel.com/en-us/articles/practical-approach-to-vulkan-part-1)
