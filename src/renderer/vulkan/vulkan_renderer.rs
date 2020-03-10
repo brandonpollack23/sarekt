@@ -84,6 +84,7 @@ pub struct VulkanRenderer {
   draw_synchronization: DrawSynchronization,
   // Frame count since swapchain creation, not beginning of rendering.
   current_frame_num: Cell<usize>,
+  next_image_index: Cell<usize>,
 
   // Application controllable fields
   rendering_enabled: bool,
@@ -278,6 +279,7 @@ impl VulkanRenderer {
       transfer_command_pool,
       draw_synchronization,
       current_frame_num: Cell::new(0),
+      next_image_index: Cell::new(0),
 
       rendering_enabled: true,
 
@@ -697,8 +699,7 @@ impl VulkanRenderer {
     } else {
       max_image_count
     };
-    let min_image_count = (swapchain_support.capabilities.min_image_count + 1)
-      .min(max_image_count);
+    let min_image_count = (swapchain_support.capabilities.min_image_count + 1).min(max_image_count);
 
     let queue_family_indices =
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
@@ -1296,18 +1297,37 @@ impl VulkanRenderer {
   /// The command buffers are written to by the [Drawer](trait.Drawer.html) draw
   /// commands.
   fn setup_next_main_command_buffer(&self) -> SarektResult<()> {
-    let next_frame_num_adjusted =
-      self.current_frame_num.get() % self.primary_gfx_command_buffers.len();
+    let current_frame_num_adjusted = self.current_frame_num.get() % MAX_FRAMES_IN_FLIGHT;
+    let image_available_sem =
+      self.draw_synchronization.image_available_semaphores[current_frame_num_adjusted];
 
-    let command_buffer = self.primary_gfx_command_buffers[next_frame_num_adjusted];
-    let framebuffer = self.framebuffers[next_frame_num_adjusted];
+    // TODO OFFSCREEN handle drawing without swapchain.
+    // Get next image to render to.
+    let (image_index, is_suboptimal) = unsafe {
+      // Will return if swapchain is out of date.
+      self
+        .swapchain_and_extension
+        .swapchain_functions
+        .acquire_next_image(
+          self.swapchain_and_extension.swapchain,
+          u64::max_value(),
+          image_available_sem,
+          vk::Fence::null(),
+        )?
+    };
+    if is_suboptimal {
+      warn!("Swapchain is suboptimal!");
+    }
+
+    let command_buffer = self.primary_gfx_command_buffers[image_index as usize];
+    let framebuffer = self.framebuffers[image_index as usize];
     let extent = self.extent;
     let render_pass = self.forward_render_pass;
     let pipeline = self.base_graphics_pipeline_bundle.pipeline;
 
     // Make sure we wait on any fences for that swap chain image in flight.  Can't
     // write to a command buffer if it is in flight.
-    let fence = self.draw_synchronization.images_in_flight[next_frame_num_adjusted].get();
+    let fence = self.draw_synchronization.images_in_flight[image_index as usize].get();
     if fence != vk::Fence::null() {
       unsafe {
         self
@@ -1360,6 +1380,9 @@ impl VulkanRenderer {
         pipeline,
       )
     };
+
+    // Save image index for frame presentation.
+    self.next_image_index.set(image_index as usize);
 
     // Draw occurs in in the Drawer::draw command.
     // Render pass completion occurs in Renderer::frame
@@ -1431,24 +1454,7 @@ impl Renderer for VulkanRenderer {
     let render_finished_sem =
       self.draw_synchronization.render_finished_semaphores[current_frame_num_adjusted];
 
-    // TODO OFFSCREEN handle drawing without swapchain.
-    // Get next image to render to.
-    let (image_index, is_suboptimal) = unsafe {
-      // Will return if swapchain is out of date.
-      self
-        .swapchain_and_extension
-        .swapchain_functions
-        .acquire_next_image(
-          self.swapchain_and_extension.swapchain,
-          u64::max_value(),
-          image_available_sem,
-          vk::Fence::null(),
-        )?
-    };
-    if is_suboptimal {
-      warn!("Swapchain is suboptimal!");
-    }
-
+    let image_index = self.next_image_index.get();
     let current_command_buffer = self.primary_gfx_command_buffers[image_index as usize];
     unsafe {
       // End Render Pass.
@@ -1498,7 +1504,7 @@ impl Renderer for VulkanRenderer {
     let present_info = vk::PresentInfoKHR::builder()
       .wait_semaphores(&[render_finished_sem])
       .swapchains(&[self.swapchain_and_extension.swapchain])
-      .image_indices(&[image_index])
+      .image_indices(&[image_index as u32])
       .build();
     unsafe {
       self
@@ -1566,8 +1572,7 @@ impl Drawer for VulkanRenderer {
     }
 
     // Current render target command buffer.
-    let command_buffer = self.primary_gfx_command_buffers
-      [self.current_frame_num.get() % self.primary_gfx_command_buffers.len()];
+    let command_buffer = self.primary_gfx_command_buffers[self.next_image_index.get()];
 
     unsafe {
       self.logical_device.cmd_bind_vertex_buffers(
