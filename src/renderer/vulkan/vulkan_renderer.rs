@@ -625,23 +625,26 @@ impl VulkanRenderer {
       Self::find_queue_families(instance, physical_device, surface_and_extension)?;
     let mut indices = queue_family_indices.as_vec().unwrap();
     indices.dedup();
+
+    let queue_prios = [1.0];
     let queue_cis: Vec<_> = indices
       .iter()
       .map(|&queue_index| {
         vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(queue_index)
-        .queue_priorities(&[1.0]) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
+        .queue_priorities(&queue_prios) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
         .build()
       })
       .collect();
 
     let device_features = vk::PhysicalDeviceFeatures::default();
 
+    let enabled_extension_names = [ash::extensions::khr::Swapchain::name().as_ptr()];
     let device_ci = vk::DeviceCreateInfo::builder()
       .queue_create_infos(&queue_cis)
       .enabled_features(&device_features)
       // TODO OFFSCREEN only if drawing to a window
-      .enabled_extension_names(&[ash::extensions::khr::Swapchain::name().as_ptr()])
+      .enabled_extension_names(&enabled_extension_names)
       .build();
 
     unsafe {
@@ -933,6 +936,9 @@ impl VulkanRenderer {
       self.main_gfx_command_pool,
       vk::CommandPoolResetFlags::empty(),
     )?;
+    self
+      .draw_synchronization
+      .recreate_semaphores(&self.logical_device)?;
     self.setup_next_main_command_buffer()?;
 
     Ok(())
@@ -1006,19 +1012,23 @@ impl VulkanRenderer {
       .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
       .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO OFFSCREEN only do this if going to present. Otherwise TransferDST optimal would be good.
       .build();
+    let color_attachments = [color_attachment];
+
     // Used to reference attachments in subpasses.
     let color_attachment_ref = vk::AttachmentReference::builder()
-      .attachment(0) // Only using 1 (indexed from 0) attachment.
+      .attachment(0u32) // Only using 1 (indexed from 0) attachment.
       .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // We're drawing color so optimize the pass to draw color to this attachment.
       .build();
+    let color_attachment_refs = [color_attachment_ref];
 
     // Subpasses could also reference previous subpasses as input, depth/stencil
     // data, or preserve attachments to send them to the next subpass.
     let subpass_description = vk::SubpassDescription::builder()
       .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS) // This is a graphics subpass
       // index of this attachment here is a reference to the output of the shader in the form of layout(location = 0).
-      .color_attachments(&[color_attachment_ref])
+      .color_attachments(&color_attachment_refs)
       .build();
+    let subpass_descriptions = [subpass_description];
 
     let dependency = vk::SubpassDependency::builder()
       .src_subpass(vk::SUBPASS_EXTERNAL)
@@ -1028,11 +1038,12 @@ impl VulkanRenderer {
       .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) // Anyone waiting on this should wait in the color attachment stage.
       .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE) // Dependents should wait if they read or write the color attachment.
       .build();
+    let dependencies = [dependency];
 
     let render_pass_ci = vk::RenderPassCreateInfo::builder()
-      .attachments(&[color_attachment])
-      .subpasses(&[subpass_description]) // Only one subpass in this case.
-      .dependencies(&[dependency]) // Only one dep.
+      .attachments(&color_attachments)
+      .subpasses(&subpass_descriptions) // Only one subpass in this case.
+      .dependencies(&dependencies) // Only one dep.
       .build();
 
     Ok(unsafe { logical_device.create_render_pass(&render_pass_ci, None)? })
@@ -1110,10 +1121,10 @@ impl VulkanRenderer {
 
     let shader_stage_cis = [vert_shader_stage_ci, frag_shader_stage_ci];
 
-    let binding_desc = DefaultForwardShaderVertex::get_binding_description();
+    let binding_descs = [DefaultForwardShaderVertex::get_binding_description()];
     let attr_descs = DefaultForwardShaderVertex::get_attribute_descriptions();
     let vertex_input_ci = vk::PipelineVertexInputStateCreateInfo::builder()
-      .vertex_binding_descriptions(&[binding_desc])
+      .vertex_binding_descriptions(&binding_descs)
       .vertex_attribute_descriptions(&attr_descs)
       .build();
 
@@ -1130,13 +1141,15 @@ impl VulkanRenderer {
       .min_depth(0f32)
       .max_depth(1.0f32)
       .build();
+    let viewports = [viewport];
     let scissor = vk::Rect2D::builder()
       .offset(Offset2D::default())
       .extent(extent)
       .build();
+    let scissors = [scissor];
     let viewport_state_ci = vk::PipelineViewportStateCreateInfo::builder()
-      .viewports(&[viewport])
-      .scissors(&[scissor])
+      .viewports(&viewports)
+      .scissors(&scissors)
       .build();
 
     let raster_state_ci = vk::PipelineRasterizationStateCreateInfo::builder()
@@ -1165,10 +1178,11 @@ impl VulkanRenderer {
       .blend_enable(false)
       // everything else optional because its not enabled.
       .build();
+    let attachements = [color_blend_attachment_state];
     let color_blend_ci = vk::PipelineColorBlendStateCreateInfo::builder()
       .logic_op_enable(false)
       .logic_op(vk::LogicOp::COPY)
-      .attachments(&[color_blend_attachment_state])
+      .attachments(&attachements)
       .build();
 
     // No uniforms so there is nothing to layout.
@@ -1176,7 +1190,7 @@ impl VulkanRenderer {
     let pipeline_layout =
       unsafe { logical_device.create_pipeline_layout(&pipeline_layout_ci, None)? };
 
-    let graphics_pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
+    let base_graphics_pipeline_ci = vk::GraphicsPipelineCreateInfo::builder()
       .flags(vk::PipelineCreateFlags::ALLOW_DERIVATIVES)
       .stages(&shader_stage_cis)
       .vertex_input_state(&vertex_input_ci)
@@ -1193,10 +1207,11 @@ impl VulkanRenderer {
       .build();
 
     // TODO CRITICAL RENDERING_CAPABILITIES use pipeline cache.
+    let pipeline_create_infos = [base_graphics_pipeline_ci];
     let pipeline = unsafe {
       logical_device.create_graphics_pipelines(
         vk::PipelineCache::null(),
-        &[graphics_pipeline_ci],
+        &pipeline_create_infos,
         None,
       )
     };
@@ -1207,7 +1222,7 @@ impl VulkanRenderer {
     Ok(BasePipelineBundle::new(
       pipeline.unwrap()[0],
       pipeline_layout,
-      graphics_pipeline_ci,
+      base_graphics_pipeline_ci,
       vertex_shader_handle,
       fragment_shader_handle,
     ))
@@ -1220,9 +1235,10 @@ impl VulkanRenderer {
     let mut framebuffers = Vec::with_capacity(render_target_images.len());
 
     for image_and_view in render_target_images.iter() {
+      let attachments = [image_and_view.view];
       let framebuffer_ci = vk::FramebufferCreateInfo::builder()
         .render_pass(render_pass)
-        .attachments(&[image_and_view.view])
+        .attachments(&attachments)
         .width(extent.width)
         .height(extent.height)
         .layers(1)
@@ -1357,11 +1373,12 @@ impl VulkanRenderer {
           float32: [0f32, 0f32, 0f32, 1f32],
         },
       };
+      let clear_values = [clear_value];
       let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
         .render_pass(render_pass)
         .framebuffer(framebuffer)
         .render_area(render_area)
-        .clear_values(&[clear_value]) // Clear to black.
+        .clear_values(&clear_values) // Clear to black.
         .build();
 
       self.logical_device.cmd_begin_render_pass(
@@ -1477,11 +1494,15 @@ impl Renderer for VulkanRenderer {
     )?;
 
     // Submit draw commands.
+    let wait_semaphores = [image_available_sem];
+    let wait_dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+    let command_buffers = [current_command_buffer];
+    let signal_semaphores = [render_finished_sem];
     let submit_info = vk::SubmitInfo::builder()
-      .wait_semaphores(&[image_available_sem]) // Don't draw until it is ready.
-      .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT]) // Don't we only need to wait until Color Attachment is ready to start drawing.  Vertex and other shaders can begin sooner.
-      .command_buffers(&[current_command_buffer]) // Only use the command buffer corresponding to this image index.
-      .signal_semaphores(&[render_finished_sem]) // Signal we're done drawing when we are.
+      .wait_semaphores(&wait_semaphores) // Don't draw until it is ready.
+      .wait_dst_stage_mask(&wait_dst_stage_mask) // Don't we only need to wait until Color Attachment is ready to start drawing.  Vertex and other shaders can begin sooner.
+      .command_buffers(&command_buffers) // Only use the command buffer corresponding to this image index.
+      .signal_semaphores(&signal_semaphores) // Signal we're done drawing when we are.
       .build();
     unsafe {
       let current_fence = self.draw_synchronization.in_flight_fences[current_frame_num_adjusted];
@@ -1501,10 +1522,13 @@ impl Renderer for VulkanRenderer {
 
     // TODO OFFSCREEN only if presenting to swapchain.
     // Present to swapchain and display completed frame.
+    let wait_semaphores = [render_finished_sem];
+    let swapchains = [self.swapchain_and_extension.swapchain];
+    let image_indices = [image_index as u32];
     let present_info = vk::PresentInfoKHR::builder()
-      .wait_semaphores(&[render_finished_sem])
-      .swapchains(&[self.swapchain_and_extension.swapchain])
-      .image_indices(&[image_index as u32])
+      .wait_semaphores(&wait_semaphores)
+      .swapchains(&swapchains)
+      .image_indices(&image_indices)
       .build();
     unsafe {
       self
@@ -1575,11 +1599,13 @@ impl Drawer for VulkanRenderer {
     let command_buffer = self.primary_gfx_command_buffers[self.next_image_index.get()];
 
     unsafe {
+      let vertex_buffers = [object.vertex_buffer.buffer];
+      let offsets = [0];
       self.logical_device.cmd_bind_vertex_buffers(
         command_buffer,
         0,
-        &[object.vertex_buffer.buffer],
-        &[0], // There maybe offset into memory, but not into the buffer.
+        &vertex_buffers,
+        &offsets, // There may be offset into memory, but not into the buffer.
       );
 
       if object.index_buffer.is_none() {
@@ -1759,6 +1785,10 @@ mod tests {
     std::mem::drop(renderer);
     assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
   }
+
+  // TODO CRITICAL resize swapchain test.
+
+  // TODO CRITICAL public method pass over tests.
 
   // TODO CRITICAL write triangle sanity check that can dump buffer and
   // compare to golden image.
