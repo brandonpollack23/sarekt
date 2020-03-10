@@ -1086,7 +1086,7 @@ impl VulkanRenderer {
   ) -> SarektResult<BasePipelineBundle> {
     let shader_store = shader_store.read().unwrap();
 
-    let entry_point_name = CString::new("main").unwrap();
+    let entry_point_name = CStr::from_bytes_with_nul(b"main\0").unwrap();
     let vert_shader_stage_ci = vk::PipelineShaderStageCreateInfo::builder()
       .stage(vk::ShaderStageFlags::VERTEX)
       .module(
@@ -1095,7 +1095,7 @@ impl VulkanRenderer {
           .unwrap()
           .shader_handle,
       )
-      .name(&entry_point_name)
+      .name(entry_point_name)
       .build();
     let frag_shader_stage_ci = vk::PipelineShaderStageCreateInfo::builder()
       .stage(vk::ShaderStageFlags::FRAGMENT)
@@ -1105,7 +1105,7 @@ impl VulkanRenderer {
           .unwrap()
           .shader_handle,
       )
-      .name(&entry_point_name)
+      .name(entry_point_name)
       .build();
 
     let shader_stage_cis = [vert_shader_stage_ci, frag_shader_stage_ci];
