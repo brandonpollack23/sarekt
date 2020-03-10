@@ -84,7 +84,7 @@ fn main_loop() -> SarektResult<()> {
         // Redraw requested, this is called after MainEventsCleared.
         renderer.frame().unwrap_or_else(|err| {
           match err {
-            SarektError::SwapchainOutOfDate => {
+            SarektError::SwapchainOutOfDate | SarektError::SuboptimalSwapchain => {
               // Handle window resize etc.
               warn!("Tried to render without processing window resize event!");
 
@@ -93,7 +93,7 @@ fn main_loop() -> SarektResult<()> {
                 .recreate_swapchain(width, height)
                 .expect("Error recreating swapchain");
             }
-            e => panic!(e),
+            e => panic!("Frame had an unrecoverable error! {}", e),
           }
         });
       }
