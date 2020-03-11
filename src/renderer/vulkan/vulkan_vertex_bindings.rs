@@ -1,4 +1,6 @@
-use crate::renderer::vertex_bindings::{DefaultForwardShaderVertex, VertexBindings};
+use crate::renderer::vertex_bindings::{
+  DefaultForwardShaderUniforms, DefaultForwardShaderVertex, DescriptorLayoutInfo, VertexBindings,
+};
 use ash::vk;
 
 // TODO SHADERS use reflection to generate these at compile time (generically?).
@@ -31,5 +33,24 @@ unsafe impl VertexBindings for DefaultForwardShaderVertex {
       .build();
 
     vec![position_attr, color_attr]
+  }
+}
+
+// TODO SHADERS use reflection to generate descriptor set layouts.
+
+unsafe impl DescriptorLayoutInfo for DefaultForwardShaderUniforms {
+  type BackendDescriptorSetLayoutBindings = vk::DescriptorSetLayoutBinding;
+
+  fn get_descriptor_set_layout_bindings() -> Self::BackendDescriptorSetLayoutBindings {
+    // Create the bindings for each part of the uniform.
+    let layout_binding = vk::DescriptorSetLayoutBinding::builder()
+      .binding(0)
+      .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+      .descriptor_count(1) // If this uniform contained an array (like of lights, or transforms for each bone for animation) this is how many.
+      .stage_flags(vk::ShaderStageFlags::VERTEX) // used in the vertex shader.
+      // .immutable_samplers() no samplers since there's no textures. 
+      .build();
+
+    layout_binding
   }
 }

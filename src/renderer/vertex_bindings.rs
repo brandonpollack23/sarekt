@@ -1,5 +1,8 @@
 use nalgebra as na;
 
+// TODO critical move out of renderer along with different backend files into
+// their own folder.
+
 /// A trait that provides a static function that generates backend specific
 /// vertex bindings.  This is mainly provided out of convenience and would need
 /// to be custom defined for each backend otherwise.  It is possible to seperate
@@ -23,10 +26,11 @@ pub unsafe trait VertexBindings {
   /// and attach texture/image buffers to a binding location in the shader.
   fn get_binding_description() -> Self::BVB;
 
+  /// Same as get_binding_description but for vertex attribute descriptions.
   fn get_attribute_descriptions() -> Vec<Self::BVA>;
 }
 
-/// Inputs to the sarekt_forward shader set.
+/// Input vertices to the sarekt_forward shader set.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct DefaultForwardShaderVertex {
@@ -46,6 +50,14 @@ impl DefaultForwardShaderVertex {
   // it in memory, or optionally returns a handle and the in memory handle.
 }
 
+// TODO NOW doc
+pub unsafe trait DescriptorLayoutInfo {
+  type BackendDescriptorSetLayoutBindings;
+
+  fn get_descriptor_set_layout_bindings() -> Self::BackendDescriptorSetLayoutBindings;
+}
+
+/// Input uniforms to the sarekt_forward shader set.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct DefaultForwardShaderUniforms {
