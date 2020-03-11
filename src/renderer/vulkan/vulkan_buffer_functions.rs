@@ -1,6 +1,8 @@
 use crate::{
   error::SarektResult,
-  renderer::buffers::{BufferBackendHandle, BufferLoader, BufferType, IndexBufferElemSize},
+  renderer::buffers::{
+    BufferBackendHandle, BufferHandle, BufferLoader, BufferType, IndexBufferElemSize,
+  },
 };
 use ash::{version::DeviceV1_0, vk, Device};
 use log::info;
@@ -173,6 +175,7 @@ impl VulkanBufferFunctions {
 }
 unsafe impl BufferLoader for VulkanBufferFunctions {
   type BBH = BufferAndMemory;
+  type UBD = Vec<BufferHandle<VulkanBufferFunctions>>;
 
   /// I could create a buffer myself and allocate memory with VMA, but their
   /// recomended approach is to allow the library to create a buffer and bind

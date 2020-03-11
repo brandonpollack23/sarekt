@@ -61,6 +61,18 @@ pub enum IndexBufferElemSize {
 /// buffer in the backend/GPU in [ShaderLoader](trait.BufferLoader.html).
 pub unsafe trait BufferBackendHandle: Copy {}
 
+// TODO NOW doc
+pub struct UniformBufferHandle<BL: BufferLoader> {
+  uniform_buffer_data: BL::UBD,
+}
+impl<BL: BufferLoader> UniformBufferHandle<BL> {
+  pub(crate) fn new(uniform_buffer_data: BL::UBD) -> Self {
+    Self {
+      uniform_buffer_data,
+    }
+  }
+}
+
 /// A trait used by each implementation in order to load buffers in their own
 /// way.
 ///
@@ -77,7 +89,10 @@ pub unsafe trait BufferBackendHandle: Copy {}
 pub unsafe trait BufferLoader {
   // Buffer Backend Handle
   type BBH;
+  // Uniform Buffer Backend Data
+  type UBD;
 
+  // TODO NOW doc
   fn load_buffer_with_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BBH>;
@@ -124,6 +139,27 @@ where
     let buffer_backend_handle = buffer_store
       .buffer_loader
       .load_buffer_with_staging(buffer_type, buffer)?;
+    let inner_key = buffer_store
+      .loaded_buffers
+      .insert(Buffer::new(buffer_backend_handle, buffer_type));
+
+    Ok(BufferHandle {
+      inner_key,
+      buffer_store: this.clone(),
+    })
+  }
+
+  // TODO NOW doc
+  pub(crate) fn load_buffer_without_staging<BufElem: Sized>(
+    this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
+  ) -> SarektResult<BufferHandle<BL>> {
+    let mut buffer_store = this
+      .write()
+      .expect("Could not unlock BufferStore due to previous panic");
+
+    let buffer_backend_handle = buffer_store
+      .buffer_loader
+      .load_buffer_without_staging(buffer_type, buffer)?;
     let inner_key = buffer_store
       .loaded_buffers
       .insert(Buffer::new(buffer_backend_handle, buffer_type));
