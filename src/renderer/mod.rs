@@ -45,7 +45,7 @@ pub use shaders::{ShaderHandle, ShaderType};
 pub use vulkan::{vulkan_buffer_functions::VulkanBufferFunctions, vulkan_renderer::VulkanRenderer};
 
 use crate::renderer::{
-  buffers::{BufferBackendHandle, BufferHandle, BufferLoader, BufferType},
+  buffers::{BufferBackendHandle, BufferHandle, BufferLoader, BufferType, UniformBufferHandle},
   drawable_object::DrawableObject,
 };
 use slotmap::new_key_type;
@@ -103,7 +103,7 @@ pub trait Renderer {
 
   fn load_uniform_buffer<BufElem: Sized>(
     &mut self, buffer: &[BufElem],
-  ) -> SarektResult<UniformBufferHandle>
+  ) -> SarektResult<UniformBufferHandle<Self::BL>>
   where
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
@@ -117,10 +117,6 @@ pub trait Renderer {
 
   /// Handle swapchain out of date, such as window changes.
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
-}
-
-new_key_type! {
-pub struct UniformBufferHandle;
 }
 
 /// Trait that each renderer as well as its secondary drawers (if supported)

@@ -1,7 +1,9 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    buffers::{BufferHandle, BufferLoader, BufferStore, BufferType, IndexBufferElemSize},
+    buffers::{
+      BufferHandle, BufferLoader, BufferStore, BufferType, IndexBufferElemSize, UniformBufferHandle,
+    },
     drawable_object::DrawableObject,
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vertex_bindings::{
@@ -16,12 +18,12 @@ use crate::{
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
-      vulkan_buffer_functions::VulkanBufferFunctions,
+      vulkan_buffer_functions::{BufferAndMemory, VulkanBufferFunctions},
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
     },
-    ApplicationDetails, Drawer, EngineDetails, Renderer, UniformBufferHandle,
-    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE, MAX_FRAMES_IN_FLIGHT,
+    ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    MAX_FRAMES_IN_FLIGHT,
   },
 };
 use ash::{
@@ -1594,19 +1596,29 @@ impl Renderer for VulkanRenderer {
   fn load_buffer<BufElem: Sized>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<Self::BL>> {
-    if buffer_type == BufferType::Uniform {
+    if let BufferType::Uniform = buffer_type {
       return Err(SarektError::IncorrectLoaderFunction);
     }
 
-    BufferStore::load_buffer(&self.buffer_store, buffer_type, buffer)
+    BufferStore::load_buffer_with_staging(&self.buffer_store, buffer_type, buffer)
   }
 
   fn load_uniform_buffer<BufElem: Sized>(
     &mut self, buffer: &[BufElem],
-  ) -> SarektResult<UniformBufferHandle> {
-    // TODO now load one buffer for each frame in flight since they each can
-    // have different values. Store those buffer handles in a slotmap. might
-    // need the unstable property for slotmap.
+  ) -> SarektResult<UniformBufferHandle<VulkanBufferFunctions>> {
+    // Since each framebuffer may have different values for uniforms, they each need
+    // their own UB.  These are stored in the same ordering as the render target
+    // images.
+    let mut uniform_buffers = Vec::with_capacity(self.framebuffers.len());
+    for _ in 0..self.framebuffers.len() {
+      // TODO PERFORMANCE EASY create a "locked" version of the loading function
+      // so I don't have to keep reacquiring it.
+      let uniform_buffer =
+        BufferStore::load_buffer_without_staging(&self.buffer_store, BufferType::Uniform, buffer)?;
+      uniform_buffers.push(uniform_buffer);
+    }
+
+    Ok(UniformBufferHandle::new(uniform_buffers))
   }
 
   fn get_buffer(
