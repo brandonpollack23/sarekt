@@ -4,7 +4,10 @@ use crate::{
     buffers::{BufferHandle, BufferLoader, BufferStore, BufferType, IndexBufferElemSize},
     drawable_object::DrawableObject,
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
-    vertex_bindings::{DefaultForwardShaderVertex, VertexBindings},
+    vertex_bindings::{
+      DefaultForwardShaderUniforms, DefaultForwardShaderVertex, DescriptorLayoutInfo,
+      VertexBindings,
+    },
     vulkan::{
       base_pipeline_bundle::BasePipelineBundle,
       debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
@@ -912,11 +915,16 @@ impl VulkanRenderer {
       .base_graphics_pipeline_bundle
       .fragment_shader_handle
       .take();
+    let descriptor_set_layouts = self
+      .base_graphics_pipeline_bundle
+      .descriptor_set_layouts
+      .take();
     self.base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
       logical_device,
       shader_store,
       new_extent,
       self.forward_render_pass,
+      descriptor_set_layouts.unwrap(),
       vertex_shader_handle.unwrap(),
       fragment_shader_handle.unwrap(),
     )?;
@@ -1063,11 +1071,16 @@ impl VulkanRenderer {
   ) -> SarektResult<BasePipelineBundle> {
     let (vertex_shader_handle, fragment_shader_handle) =
       Self::create_default_shaders(shader_store)?;
+
+    let default_descriptor_set_layouts =
+      Self::create_default_descriptor_set_layouts(logical_device)?;
+
     Self::create_base_graphics_pipeline(
       logical_device,
       shader_store,
       extent,
       render_pass,
+      default_descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
     )
@@ -1090,9 +1103,29 @@ impl VulkanRenderer {
     Ok((vertex_shader_handle, fragment_shader_handle))
   }
 
+  fn create_default_descriptor_set_layouts(
+    logical_device: &Device,
+  ) -> SarektResult<Vec<vk::DescriptorSetLayout>> {
+    // Create descriptor set layouts for the default forward shader uniforms.
+    let descriptor_set_layout_bindings =
+      [DefaultForwardShaderUniforms::get_descriptor_set_layout_bindings()];
+    let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
+      .bindings(&descriptor_set_layout_bindings)
+      .build();
+
+    // One descriptor set layout contains all the bindings for the shader.
+    // Pipline_layout_ci requires an array because of something I've yet to learn in
+    // descriptor_pools and descriptor_sets.
+
+    let descriptor_set_layout =
+      unsafe { logical_device.create_descriptor_set_layout(&descriptor_set_layout_ci, None)? };
+    Ok(vec![descriptor_set_layout])
+  }
+
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: Extent2D, render_pass: vk::RenderPass, vertex_shader_handle: VulkanShaderHandle,
+    extent: Extent2D, render_pass: vk::RenderPass,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, vertex_shader_handle: VulkanShaderHandle,
     fragment_shader_handle: VulkanShaderHandle,
   ) -> SarektResult<BasePipelineBundle> {
     let shader_store = shader_store.read().unwrap();
@@ -1185,8 +1218,9 @@ impl VulkanRenderer {
       .attachments(&attachements)
       .build();
 
-    // No uniforms so there is nothing to layout.
-    let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::default();
+    let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
+      .set_layouts(&descriptor_set_layouts)
+      .build();
     let pipeline_layout =
       unsafe { logical_device.create_pipeline_layout(&pipeline_layout_ci, None)? };
 
@@ -1223,6 +1257,7 @@ impl VulkanRenderer {
       pipeline.unwrap()[0],
       pipeline_layout,
       base_graphics_pipeline_ci,
+      descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
     ))
@@ -1661,6 +1696,17 @@ impl Drop for VulkanRenderer {
       self
         .cleanup_swapchain()
         .expect("Could not clean up swapchain while cleaning up VulkanRenderer...");
+
+      info!("Destroying default descriptor set layouts for default pipeline...");
+      if let Some(descriptor_set_layouts) =
+        &self.base_graphics_pipeline_bundle.descriptor_set_layouts
+      {
+        for &layout in descriptor_set_layouts.iter() {
+          self
+            .logical_device
+            .destroy_descriptor_set_layout(layout, None);
+        }
+      }
 
       self.draw_synchronization.destroy_all(&self.logical_device);
 
