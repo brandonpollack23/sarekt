@@ -44,6 +44,7 @@ where
 #[derive(Copy, Clone, Debug)]
 pub enum BufferType {
   Vertex,
+  Uniform,
   Index(IndexBufferElemSize),
 }
 

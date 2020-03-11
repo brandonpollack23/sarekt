@@ -45,3 +45,11 @@ impl DefaultForwardShaderVertex {
   // Do it in its own class that builds this and then loads it in without keeping
   // it in memory, or optionally returns a handle and the in memory handle.
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct DefaultForwardShaderUniforms {
+  /// The model view projection matrix to apply to the containing
+  /// DrawableObject.
+  pub mvp: na::Matrix4<f32>,
+}
