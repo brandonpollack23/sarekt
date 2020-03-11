@@ -20,8 +20,8 @@ use crate::{
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
     },
-    ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
-    MAX_FRAMES_IN_FLIGHT,
+    ApplicationDetails, Drawer, EngineDetails, Renderer, UniformBufferHandle,
+    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE, MAX_FRAMES_IN_FLIGHT,
   },
 };
 use ash::{
@@ -1594,7 +1594,19 @@ impl Renderer for VulkanRenderer {
   fn load_buffer<BufElem: Sized>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<Self::BL>> {
+    if buffer_type == BufferType::Uniform {
+      return Err(SarektError::IncorrectLoaderFunction);
+    }
+
     BufferStore::load_buffer(&self.buffer_store, buffer_type, buffer)
+  }
+
+  fn load_uniform_buffer<BufElem: Sized>(
+    &mut self, buffer: &[BufElem],
+  ) -> SarektResult<UniformBufferHandle> {
+    // TODO now load one buffer for each frame in flight since they each can
+    // have different values. Store those buffer handles in a slotmap. might
+    // need the unstable property for slotmap.
   }
 
   fn get_buffer(
