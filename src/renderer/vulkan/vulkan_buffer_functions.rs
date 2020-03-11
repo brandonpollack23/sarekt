@@ -89,6 +89,7 @@ impl VulkanBufferFunctions {
       | match buffer_type {
         BufferType::Vertex => vk::BufferUsageFlags::VERTEX_BUFFER,
         BufferType::Index(_) => vk::BufferUsageFlags::INDEX_BUFFER,
+        BufferType::Uniform => vk::BufferUsageFlags::UNIFORM_BUFFER,
       };
     let sharing_mode = if self.graphics_queue_family == self.transfer_queue_family {
       vk::SharingMode::EXCLUSIVE
@@ -212,8 +213,8 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     // If this is an index buffer, keep track of the size of the elements (16 or
     // 32).
     let index_buffer_elem_size = match buffer_type {
-      BufferType::Vertex => None,
       BufferType::Index(size) => Some(size),
+      _ => None,
     };
 
     unsafe {
