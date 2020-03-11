@@ -16,7 +16,7 @@ use std::{
 pub struct ShaderHandle<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy + Debug,
+  SL::SBH: ShaderBackendHandleTrait + Copy + Debug,
 {
   inner_key: DefaultKey,
   shader_store: Arc<RwLock<ShaderStore<SL>>>,
@@ -24,7 +24,7 @@ where
 impl<SL> Drop for ShaderHandle<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy + Debug,
+  SL::SBH: ShaderBackendHandleTrait + Copy + Debug,
 {
   fn drop(&mut self) {
     let mut shader_store_guard = self
@@ -63,7 +63,7 @@ pub enum ShaderType {
 /// Unsafe because:
 /// This must specifically be the handle used to delete your
 /// shader in the driver in [ShaderLoader](trait.ShaderLoader.html).
-pub unsafe trait ShaderBackendHandle: Copy {}
+pub unsafe trait ShaderBackendHandleTrait: Copy {}
 
 /// A trait used by each implementation in order to load shaders in their own
 /// way.
@@ -92,7 +92,7 @@ pub unsafe trait ShaderLoader {
 pub(crate) struct ShaderStore<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy + Debug,
+  SL::SBH: ShaderBackendHandleTrait + Copy + Debug,
 {
   loaded_shaders: SlotMap<DefaultKey, Shader<SL::SBH>>,
   shader_loader: SL,
@@ -101,7 +101,7 @@ where
 impl<SL> ShaderStore<SL>
 where
   SL: ShaderLoader,
-  SL::SBH: ShaderBackendHandle + Copy + Debug,
+  SL::SBH: ShaderBackendHandleTrait + Copy + Debug,
 {
   /// Create with a group of methods to load/destroy shaders.
   pub(crate) fn new(shader_loader: SL) -> Self {
@@ -170,14 +170,14 @@ where
 /// The shader in it's backend type along with the type of shader itself (vertex
 /// etc).
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct Shader<SBH: ShaderBackendHandle + Copy> {
+pub(crate) struct Shader<SBH: ShaderBackendHandleTrait + Copy> {
   pub shader_handle: SBH,
   pub shader_type: ShaderType,
 }
 
 impl<SBH> Shader<SBH>
 where
-  SBH: ShaderBackendHandle + Copy,
+  SBH: ShaderBackendHandleTrait + Copy,
 {
   fn new(shader_module: SBH, shader_type: ShaderType) -> Self {
     Self {

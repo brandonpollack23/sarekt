@@ -1,7 +1,7 @@
 use crate::{
   error::SarektResult,
   renderer::buffers::{
-    BufferBackendHandle, BufferHandle, BufferLoader, BufferType, IndexBufferElemSize,
+    BufferBackendHandleTrait, BufferHandle, BufferLoader, BufferType, IndexBufferElemSize,
   },
 };
 use ash::{version::DeviceV1_0, vk, Device};
@@ -174,9 +174,9 @@ impl VulkanBufferFunctions {
   }
 }
 unsafe impl BufferLoader for VulkanBufferFunctions {
-  type BBH = BufferAndMemory;
-  type UBD = Vec<BufferAndMemory>;
-  type UBH = Vec<BufferHandle<VulkanBufferFunctions>>;
+  type BufferBackendHandle = BufferAndMemory;
+  type UniformBufferDataHandle = Vec<BufferAndMemory>;
+  type UniformBufferHandle = Vec<BufferHandle<VulkanBufferFunctions>>;
 
   /// I could create a buffer myself and allocate memory with VMA, but their
   /// recomended approach is to allow the library to create a buffer and bind
@@ -193,7 +193,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
   /// operation on the GPU to a more efficient device only GPU memory buffer.
   fn load_buffer_with_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<Self::BBH> {
+  ) -> SarektResult<Self::BufferBackendHandle> {
     let buffer_size =
       (std::mem::size_of::<BufElem>() as vk::DeviceSize) * buffer.len() as vk::DeviceSize;
 
@@ -241,7 +241,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
 
   fn load_buffer_without_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<Self::BBH> {
+  ) -> SarektResult<Self::BufferBackendHandle> {
     let buffer_size =
       (std::mem::size_of::<BufElem>() as vk::DeviceSize) * buffer.len() as vk::DeviceSize;
 
@@ -277,7 +277,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     }
   }
 
-  fn delete_buffer(&self, handle: Self::BBH) -> SarektResult<()> {
+  fn delete_buffer(&self, handle: Self::BufferBackendHandle) -> SarektResult<()> {
     info!("Deleting buffer and memory {:?}...", handle);
     unsafe {
       // TODO CRITICAL remove this dirty hack.
@@ -312,7 +312,7 @@ fn usage_flags_from_buffer_type(buffer_type: BufferType) -> vk::BufferUsageFlags
 
 /// Allow vk::ShaderModule to be a backend handle for the
 /// [ShaderStore](struct.ShaderStore.html).
-unsafe impl BufferBackendHandle for BufferAndMemory {}
+unsafe impl BufferBackendHandleTrait for BufferAndMemory {}
 
 // TODO CRITICAL this is part of a dirty hack to access the VmaAllocation
 // pointer in the raw.

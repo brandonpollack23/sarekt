@@ -14,7 +14,7 @@ use std::{
 pub struct BufferHandle<BL>
 where
   BL: BufferLoader,
-  BL::BBH: BufferBackendHandle + Copy + Debug,
+  BL::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {
   inner_key: DefaultKey,
   buffer_store: Arc<RwLock<BufferStore<BL>>>,
@@ -22,7 +22,7 @@ where
 impl<BL> Drop for BufferHandle<BL>
 where
   BL: BufferLoader,
-  BL::BBH: BufferBackendHandle + Copy + Debug,
+  BL::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {
   fn drop(&mut self) {
     let mut buffer_store_guard = self
@@ -59,14 +59,14 @@ pub enum IndexBufferElemSize {
 /// Unsafe because:
 /// This must specifically be the handle used to delete your
 /// buffer in the backend/GPU in [ShaderLoader](trait.BufferLoader.html).
-pub unsafe trait BufferBackendHandle: Copy {}
+pub unsafe trait BufferBackendHandleTrait: Copy {}
 
 // TODO NOW doc
 pub struct UniformBufferHandle<BL: BufferLoader> {
-  pub(crate) uniform_buffer_backend_handle: BL::UBH,
+  pub(crate) uniform_buffer_backend_handle: BL::UniformBufferHandle,
 }
 impl<BL: BufferLoader> UniformBufferHandle<BL> {
-  pub(crate) fn new(uniform_buffer_backend_handle: BL::UBH) -> Self {
+  pub(crate) fn new(uniform_buffer_backend_handle: BL::UniformBufferHandle) -> Self {
     Self {
       uniform_buffer_backend_handle,
     }
@@ -80,31 +80,27 @@ impl<BL: BufferLoader> UniformBufferHandle<BL> {
 /// * The lifetimes of the functions to create them (which are
 /// usually dynamically loaded) must outlive the Loader itself.
 ///
-/// * BBH must be an implementer of
+/// * BufferBackendHandle must be an implementer of
 ///   [ShaderBackendHandle](trait.ShaderBackendHandle.html)
 ///
 ///  * It is the responsibility of the implementor to drop anything loaded using
 ///    delete_buffer cleanly on all elements, if the ShaderHandle dropping
 ///    doesn't handle it.
 pub unsafe trait BufferLoader {
-  // TODO NOW longer better names
-  // Buffer Backend Handle
-  type BBH;
-  // Uniform Buffer Backend Data Handle
-  type UBD;
-  // Uniform Buffer Backend Handle
-  type UBH;
+  type BufferBackendHandle;
+  type UniformBufferDataHandle;
+  type UniformBufferHandle;
 
   // TODO NOW doc
   fn load_buffer_with_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<Self::BBH>;
+  ) -> SarektResult<Self::BufferBackendHandle>;
 
   fn load_buffer_without_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<Self::BBH>;
+  ) -> SarektResult<Self::BufferBackendHandle>;
 
-  fn delete_buffer(&self, handle: Self::BBH) -> SarektResult<()>;
+  fn delete_buffer(&self, handle: Self::BufferBackendHandle) -> SarektResult<()>;
 }
 
 /// A storage for all buffers to be loaded or destroyed from.  Returns a handle
@@ -113,15 +109,15 @@ pub unsafe trait BufferLoader {
 pub(crate) struct BufferStore<BL>
 where
   BL: BufferLoader,
-  BL::BBH: BufferBackendHandle + Copy + Debug,
+  BL::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {
-  loaded_buffers: SlotMap<DefaultKey, Buffer<BL::BBH>>,
+  loaded_buffers: SlotMap<DefaultKey, Buffer<BL::BufferBackendHandle>>,
   buffer_loader: BL,
 }
 impl<BL> BufferStore<BL>
 where
   BL: BufferLoader,
-  BL::BBH: BufferBackendHandle + Copy + Debug,
+  BL::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {
   pub(crate) fn new(buffer_loader: BL) -> Self {
     Self {
@@ -200,7 +196,9 @@ where
   }
 
   /// Retrieves the buffer associated with the handle to be bound etc.
-  pub(crate) fn get_buffer(&self, handle: &BufferHandle<BL>) -> SarektResult<&Buffer<BL::BBH>> {
+  pub(crate) fn get_buffer(
+    &self, handle: &BufferHandle<BL>,
+  ) -> SarektResult<&Buffer<BL::BufferBackendHandle>> {
     let buffer = self.loaded_buffers.get(handle.inner_key);
     if let Some(buffer) = buffer {
       return Ok(buffer);
@@ -211,12 +209,12 @@ where
 
 /// The Buffer in terms of its backend handle and the type of buffer.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct Buffer<BBH: BufferBackendHandle + Copy> {
-  pub buffer_handle: BBH,
+pub(crate) struct Buffer<BufferBackendHandle: BufferBackendHandleTrait + Copy> {
+  pub buffer_handle: BufferBackendHandle,
   pub buffer_type: BufferType,
 }
-impl<BBH: BufferBackendHandle + Copy> Buffer<BBH> {
-  fn new(buffer_handle: BBH, buffer_type: BufferType) -> Self {
+impl<BufferBackendHandle: BufferBackendHandleTrait + Copy> Buffer<BufferBackendHandle> {
+  fn new(buffer_handle: BufferBackendHandle, buffer_type: BufferType) -> Self {
     Self {
       buffer_handle,
       buffer_type,

@@ -1,7 +1,7 @@
 use crate::{
   error::SarektResult,
   renderer::{
-    buffers::{BufferBackendHandle, BufferHandle, BufferLoader, UniformBufferHandle},
+    buffers::{BufferBackendHandleTrait, BufferHandle, BufferLoader, UniformBufferHandle},
     Renderer,
   },
 };
@@ -15,12 +15,12 @@ use std::fmt::Debug;
 pub struct DrawableObject<'a, 'b, 'c, R: Renderer>
 where
   R::BL: BufferLoader,
-  <R::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug,
+  <R::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {
-  pub(crate) vertex_buffer: <R::BL as BufferLoader>::BBH,
-  pub(crate) index_buffer: Option<<R::BL as BufferLoader>::BBH>,
+  pub(crate) vertex_buffer: <R::BL as BufferLoader>::BufferBackendHandle,
+  pub(crate) index_buffer: Option<<R::BL as BufferLoader>::BufferBackendHandle>,
   // TODO update doc
-  pub(crate) uniform_buffer: Option<<R::BL as BufferLoader>::UBD>,
+  pub(crate) uniform_buffer: Option<<R::BL as BufferLoader>::UniformBufferDataHandle>,
   _vertex_marker: std::marker::PhantomData<&'a BufferHandle<R::BL>>,
   _index_marker: std::marker::PhantomData<&'b BufferHandle<R::BL>>,
   _uniform_marker: std::marker::PhantomData<&'c BufferHandle<R::BL>>,
@@ -28,7 +28,7 @@ where
 impl<'a, 'b, 'c, R: Renderer> DrawableObject<'a, 'b, 'c, R>
 where
   R::BL: BufferLoader,
-  <R::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug,
+  <R::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {
   pub fn new(
     renderer: &R, vertex_buffer_handle: &'a BufferHandle<R::BL>,

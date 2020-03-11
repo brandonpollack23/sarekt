@@ -39,13 +39,15 @@ mod vulkan;
 
 pub use crate::{
   error::SarektResult,
-  renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
+  renderer::shaders::{ShaderBackendHandleTrait, ShaderCode, ShaderLoader},
 };
 pub use shaders::{ShaderHandle, ShaderType};
 pub use vulkan::{vulkan_buffer_functions::VulkanBufferFunctions, vulkan_renderer::VulkanRenderer};
 
 use crate::renderer::{
-  buffers::{BufferBackendHandle, BufferHandle, BufferLoader, BufferType, UniformBufferHandle},
+  buffers::{
+    BufferBackendHandleTrait, BufferHandle, BufferLoader, BufferType, UniformBufferHandle,
+  },
   drawable_object::DrawableObject,
 };
 use std::fmt::Debug;
@@ -90,7 +92,7 @@ pub trait Renderer {
   ) -> SarektResult<ShaderHandle<Self::SL>>
   where
     Self::SL: ShaderLoader,
-    <Self::SL as ShaderLoader>::SBH: ShaderBackendHandle + Copy + Debug;
+    <Self::SL as ShaderLoader>::SBH: ShaderBackendHandleTrait + Copy + Debug;
 
   /// Loads a buffer and returns a RAII handle to be used for retrieval.
   fn load_buffer<BufElem: Sized>(
@@ -98,25 +100,25 @@ pub trait Renderer {
   ) -> SarektResult<BufferHandle<Self::BL>>
   where
     Self::BL: BufferLoader,
-    <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+    <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
   fn load_uniform_buffer<BufElem: Sized>(
     &mut self, buffer: &[BufElem],
   ) -> SarektResult<UniformBufferHandle<Self::BL>>
   where
     Self::BL: BufferLoader,
-    <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+    <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
   fn get_buffer(
     &self, handle: &BufferHandle<Self::BL>,
-  ) -> SarektResult<<Self::BL as BufferLoader>::BBH>
+  ) -> SarektResult<<Self::BL as BufferLoader>::BufferBackendHandle>
   where
     Self::BL: BufferLoader,
-    <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+    <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
   fn get_uniform_buffer(
     &self, handle: &UniformBufferHandle<Self::BL>,
-  ) -> SarektResult<<Self::BL as BufferLoader>::UBD>
+  ) -> SarektResult<<Self::BL as BufferLoader>::UniformBufferDataHandle>
   where
     Self::BL: BufferLoader;
 
@@ -133,7 +135,7 @@ pub trait Drawer {
   where
     Self::R: Renderer,
     <Self::R as Renderer>::BL: BufferLoader,
-    <<Self::R as Renderer>::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+    <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
   // TODO RENDERING select render pass (predefined set?) log when pipeline not
   // compatible and dont draw? End previous render pass and keep track of last

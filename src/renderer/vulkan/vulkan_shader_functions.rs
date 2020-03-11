@@ -1,6 +1,6 @@
 use crate::{
   error::{SarektError, SarektResult},
-  renderer::shaders::{ShaderBackendHandle, ShaderCode, ShaderLoader},
+  renderer::shaders::{ShaderBackendHandleTrait, ShaderCode, ShaderLoader},
 };
 use ash::{version::DeviceV1_0, vk, Device};
 use log::info;
@@ -39,4 +39,4 @@ unsafe impl ShaderLoader for VulkanShaderFunctions {
 
 /// Allow vk::ShaderModule to be a backend handle for the
 /// [ShaderStore](struct.ShaderStore.html).
-unsafe impl ShaderBackendHandle for vk::ShaderModule {}
+unsafe impl ShaderBackendHandleTrait for vk::ShaderModule {}
