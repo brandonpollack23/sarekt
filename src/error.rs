@@ -17,6 +17,7 @@ pub enum SarektError {
   UnknownShader,
   IncompatibleShaderCode,
   IncorrectLoaderFunction,
+  IncorrectBufferType,
   UnknownBuffer,
   NoSuitableMemoryHeap,
   VulkanMemoryAllocatorError(vk_mem::error::Error),
@@ -67,6 +68,11 @@ impl fmt::Display for SarektError {
         f,
         "Attempted to load a special buffer type with the generic load_buffer function.  Did you \
          mean to use load_uniform buffer?"
+      ),
+      SarektError::IncorrectBufferType => write!(
+        f,
+        "Tried to load a buffer type that didn't match with function call.  Perhaps you've \
+         tricked Sarekt into storing a Vertex buffer where it should have been a Uniform buffer?"
       ),
       SarektError::NoSuitableMemoryHeap => write!(
         f,

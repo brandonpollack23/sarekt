@@ -48,7 +48,6 @@ use crate::renderer::{
   buffers::{BufferBackendHandle, BufferHandle, BufferLoader, BufferType, UniformBufferHandle},
   drawable_object::DrawableObject,
 };
-use slotmap::new_key_type;
 use std::fmt::Debug;
 
 // ================================================================================
@@ -114,6 +113,12 @@ pub trait Renderer {
   where
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BBH: BufferBackendHandle + Copy + Debug;
+
+  fn get_uniform_buffer(
+    &self, handle: &UniformBufferHandle<Self::BL>,
+  ) -> SarektResult<<Self::BL as BufferLoader>::UBD>
+  where
+    Self::BL: BufferLoader;
 
   /// Handle swapchain out of date, such as window changes.
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
