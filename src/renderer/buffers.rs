@@ -78,7 +78,11 @@ pub unsafe trait BufferLoader {
   // Buffer Backend Handle
   type BBH;
 
-  fn load_buffer<BufElem: Sized>(
+  fn load_buffer_with_staging<BufElem: Sized>(
+    &self, buffer_type: BufferType, buffer: &[BufElem],
+  ) -> SarektResult<Self::BBH>;
+
+  fn load_buffer_without_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BBH>;
 
@@ -110,7 +114,7 @@ where
 
   /// Load a buffer and allocate memory into the backend/GPU and return a
   /// handle.
-  pub(crate) fn load_buffer<BufElem: Sized>(
+  pub(crate) fn load_buffer_with_staging<BufElem: Sized>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<BL>> {
     let mut buffer_store = this
@@ -119,7 +123,7 @@ where
 
     let buffer_backend_handle = buffer_store
       .buffer_loader
-      .load_buffer(buffer_type, buffer)?;
+      .load_buffer_with_staging(buffer_type, buffer)?;
     let inner_key = buffer_store
       .loaded_buffers
       .insert(Buffer::new(buffer_backend_handle, buffer_type));

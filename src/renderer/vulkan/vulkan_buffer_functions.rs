@@ -53,14 +53,23 @@ impl VulkanBufferFunctions {
   fn create_staging_buffer(
     &self, buffer_size: u64,
   ) -> SarektResult<(vk::Buffer, vk_mem::Allocation, vk_mem::AllocationInfo)> {
+    self.create_cpu_accessible_buffer(buffer_size, vk::BufferUsageFlags::TRANSFER_SRC)
+  }
+
+  /// For creating a cpu accessible buffer for any usage (more generic than
+  /// staging buffer).
+  ///
+  /// Set usage flags as you see fit (or don't...).
+  fn create_cpu_accessible_buffer(
+    &self, buffer_size: u64, usage_flags: vk::BufferUsageFlags,
+  ) -> SarektResult<(vk::Buffer, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     info!(
       "Creating staging buffer and memory of size {} to transfer from CPU memory...",
       buffer_size
     );
-    let staging_buffer_usage = vk::BufferUsageFlags::TRANSFER_SRC;
     let staging_buffer_ci = vk::BufferCreateInfo::builder()
       .size(buffer_size)
-      .usage(staging_buffer_usage)
+      .usage(usage_flags)
       .sharing_mode(vk::SharingMode::EXCLUSIVE) // This is still only used by one Queue (Command)
       .build();
     let staging_alloc_ci = vk_mem::AllocationCreateInfo {
@@ -85,12 +94,8 @@ impl VulkanBufferFunctions {
     &self, buffer_type: BufferType, buffer_size: u64,
   ) -> SarektResult<(vk::Buffer, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     info!("Creating GPU buffer and memory to use during drawing...");
-    let buffer_usage = vk::BufferUsageFlags::TRANSFER_DST
-      | match buffer_type {
-        BufferType::Vertex => vk::BufferUsageFlags::VERTEX_BUFFER,
-        BufferType::Index(_) => vk::BufferUsageFlags::INDEX_BUFFER,
-        BufferType::Uniform => vk::BufferUsageFlags::UNIFORM_BUFFER,
-      };
+    let buffer_usage =
+      vk::BufferUsageFlags::TRANSFER_DST | usage_flags_from_buffer_type(buffer_type);
     let sharing_mode = if self.graphics_queue_family == self.transfer_queue_family {
       vk::SharingMode::EXCLUSIVE
     } else {
@@ -182,7 +187,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
   /// The way this function operates to keep things as efficient as possible at
   /// GPU runtime is to copy into a staging buffer and initiate a transfer
   /// operation on the GPU to a more efficient device only GPU memory buffer.
-  fn load_buffer<BufElem: Sized>(
+  fn load_buffer_with_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BBH> {
     let buffer_size =
@@ -230,6 +235,44 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     }
   }
 
+  fn load_buffer_without_staging<BufElem: Sized>(
+    &self, buffer_type: BufferType, buffer: &[BufElem],
+  ) -> SarektResult<Self::BBH> {
+    let buffer_size =
+      (std::mem::size_of::<BufElem>() as vk::DeviceSize) * buffer.len() as vk::DeviceSize;
+
+    // There is only one buffer, no staging needed, but we will initialze the
+    // values.
+    let (vk_buffer, allocation, allocation_info) =
+      self.create_cpu_accessible_buffer(buffer_size, usage_flags_from_buffer_type(buffer_type))?;
+
+    // Copy over all the bytes from host memory to mapped device memory
+    let data = self.allocator.map_memory(&allocation)? as *mut BufElem;
+    unsafe {
+      data.copy_from(buffer.as_ptr(), allocation_info.get_size());
+    }
+    self.allocator.unmap_memory(&allocation)?;
+
+    // If this is an index buffer, keep track of the size of the elements (16 or
+    // 32).
+    let index_buffer_elem_size = match buffer_type {
+      BufferType::Index(size) => Some(size),
+      _ => None,
+    };
+
+    unsafe {
+      // TODO CRITICAL remove this dirty hack.
+      let allocation: Allocation = std::mem::transmute(allocation);
+
+      Ok(BufferAndMemory {
+        buffer: vk_buffer,
+        length: buffer.len() as u32,
+        index_buffer_elem_size,
+        allocation,
+      })
+    }
+  }
+
   fn delete_buffer(&self, handle: Self::BBH) -> SarektResult<()> {
     info!("Deleting buffer and memory {:?}...", handle);
     unsafe {
@@ -253,6 +296,14 @@ pub struct BufferAndMemory {
   pub(crate) index_buffer_elem_size: Option<IndexBufferElemSize>,
   // TODO CRITICAL Super unsafe hack to get around vk_mem::Allocation not implementing Copy.
   allocation: Allocation,
+}
+
+fn usage_flags_from_buffer_type(buffer_type: BufferType) -> vk::BufferUsageFlags {
+  match buffer_type {
+    BufferType::Vertex => vk::BufferUsageFlags::VERTEX_BUFFER,
+    BufferType::Index(_) => vk::BufferUsageFlags::INDEX_BUFFER,
+    BufferType::Uniform => vk::BufferUsageFlags::UNIFORM_BUFFER,
+  }
 }
 
 /// Allow vk::ShaderModule to be a backend handle for the
