@@ -16,6 +16,7 @@ pub enum SarektError {
   InstanceError(ash::InstanceError),
   UnknownShader,
   IncompatibleShaderCode,
+  IncorrectLoaderFunction,
   UnknownBuffer,
   NoSuitableMemoryHeap,
   VulkanMemoryAllocatorError(vk_mem::error::Error),
@@ -62,6 +63,11 @@ impl fmt::Display for SarektError {
       SarektError::InstanceError(e) => write!(f, "The vulkan wrapper ash produced an error: {}", e),
       SarektError::UnknownShader => write!(f, "Tried to act on unknown shader"),
       SarektError::UnknownBuffer => write!(f, "Tried to act on unknown buffer"),
+      SarektError::IncorrectLoaderFunction => write!(
+        f,
+        "Attempted to load a special buffer type with the generic load_buffer function.  Did you \
+         mean to use load_uniform buffer?"
+      ),
       SarektError::NoSuitableMemoryHeap => write!(
         f,
         "Could not find memory heap that was suitable for the device allocation."
