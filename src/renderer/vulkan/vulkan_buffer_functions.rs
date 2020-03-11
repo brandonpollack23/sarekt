@@ -175,7 +175,8 @@ impl VulkanBufferFunctions {
 }
 unsafe impl BufferLoader for VulkanBufferFunctions {
   type BBH = BufferAndMemory;
-  type UBD = Vec<BufferHandle<VulkanBufferFunctions>>;
+  type UBD = Vec<BufferAndMemory>;
+  type UBH = Vec<BufferHandle<VulkanBufferFunctions>>;
 
   /// I could create a buffer myself and allocate memory with VMA, but their
   /// recomended approach is to allow the library to create a buffer and bind

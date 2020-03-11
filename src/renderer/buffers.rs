@@ -63,12 +63,12 @@ pub unsafe trait BufferBackendHandle: Copy {}
 
 // TODO NOW doc
 pub struct UniformBufferHandle<BL: BufferLoader> {
-  uniform_buffer_data: BL::UBD,
+  pub(crate) uniform_buffer_backend_handle: BL::UBH,
 }
 impl<BL: BufferLoader> UniformBufferHandle<BL> {
-  pub(crate) fn new(uniform_buffer_data: BL::UBD) -> Self {
+  pub(crate) fn new(uniform_buffer_backend_handle: BL::UBH) -> Self {
     Self {
-      uniform_buffer_data,
+      uniform_buffer_backend_handle,
     }
   }
 }
@@ -87,10 +87,13 @@ impl<BL: BufferLoader> UniformBufferHandle<BL> {
 ///    delete_buffer cleanly on all elements, if the ShaderHandle dropping
 ///    doesn't handle it.
 pub unsafe trait BufferLoader {
+  // TODO NOW longer better names
   // Buffer Backend Handle
   type BBH;
-  // Uniform Buffer Backend Data
+  // Uniform Buffer Backend Data Handle
   type UBD;
+  // Uniform Buffer Backend Handle
+  type UBH;
 
   // TODO NOW doc
   fn load_buffer_with_staging<BufElem: Sized>(

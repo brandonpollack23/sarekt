@@ -1,12 +1,11 @@
 ## write examples to load meshes etc. use assimp?
 
-## Fork ash_window and update its dependency
-
 ## More Generic Program
 Things should be generic!
 * Width
 * Height
 * Fullscreen
+* VSync or no, triple buffering or no
 * Specify validation logging level
 * Specify validation layers/debug mode
 * Features/required extensions

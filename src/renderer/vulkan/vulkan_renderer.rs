@@ -1589,13 +1589,13 @@ impl Renderer for VulkanRenderer {
 
   fn load_shader(
     &mut self, code: &ShaderCode, shader_type: ShaderType,
-  ) -> SarektResult<ShaderHandle<Self::SL>> {
+  ) -> SarektResult<ShaderHandle<VulkanShaderFunctions>> {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 
   fn load_buffer<BufElem: Sized>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<BufferHandle<Self::BL>> {
+  ) -> SarektResult<BufferHandle<VulkanBufferFunctions>> {
     if let BufferType::Uniform = buffer_type {
       return Err(SarektError::IncorrectLoaderFunction);
     }
@@ -1622,13 +1622,38 @@ impl Renderer for VulkanRenderer {
   }
 
   fn get_buffer(
-    &self, handle: &BufferHandle<Self::BL>,
-  ) -> SarektResult<<Self::BL as BufferLoader>::BBH> {
+    &self, handle: &BufferHandle<VulkanBufferFunctions>,
+  ) -> SarektResult<BufferAndMemory> {
     let store = self
       .buffer_store
       .read()
       .expect("Panic occured can't read from buffer store");
     Ok(store.get_buffer(handle)?.buffer_handle)
+  }
+
+  fn get_uniform_buffer(
+    &self, handle: &UniformBufferHandle<VulkanBufferFunctions>,
+  ) -> SarektResult<Vec<BufferAndMemory>>
+  where
+    Self::BL: BufferLoader,
+  {
+    let store = self
+      .buffer_store
+      .read()
+      .expect("Panic occured can't read from buffer store");
+    let mut buffer_handles: Vec<BufferAndMemory> = Vec::with_capacity(self.render_targets.len());
+    for ubh in handle.uniform_buffer_backend_handle.iter() {
+      let handle = store.get_buffer(ubh)?;
+
+      match handle.buffer_type {
+        BufferType::Uniform => (),
+        _ => return Err(SarektError::IncorrectBufferType),
+      };
+
+      buffer_handles.push(handle.buffer_handle);
+    }
+
+    Ok(buffer_handles)
   }
 
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
@@ -1654,10 +1679,28 @@ impl Drawer for VulkanRenderer {
       return Ok(());
     }
 
+    let current_render_target_index = self.next_image_index.get();
+
     // Current render target command buffer.
-    let command_buffer = self.primary_gfx_command_buffers[self.next_image_index.get()];
+    let command_buffer = self.primary_gfx_command_buffers[current_render_target_index];
+
+    // current render target's uniform buffer.
+    let uniform_buffer: Option<&BufferAndMemory> =
+      if let Some(uniform_buffer) = &object.uniform_buffer {
+        Some(&uniform_buffer[current_render_target_index])
+      } else {
+        None
+      };
+
+    // TODO NOW make a new example excercizing uniform buffers.
+    // TODO NOW break this down into sub functions.
+    // TODO NOW do push_constant uniform buffers and example.
+
+    // TODO NOW
+    // Copy over uniform buffer, if they exist.
 
     unsafe {
+      // Draw vertices.
       let vertex_buffers = [object.vertex_buffer.buffer];
       let offsets = [0];
       self.logical_device.cmd_bind_vertex_buffers(
