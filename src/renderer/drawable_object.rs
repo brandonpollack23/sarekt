@@ -73,3 +73,8 @@ where
     })
   }
 }
+// TODO NOW update uniform buffer data fn
+// TODO NOW type safety for uniform buffer types.
+
+// TODO PUSH_CONSTANTS NOW for UniformBufferHandle/DataHandle can specify
+// push_constant type and switch on that in update uniform.

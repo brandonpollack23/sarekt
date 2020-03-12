@@ -50,7 +50,9 @@ impl DefaultForwardShaderVertex {
   // it in memory, or optionally returns a handle and the in memory handle.
 }
 
-// TODO NOW doc
+/// Returns the descriptor layouts for the specific backend.  These contain
+/// information such as which bindings to attach each part of uniform to in the
+/// shader, which stages they are used, etc.
 pub unsafe trait DescriptorLayoutInfo {
   type BackendDescriptorSetLayoutBindings;
 

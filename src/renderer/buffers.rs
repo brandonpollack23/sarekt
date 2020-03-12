@@ -61,7 +61,11 @@ pub enum IndexBufferElemSize {
 /// buffer in the backend/GPU in [ShaderLoader](trait.BufferLoader.html).
 pub unsafe trait BufferBackendHandleTrait: Copy {}
 
-// TODO NOW doc
+/// A special handle for uniforms.  On some backends there are special cases
+/// needed to be handled more so than other (vertex and index) buffers.
+///
+/// For example, on Vulkan more than one frame can be in flight so this needs to
+/// actually create uniform buffers for each framebuffer.
 pub struct UniformBufferHandle<BL: BufferLoader> {
   pub(crate) uniform_buffer_backend_handle: BL::UniformBufferHandle,
 }
@@ -91,15 +95,22 @@ pub unsafe trait BufferLoader {
   type UniformBufferDataHandle;
   type UniformBufferHandle;
 
-  // TODO NOW doc
+  /// TODO PERFORMANCE some platforms might not actually ever benefit from
+  /// staging.  Detect?
+
+  /// Loads a buffer using a staging buffer and then transfers it into GPU only
+  /// memory for efficiency.
   fn load_buffer_with_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BufferBackendHandle>;
 
+  /// Loads a buffer without staging.  Frequently updated buffers will just be
+  /// slowed down by waiting for transfer, such as uniform buffers.
   fn load_buffer_without_staging<BufElem: Sized>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BufferBackendHandle>;
 
+  /// Deletes that buffer, baby!
   fn delete_buffer(&self, handle: Self::BufferBackendHandle) -> SarektResult<()>;
 }
 
@@ -148,7 +159,6 @@ where
     })
   }
 
-  // TODO NOW doc
   pub(crate) fn load_buffer_without_staging<BufElem: Sized>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<BL>> {
