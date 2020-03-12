@@ -1444,7 +1444,7 @@ impl VulkanRenderer {
   }
 
   // ================================================================================
-  //  Utility Helper Methods
+  //  Storage Creation Methods
   // ================================================================================
   /// Creates a [Vulkan Memory ALlocator](https://github.com/gwihlidal/vk-mem-rs)
   fn create_memory_allocator(
@@ -1488,6 +1488,57 @@ impl VulkanRenderer {
     Ok(Arc::new(RwLock::new(BufferStore::new(functions))))
   }
 
+  // ================================================================================
+  //  Draw Helper Methods
+  // ================================================================================
+  fn draw_vertices_cmd(
+    &self, object: &DrawableObject<Self>, command_buffer: vk::CommandBuffer,
+  ) -> SarektResult<()> {
+    unsafe {
+      // Draw vertices.
+      let vertex_buffers = [object.vertex_buffer.buffer];
+      let offsets = [0];
+      self.logical_device.cmd_bind_vertex_buffers(
+        command_buffer,
+        0,
+        &vertex_buffers,
+        &offsets, // There may be offset into memory, but not into the buffer.
+      );
+
+      if object.index_buffer.is_none() {
+        // Non indexed draw.
+        self
+          .logical_device
+          .cmd_draw(command_buffer, object.vertex_buffer.length, 1, 0, 0);
+      } else {
+        // Indexed Draw.
+        let index_buffer = &object.index_buffer.unwrap();
+        let index_buffer_element_size = match index_buffer.index_buffer_elem_size.unwrap() {
+          IndexBufferElemSize::UInt16 => vk::IndexType::UINT16,
+          IndexBufferElemSize::UInt32 => vk::IndexType::UINT32,
+        };
+        self.logical_device.cmd_bind_index_buffer(
+          command_buffer,
+          index_buffer.buffer,
+          0,
+          index_buffer_element_size,
+        );
+        self.logical_device.cmd_draw_indexed(
+          command_buffer,
+          index_buffer.length,
+          1, // One instance
+          0, // No index offset
+          0, // No vertex offset
+          0, // Zeroth instance.
+        )
+      }
+    }
+    Ok(())
+  }
+
+  // ================================================================================
+  //  Renderer Utility Methods
+  // ================================================================================
   fn increment_frame_count(&self) {
     self.current_frame_num.set(self.current_frame_num.get() + 1);
   }
@@ -1674,7 +1725,9 @@ impl Renderer for VulkanRenderer {
 impl Drawer for VulkanRenderer {
   type R = VulkanRenderer;
 
-  fn draw(&self, object: &DrawableObject<Self::R>) -> SarektResult<()> {
+  // TODO NOW make a new example excercizing uniform buffers.
+  // TODO NOW do push_constant uniform buffers and example.
+  fn draw(&self, object: &DrawableObject<Self>) -> SarektResult<()> {
     if !self.rendering_enabled {
       return Ok(());
     }
@@ -1684,60 +1737,11 @@ impl Drawer for VulkanRenderer {
     // Current render target command buffer.
     let command_buffer = self.primary_gfx_command_buffers[current_render_target_index];
 
-    // current render target's uniform buffer.
-    let uniform_buffer: Option<&BufferAndMemory> =
-      if let Some(uniform_buffer) = &object.uniform_buffer {
-        Some(&uniform_buffer[current_render_target_index])
-      } else {
-        None
-      };
-
-    // TODO NOW make a new example excercizing uniform buffers.
-    // TODO NOW break this down into sub functions.
-    // TODO NOW do push_constant uniform buffers and example.
-
     // TODO NOW
-    // Copy over uniform buffer, if they exist.
+    // Bind uniform data.
 
-    unsafe {
-      // Draw vertices.
-      let vertex_buffers = [object.vertex_buffer.buffer];
-      let offsets = [0];
-      self.logical_device.cmd_bind_vertex_buffers(
-        command_buffer,
-        0,
-        &vertex_buffers,
-        &offsets, // There may be offset into memory, but not into the buffer.
-      );
-
-      if object.index_buffer.is_none() {
-        // Non indexed draw.
-        self
-          .logical_device
-          .cmd_draw(command_buffer, object.vertex_buffer.length, 1, 0, 0);
-      } else {
-        // Indexed Draw.
-        let index_buffer = &object.index_buffer.unwrap();
-        let index_buffer_element_size = match index_buffer.index_buffer_elem_size.unwrap() {
-          IndexBufferElemSize::UInt16 => vk::IndexType::UINT16,
-          IndexBufferElemSize::UInt32 => vk::IndexType::UINT32,
-        };
-        self.logical_device.cmd_bind_index_buffer(
-          command_buffer,
-          index_buffer.buffer,
-          0,
-          index_buffer_element_size,
-        );
-        self.logical_device.cmd_draw_indexed(
-          command_buffer,
-          index_buffer.length,
-          1, // One instance
-          0, // No index offset
-          0, // No vertex offset
-          0, // Zeroth instance.
-        )
-      }
-    }
+    // Draw the vertices (indexed or otherwise).
+    self.draw_vertices_cmd(object, command_buffer)?;
 
     Ok(())
   }

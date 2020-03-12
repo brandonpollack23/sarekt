@@ -299,7 +299,7 @@ pub struct BufferAndMemory {
   /// Only present if this is an index buffer.
   pub(crate) index_buffer_elem_size: Option<IndexBufferElemSize>,
   // TODO CRITICAL Super unsafe hack to get around vk_mem::Allocation not implementing Copy.
-  allocation: Allocation,
+  pub(crate) allocation: Allocation,
 }
 
 fn usage_flags_from_buffer_type(buffer_type: BufferType) -> vk::BufferUsageFlags {
@@ -317,7 +317,7 @@ unsafe impl BufferBackendHandleTrait for BufferAndMemory {}
 // TODO CRITICAL this is part of a dirty hack to access the VmaAllocation
 // pointer in the raw.
 #[derive(Copy, Clone, Debug)]
-struct Allocation {
+pub(crate) struct Allocation {
   /// Pointer to internal VmaAllocation instance
   internal: ffi::VmaAllocation,
 }
