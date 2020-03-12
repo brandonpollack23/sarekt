@@ -73,7 +73,7 @@ where
     })
   }
 }
-// TODO NOW update uniform buffer data fn
+// TODO NOW update uniform buffer data fn (use pub crate renderer function).
 // TODO NOW type safety for uniform buffer types.
 
 // TODO PUSH_CONSTANTS NOW for UniformBufferHandle/DataHandle can specify
