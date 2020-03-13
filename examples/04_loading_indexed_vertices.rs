@@ -55,13 +55,12 @@ fn main_loop() -> SarektResult<()> {
   let mut renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 
   // Create Resources.
-  let triangle_vertex_buffer = renderer.load_buffer(BufferType::Vertex, &RECT_VERTICES)?;
-  let triangle_index_buffer = renderer.load_buffer(
+  let rect_vertex_buffer = renderer.load_buffer(BufferType::Vertex, &RECT_VERTICES)?;
+  let rect_index_buffer = renderer.load_buffer(
     BufferType::Index(IndexBufferElemSize::UInt16),
     &RECT_INDICES,
   )?;
-  let triangle =
-    DrawableObject::new_indexed(&renderer, &triangle_vertex_buffer, &triangle_index_buffer)?;
+  let rect = DrawableObject::new_indexed(&renderer, &rect_vertex_buffer, &rect_index_buffer, None)?;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {
@@ -74,7 +73,7 @@ fn main_loop() -> SarektResult<()> {
         // All the main events to process are done we can do "work" now (game
         // engine state update etc.)
 
-        renderer.draw(&triangle).expect("Unable to draw triangle!");
+        renderer.draw(&rect).expect("Unable to draw triangle!");
 
         // At the end of work request redraw.
         window.request_redraw();
