@@ -1717,6 +1717,18 @@ impl Renderer for VulkanRenderer {
     Ok(buffer_handles)
   }
 
+  fn set_uniform<BufElem: Sized>(
+    &self, handle_data: &Vec<BufferAndMemoryMapped>, data: &BufElem,
+  ) -> SarektResult<()> {
+    let next_image_index = self.next_image_index.get();
+    unsafe {
+      let ptr = handle_data[next_image_index].ptr as *mut BufElem;
+      ptr.copy_from(data, std::mem::size_of_val(data));
+    }
+
+    Ok(())
+  }
+
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
     if width == 0 || height == 0 {
       // It violates the vulkan spec to make extents this small, rendering should be
@@ -1736,7 +1748,7 @@ impl Drawer for VulkanRenderer {
   type R = VulkanRenderer;
 
   // TODO NOW make a new example excercizing uniform buffers.
-  // TODO NOW do push_constant uniform buffers and example.
+  // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
   fn draw(&self, object: &DrawableObject<Self>) -> SarektResult<()> {
     if !self.rendering_enabled {
       return Ok(());

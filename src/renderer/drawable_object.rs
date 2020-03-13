@@ -1,5 +1,5 @@
 use crate::{
-  error::SarektResult,
+  error::{SarektError, SarektResult},
   renderer::{
     buffers::{BufferBackendHandleTrait, BufferHandle, BufferLoader, UniformBufferHandle},
     Renderer,
@@ -72,11 +72,16 @@ where
       _uniform_marker: std::marker::PhantomData,
     })
   }
+
+  // TODO BUFFERS BACKLOG for UniformBufferHandle/DataHandle can specify
+  // push_constant type and switch on that in update uniform.
+  // TODO PERFORMANCE allow setting at offsets/fields in uniform so you don't have
+  // to copy over the whole thing.
+  pub fn set_uniform<BufData: Sized>(&self, renderer: R, data: &BufData) -> SarektResult<()> {
+    if self.uniform_buffer.is_none() {
+      return Err(SarektError::NoUniformBuffer);
+    }
+
+    renderer.set_uniform(self.uniform_buffer.as_ref().unwrap(), data)
+  }
 }
-// TODO NOW update uniform buffer data fn, use pub fn from Renderer which
-// accesses the ptr and copies things over.
-
-// TODO NOW type safety for uniform buffer types.
-
-// TODO PUSH_CONSTANTS NOW for UniformBufferHandle/DataHandle can specify
-// push_constant type and switch on that in update uniform.
