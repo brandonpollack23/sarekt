@@ -32,7 +32,7 @@ where
 {
   pub fn new(
     renderer: &R, vertex_buffer_handle: &'a BufferHandle<R::BL>,
-    uniform_buffer_handle: &'c Option<UniformBufferHandle<R::BL>>,
+    uniform_buffer_handle: Option<&'c UniformBufferHandle<R::BL>>,
   ) -> SarektResult<Self> {
     let vertex_buffer = renderer.get_buffer(vertex_buffer_handle)?;
     let uniform_buffer = if let Some(uniform_backing_data) = uniform_buffer_handle {
@@ -53,7 +53,7 @@ where
 
   pub fn new_indexed(
     renderer: &R, vertex_buffer: &'a BufferHandle<R::BL>, index_buffer: &'b BufferHandle<R::BL>,
-    uniform_buffer_handle: &'c Option<UniformBufferHandle<R::BL>>,
+    uniform_buffer_handle: Option<&'c UniformBufferHandle<R::BL>>,
   ) -> SarektResult<Self> {
     let vertex_buffer = renderer.get_buffer(vertex_buffer)?;
     let index_buffer = renderer.get_buffer(index_buffer)?;
