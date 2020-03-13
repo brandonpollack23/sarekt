@@ -18,7 +18,7 @@ use crate::{
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
-      vulkan_buffer_functions::{BufferAndMemory, VulkanBufferFunctions},
+      vulkan_buffer_functions::{BufferAndMemory, BufferAndMemoryMapped, VulkanBufferFunctions},
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
     },
@@ -1684,7 +1684,7 @@ impl Renderer for VulkanRenderer {
 
   fn get_uniform_buffer(
     &self, handle: &UniformBufferHandle<VulkanBufferFunctions>,
-  ) -> SarektResult<Vec<BufferAndMemory>>
+  ) -> SarektResult<Vec<BufferAndMemoryMapped>>
   where
     Self::BL: BufferLoader,
   {
@@ -1692,7 +1692,8 @@ impl Renderer for VulkanRenderer {
       .buffer_store
       .read()
       .expect("Panic occured can't read from buffer store");
-    let mut buffer_handles: Vec<BufferAndMemory> = Vec::with_capacity(self.render_targets.len());
+    let mut buffer_handles: Vec<BufferAndMemoryMapped> =
+      Vec::with_capacity(self.render_targets.len());
     for ubh in handle.uniform_buffer_backend_handle.iter() {
       let handle = store.get_buffer(ubh)?;
 
@@ -1701,7 +1702,16 @@ impl Renderer for VulkanRenderer {
         _ => return Err(SarektError::IncorrectBufferType),
       };
 
-      buffer_handles.push(handle.buffer_handle);
+      let buffer_and_mem_mapped = unsafe {
+        let allocation: &vk_mem::Allocation = std::mem::transmute(&handle.buffer_handle.allocation);
+        let ptr = self.allocator.map_memory(allocation)?;
+        BufferAndMemoryMapped {
+          buffer_and_memory: handle.buffer_handle,
+          ptr,
+        }
+      };
+
+      buffer_handles.push(buffer_and_mem_mapped);
     }
 
     Ok(buffer_handles)
