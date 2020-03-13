@@ -122,6 +122,13 @@ pub trait Renderer {
   where
     Self::BL: BufferLoader;
 
+  // TODO NOW doc pass all.
+  fn set_uniform<BufElem: Sized>(
+    &self, handle_data: &<Self::BL as BufferLoader>::UniformBufferDataHandle, data: &BufElem,
+  ) -> SarektResult<()>
+  where
+    Self::BL: BufferLoader;
+
   /// Handle swapchain out of date, such as window changes.
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
 }
@@ -135,7 +142,8 @@ pub trait Drawer {
   where
     Self::R: Renderer,
     <Self::R as Renderer>::BL: BufferLoader,
-    <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
+    <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle:
+      BufferBackendHandleTrait + Copy + Debug;
 
   // TODO RENDERING select render pass (predefined set?) log when pipeline not
   // compatible and dont draw? End previous render pass and keep track of last
