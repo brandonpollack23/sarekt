@@ -30,6 +30,10 @@ path = "examples/03_loading_vertices.rs"
 name = "04_loading_indexed_vertices"
 path = "examples/04_loading_indexed_vertices.rs"
 
+[[example]]
+name = "05_uniform_buffers"
+path = "examples/05_uniform_buffers.rs"
+
 [dependencies]
 ash = "0.29.0"
 ash-window = "0.2.0"
