@@ -175,7 +175,7 @@ impl VulkanBufferFunctions {
 }
 unsafe impl BufferLoader for VulkanBufferFunctions {
   type BufferBackendHandle = BufferAndMemory;
-  type UniformBufferDataHandle = Vec<BufferAndMemory>;
+  type UniformBufferDataHandle = Vec<BufferAndMemoryMapped>;
   type UniformBufferHandle = Vec<BufferHandle<VulkanBufferFunctions>>;
 
   /// I could create a buffer myself and allocate memory with VMA, but their
@@ -300,6 +300,21 @@ pub struct BufferAndMemory {
   pub(crate) index_buffer_elem_size: Option<IndexBufferElemSize>,
   // TODO CRITICAL Super unsafe hack to get around vk_mem::Allocation not implementing Copy.
   pub(crate) allocation: Allocation,
+}
+
+// TODO CRITICAL make type safe and lifetime safe.
+#[derive(Copy, Clone, Debug)]
+pub struct BufferAndMemoryMapped {
+  pub(crate) buffer_and_memory: BufferAndMemory,
+  pub(crate) ptr: *mut u8,
+}
+impl BufferAndMemoryMapped {
+  pub(crate) fn new(buffer_and_memory: BufferAndMemory, ptr: *mut u8) -> Self {
+    Self {
+      buffer_and_memory,
+      ptr,
+    }
+  }
 }
 
 fn usage_flags_from_buffer_type(buffer_type: BufferType) -> vk::BufferUsageFlags {

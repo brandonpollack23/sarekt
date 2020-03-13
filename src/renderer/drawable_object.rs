@@ -73,7 +73,9 @@ where
     })
   }
 }
-// TODO NOW update uniform buffer data fn (use pub crate renderer function).
+// TODO NOW update uniform buffer data fn, use pub fn from Renderer which
+// accesses the ptr and copies things over.
+
 // TODO NOW type safety for uniform buffer types.
 
 // TODO PUSH_CONSTANTS NOW for UniformBufferHandle/DataHandle can specify
