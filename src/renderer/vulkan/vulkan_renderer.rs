@@ -1708,10 +1708,7 @@ impl Renderer for VulkanRenderer {
       let buffer_and_mem_mapped = unsafe {
         let allocation: &vk_mem::Allocation = std::mem::transmute(&handle.buffer_handle.allocation);
         let ptr = self.allocator.map_memory(allocation)?;
-        BufferAndMemoryMapped {
-          buffer_and_memory: handle.buffer_handle,
-          ptr,
-        }
+        BufferAndMemoryMapped::new(handle.buffer_handle, ptr)
       };
 
       buffer_handles.push(buffer_and_mem_mapped);

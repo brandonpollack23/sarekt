@@ -199,8 +199,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
       (std::mem::size_of::<BufElem>() as vk::DeviceSize) * buffer.len() as vk::DeviceSize;
 
     // Create the staging buffer and memory.
-    let (staging_buffer, staging_allocation, staging_allocation_info) =
-      self.create_staging_buffer(buffer_size)?;
+    let (staging_buffer, staging_allocation, _) = self.create_staging_buffer(buffer_size)?;
 
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&staging_allocation)? as *mut BufElem;
@@ -248,7 +247,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
 
     // There is only one buffer, no staging needed, but we will initialze the
     // values.
-    let (vk_buffer, allocation, allocation_info) =
+    let (vk_buffer, allocation, _) =
       self.create_cpu_accessible_buffer(buffer_size, usage_flags_from_buffer_type(buffer_type))?;
 
     // Copy over all the bytes from host memory to mapped device memory

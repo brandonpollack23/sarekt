@@ -67,6 +67,11 @@ pub struct DefaultForwardShaderUniforms {
   /// DrawableObject.
   pub mvp: na::Matrix4<f32>,
 }
+impl DefaultForwardShaderUniforms {
+  pub fn new(mvp: na::Matrix4<f32>) -> Self {
+    Self { mvp }
+  }
+}
 impl Default for DefaultForwardShaderUniforms {
   fn default() -> Self {
     DefaultForwardShaderUniforms {
