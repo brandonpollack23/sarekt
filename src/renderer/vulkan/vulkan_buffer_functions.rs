@@ -302,8 +302,6 @@ pub struct BufferAndMemory {
   pub(crate) allocation: Allocation,
 }
 
-// TODO NOW make type safe and lifetime safe. Try storing phantom data to type,
-// maybe can pass it down.
 /// Stores the mapped pointer along with the allocation.  There is no need to
 /// implement drop here because when the memory itself is dropped, it is freed.
 /// According to the spec in `vkFreeMemory`'s docs "If a memeory object is
