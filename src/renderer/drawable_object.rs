@@ -7,12 +7,12 @@ use crate::{
 };
 use std::fmt::Debug;
 
-// TODO CRITICAL uniforms which can be set (push constants or otherwise),
-// anything else draw needs.
+// TODO UNIFORMS MACRO multiple uniforms, use a macro_rules to define this class
+// for various tuples of uniforms.
 
 /// The object that is passed to Drawer's draw method.  Contains all the
 /// necessary information to perform a draw command.
-pub struct DrawableObject<'a, 'b, 'c, R: Renderer, UniformBufElem: Sized + Clone>
+pub struct DrawableObject<'a, 'b, 'c, R: Renderer, UniformBufElem: Sized + Copy>
 where
   R::BL: BufferLoader,
   <R::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
@@ -26,7 +26,7 @@ where
   _uniform_marker: std::marker::PhantomData<&'c BufferHandle<R::BL>>,
   _uniform_type: std::marker::PhantomData<UniformBufElem>,
 }
-impl<'a, 'b, 'c, R: Renderer, UniformBufElem: Sized + Clone>
+impl<'a, 'b, 'c, R: Renderer, UniformBufElem: Sized + Copy>
   DrawableObject<'a, 'b, 'c, R, UniformBufElem>
 where
   R::BL: BufferLoader,
