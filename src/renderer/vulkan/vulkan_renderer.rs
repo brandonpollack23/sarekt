@@ -1491,7 +1491,7 @@ impl VulkanRenderer {
   // ================================================================================
   //  Draw Helper Methods
   // ================================================================================
-  fn draw_vertices_cmd<UniformBufElem: Sized + Clone>(
+  fn draw_vertices_cmd<UniformBufElem: Sized + Copy>(
     &self, object: &DrawableObject<Self, UniformBufElem>, command_buffer: vk::CommandBuffer,
   ) -> SarektResult<()> {
     unsafe {
@@ -1654,7 +1654,7 @@ impl Renderer for VulkanRenderer {
     BufferStore::load_buffer_with_staging(&self.buffer_store, buffer_type, buffer)
   }
 
-  fn load_uniform_buffer<UniformBufElem: Sized + Clone>(
+  fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
     &mut self, buffer: UniformBufElem,
   ) -> SarektResult<UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>> {
     // Since each framebuffer may have different values for uniforms, they each need
@@ -1685,7 +1685,7 @@ impl Renderer for VulkanRenderer {
     Ok(store.get_buffer(handle)?.buffer_handle)
   }
 
-  fn get_uniform_buffer<UniformBufElem: Sized + Clone>(
+  fn get_uniform_buffer<UniformBufElem: Sized + Copy>(
     &self, handle: &UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>,
   ) -> SarektResult<Vec<BufferAndMemoryMapped>>
   where
@@ -1752,7 +1752,7 @@ impl Drawer for VulkanRenderer {
 
   // TODO NOW make a new example excercizing uniform buffers.
   // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
-  fn draw<UniformBufElem: Sized + Clone>(
+  fn draw<UniformBufElem: Sized + Copy>(
     &self, object: &DrawableObject<Self, UniformBufElem>,
   ) -> SarektResult<()> {
     if !self.rendering_enabled {
