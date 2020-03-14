@@ -1667,7 +1667,7 @@ impl Renderer for VulkanRenderer {
       let uniform_buffer = BufferStore::load_buffer_without_staging(
         &self.buffer_store,
         BufferType::Uniform,
-        &[buffer.clone()],
+        &[buffer],
       )?;
       uniform_buffers.push(uniform_buffer);
     }
