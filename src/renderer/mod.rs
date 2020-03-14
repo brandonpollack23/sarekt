@@ -102,9 +102,9 @@ pub trait Renderer {
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
-  fn load_uniform_buffer<BufElem: Sized>(
-    &mut self, buffer: &[BufElem],
-  ) -> SarektResult<UniformBufferHandle<Self::BL>>
+  fn load_uniform_buffer<BufElem: Sized + Clone>(
+    &mut self, buffer: BufElem,
+  ) -> SarektResult<UniformBufferHandle<Self::BL, BufElem>>
   where
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
@@ -116,8 +116,8 @@ pub trait Renderer {
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
-  fn get_uniform_buffer(
-    &self, handle: &UniformBufferHandle<Self::BL>,
+  fn get_uniform_buffer<UniformBufElem: Sized + Clone>(
+    &self, handle: &UniformBufferHandle<Self::BL, UniformBufElem>,
   ) -> SarektResult<<Self::BL as BufferLoader>::UniformBufferDataHandle>
   where
     Self::BL: BufferLoader;
@@ -138,7 +138,9 @@ pub trait Renderer {
 pub trait Drawer {
   type R;
 
-  fn draw(&self, object: &DrawableObject<Self::R>) -> SarektResult<()>
+  fn draw<UniformBufElem: Sized + Clone>(
+    &self, object: &DrawableObject<Self::R, UniformBufElem>,
+  ) -> SarektResult<()>
   where
     Self::R: Renderer,
     <Self::R as Renderer>::BL: BufferLoader,

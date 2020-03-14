@@ -63,16 +63,20 @@ pub unsafe trait BufferBackendHandleTrait: Copy {}
 
 /// A special handle for uniforms.  On some backends there are special cases
 /// needed to be handled more so than other (vertex and index) buffers.
+/// BufferLoader is the backing loader for the buffer and BufElem is the type
+/// that the buffer contains.
 ///
 /// For example, on Vulkan more than one frame can be in flight so this needs to
 /// actually create uniform buffers for each framebuffer.
-pub struct UniformBufferHandle<BL: BufferLoader> {
+pub struct UniformBufferHandle<BL: BufferLoader, BufElem: Sized> {
   pub(crate) uniform_buffer_backend_handle: BL::UniformBufferHandle,
+  _marker: std::marker::PhantomData<BufElem>,
 }
-impl<BL: BufferLoader> UniformBufferHandle<BL> {
+impl<BL: BufferLoader, BufElem: Sized> UniformBufferHandle<BL, BufElem> {
   pub(crate) fn new(uniform_buffer_backend_handle: BL::UniformBufferHandle) -> Self {
     Self {
       uniform_buffer_backend_handle,
+      _marker: std::marker::PhantomData,
     }
   }
 }
