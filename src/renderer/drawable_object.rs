@@ -2,7 +2,7 @@ use crate::{
   error::{SarektError, SarektResult},
   renderer::{
     buffers::{BufferBackendHandleTrait, BufferHandle, BufferLoader, UniformBufferHandle},
-    vertex_bindings::{DefaultForwardShaderUniforms, DefaultForwardShaderVertex},
+    vertex_bindings::DefaultForwardShaderUniforms,
     Renderer, VulkanRenderer,
   },
 };
@@ -88,7 +88,7 @@ where
   // push_constant type and switch on that in update uniform.
   // TODO PERFORMANCE allow setting at offsets/fields in uniform so you don't have
   // to copy over the whole thing.
-  pub fn set_uniform(&self, renderer: R, data: &UniformBufElem) -> SarektResult<()> {
+  pub fn set_uniform(&self, renderer: &R, data: &UniformBufElem) -> SarektResult<()> {
     if self.uniform_buffer.is_none() {
       return Err(SarektError::NoUniformBuffer);
     }
