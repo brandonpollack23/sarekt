@@ -60,7 +60,8 @@ fn main_loop() -> SarektResult<()> {
     BufferType::Index(IndexBufferElemSize::UInt16),
     &RECT_INDICES,
   )?;
-  let rect = DrawableObject::new_indexed(&renderer, &rect_vertex_buffer, &rect_index_buffer, None)?;
+  let rect: DrawableObject =
+    DrawableObject::new_indexed(&renderer, &rect_vertex_buffer, &rect_index_buffer, None)?;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {

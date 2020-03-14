@@ -68,11 +68,11 @@ pub unsafe trait BufferBackendHandleTrait: Copy {}
 ///
 /// For example, on Vulkan more than one frame can be in flight so this needs to
 /// actually create uniform buffers for each framebuffer.
-pub struct UniformBufferHandle<BL: BufferLoader, BufElem: Sized> {
+pub struct UniformBufferHandle<BL: BufferLoader, BufElem: Sized + Copy> {
   pub(crate) uniform_buffer_backend_handle: BL::UniformBufferHandle,
   _marker: std::marker::PhantomData<BufElem>,
 }
-impl<BL: BufferLoader, BufElem: Sized> UniformBufferHandle<BL, BufElem> {
+impl<BL: BufferLoader, BufElem: Sized + Copy> UniformBufferHandle<BL, BufElem> {
   pub(crate) fn new(uniform_buffer_backend_handle: BL::UniformBufferHandle) -> Self {
     Self {
       uniform_buffer_backend_handle,
@@ -104,13 +104,13 @@ pub unsafe trait BufferLoader {
 
   /// Loads a buffer using a staging buffer and then transfers it into GPU only
   /// memory for efficiency.
-  fn load_buffer_with_staging<BufElem: Sized>(
+  fn load_buffer_with_staging<BufElem: Sized + Copy>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BufferBackendHandle>;
 
   /// Loads a buffer without staging.  Frequently updated buffers will just be
   /// slowed down by waiting for transfer, such as uniform buffers.
-  fn load_buffer_without_staging<BufElem: Sized>(
+  fn load_buffer_without_staging<BufElem: Sized + Copy>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BufferBackendHandle>;
 
@@ -143,7 +143,7 @@ where
 
   /// Load a buffer and allocate memory into the backend/GPU and return a
   /// handle.
-  pub(crate) fn load_buffer_with_staging<BufElem: Sized>(
+  pub(crate) fn load_buffer_with_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<BL>> {
     let mut buffer_store = this
@@ -163,7 +163,7 @@ where
     })
   }
 
-  pub(crate) fn load_buffer_without_staging<BufElem: Sized>(
+  pub(crate) fn load_buffer_without_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<BL>> {
     let mut buffer_store = this

@@ -61,12 +61,13 @@ fn main_loop() -> SarektResult<()> {
     &RECT_INDICES,
   )?;
   // TODO NOW actual construct an MVP and then update it every frame.
-  let rect_uniforms = renderer.load_uniform_buffer(&[DefaultForwardShaderUniforms::default()])?;
+  let rect_uniform = DefaultForwardShaderUniforms::default();
+  let rect_uniform_buffer = renderer.load_uniform_buffer(rect_uniform)?;
   let rect = DrawableObject::new_indexed(
     &renderer,
     &rect_vertex_buffer,
     &rect_index_buffer,
-    Some(&rect_uniforms),
+    Some(&rect_uniform_buffer),
   )?;
 
   // Run the loop.

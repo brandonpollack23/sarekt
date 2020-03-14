@@ -95,7 +95,7 @@ pub trait Renderer {
     <Self::SL as ShaderLoader>::SBH: ShaderBackendHandleTrait + Copy + Debug;
 
   /// Loads a buffer and returns a RAII handle to be used for retrieval.
-  fn load_buffer<BufElem: Sized>(
+  fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<Self::BL>>
   where
@@ -123,7 +123,7 @@ pub trait Renderer {
     Self::BL: BufferLoader;
 
   // TODO NOW doc pass all.
-  fn set_uniform<BufElem: Sized>(
+  fn set_uniform<BufElem: Sized + Copy>(
     &self, handle_data: &<Self::BL as BufferLoader>::UniformBufferDataHandle, data: &BufElem,
   ) -> SarektResult<()>
   where
