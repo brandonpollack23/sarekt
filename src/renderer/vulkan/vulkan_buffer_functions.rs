@@ -55,6 +55,7 @@ impl VulkanBufferFunctions {
   fn create_staging_buffer(
     &self, buffer_size: u64,
   ) -> SarektResult<(vk::Buffer, vk_mem::Allocation, vk_mem::AllocationInfo)> {
+    info!("Creating staging buffer");
     self.create_cpu_accessible_buffer(buffer_size, vk::BufferUsageFlags::TRANSFER_SRC)
   }
 
@@ -66,7 +67,7 @@ impl VulkanBufferFunctions {
     &self, buffer_size: u64, usage_flags: vk::BufferUsageFlags,
   ) -> SarektResult<(vk::Buffer, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     info!(
-      "Creating staging buffer and memory of size {} to transfer from CPU memory...",
+      "Creating cpu accessible buffer and memory of size {} to transfer from CPU memory...",
       buffer_size
     );
     let staging_buffer_ci = vk::BufferCreateInfo::builder()
@@ -191,7 +192,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
   /// The way this function operates to keep things as efficient as possible at
   /// GPU runtime is to copy into a staging buffer and initiate a transfer
   /// operation on the GPU to a more efficient device only GPU memory buffer.
-  fn load_buffer_with_staging<BufElem: Sized>(
+  fn load_buffer_with_staging<BufElem: Sized + Copy>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BufferBackendHandle> {
     let buffer_size =
@@ -204,7 +205,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&staging_allocation)? as *mut BufElem;
     unsafe {
-      data.copy_from(buffer.as_ptr(), staging_allocation_info.get_size());
+      data.copy_from(buffer.as_ptr(), buffer_size as usize);
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
@@ -239,7 +240,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     }
   }
 
-  fn load_buffer_without_staging<BufElem: Sized>(
+  fn load_buffer_without_staging<BufElem: Sized + Copy>(
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BufferBackendHandle> {
     let buffer_size =
@@ -253,7 +254,7 @@ unsafe impl BufferLoader for VulkanBufferFunctions {
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&allocation)? as *mut BufElem;
     unsafe {
-      data.copy_from(buffer.as_ptr(), allocation_info.get_size());
+      data.copy_from(buffer.as_ptr(), buffer_size as usize);
     }
     self.allocator.unmap_memory(&allocation)?;
 

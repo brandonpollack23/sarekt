@@ -2,7 +2,8 @@ use crate::{
   error::{SarektError, SarektResult},
   renderer::{
     buffers::{BufferBackendHandleTrait, BufferHandle, BufferLoader, UniformBufferHandle},
-    Renderer,
+    vertex_bindings::{DefaultForwardShaderUniforms, DefaultForwardShaderVertex},
+    Renderer, VulkanRenderer,
   },
 };
 use std::fmt::Debug;
@@ -12,8 +13,13 @@ use std::fmt::Debug;
 
 /// The object that is passed to Drawer's draw method.  Contains all the
 /// necessary information to perform a draw command.
-pub struct DrawableObject<'a, 'b, 'c, R: Renderer, UniformBufElem: Sized + Copy>
-where
+pub struct DrawableObject<
+  'a,
+  'b,
+  'c,
+  R: Renderer = VulkanRenderer,
+  UniformBufElem: Sized + Copy = DefaultForwardShaderUniforms,
+> where
   R::BL: BufferLoader,
   <R::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug,
 {

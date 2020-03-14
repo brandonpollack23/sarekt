@@ -1644,7 +1644,7 @@ impl Renderer for VulkanRenderer {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 
-  fn load_buffer<BufElem: Sized>(
+  fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferHandle<VulkanBufferFunctions>> {
     if let BufferType::Uniform = buffer_type {
@@ -1720,7 +1720,7 @@ impl Renderer for VulkanRenderer {
     Ok(buffer_handles)
   }
 
-  fn set_uniform<BufElem: Sized>(
+  fn set_uniform<BufElem: Sized + Copy>(
     &self, handle_data: &Vec<BufferAndMemoryMapped>, data: &BufElem,
   ) -> SarektResult<()> {
     let next_image_index = self.next_image_index.get();
