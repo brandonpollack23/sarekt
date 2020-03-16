@@ -45,6 +45,9 @@ use std::{
 };
 use vk_shader_macros::include_glsl;
 
+// TODO PERFORMANCE can i make things like descriptor set count and uniform
+// buffers allocate number of frames in flight, not render target image count?
+
 /// Default vertex shader that contain their own vertices, will be removed in
 /// the future.
 pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.vert");
@@ -90,6 +93,9 @@ pub struct VulkanRenderer {
   // Frame count since swapchain creation, not beginning of rendering.
   current_frame_num: Cell<usize>,
   next_image_index: Cell<usize>,
+
+  // Descriptor pools.
+  default_descriptor_pools: Vec<vk::DescriptorPool>, // For the default pipeline.
 
   // Application controllable fields
   rendering_enabled: bool,
@@ -262,6 +268,9 @@ impl VulkanRenderer {
 
     let draw_synchronization = DrawSynchronization::new(&logical_device, render_targets.len())?;
 
+    let default_descriptor_pools =
+      Self::create_default_descriptor_pools(&logical_device, &render_targets)?;
+
     let renderer = Self {
       _entry: entry,
       instance,
@@ -285,6 +294,8 @@ impl VulkanRenderer {
       draw_synchronization,
       current_frame_num: Cell::new(0),
       next_image_index: Cell::new(0),
+
+      default_descriptor_pools,
 
       rendering_enabled: true,
 
@@ -938,6 +949,9 @@ impl VulkanRenderer {
       new_extent,
     )?;
 
+    self.default_descriptor_pools =
+      Self::create_default_descriptor_pools(logical_device, &self.render_targets)?;
+
     // Reset render_frame_count
     self.current_frame_num.set(0);
 
@@ -968,6 +982,11 @@ impl VulkanRenderer {
       true,
       u64::max_value(),
     )?;
+
+    info!("Destroying descriptor pools...");
+    self
+      .logical_device
+      .destroy_descriptor_pool(self.default_descriptor_pools, None);
 
     info!("Destroying all framebuffers...");
     for &fb in self.framebuffers.iter() {
@@ -1288,7 +1307,7 @@ impl VulkanRenderer {
   }
 
   // ================================================================================
-  //  Command Pool/Buffer Methods
+  //  Command & Descriptor Pool/Buffer Methods
   // ================================================================================
   /// Creates all command pools needed for drawing and presentation on one
   /// thread.
@@ -1443,6 +1462,32 @@ impl VulkanRenderer {
     Ok(())
   }
 
+  fn create_default_descriptor_pools(
+    logical_device: &Device, render_targets: &[ImageAndView],
+  ) -> SarektResult<Vec<vk::DescriptorPool>> {
+    // TODO MULTITHREADING one per per frame per thread.
+    // TODO TEXTURE add texture descriptor set pool.
+
+    // TODO NOW 1 Make a pool of size max descriptor sets (some const or query
+    // device capabilities) for every frame.
+
+    // TODO NOW 2 When setting up the next frame in flight, clear the descriptor
+    // pool for it.
+    let pool_sizes = [vk::DescriptorPoolSize::builder()
+      .descriptor_count(render_targets.len() as u32) // We will be allocate 1 descriptor PER render target. And they'll all be in one set.
+      .build()];
+
+    let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
+      .pool_sizes(&pool_sizes)
+      .max_sets(render_targets.len() as u32) // One set per render target.
+      .build();
+
+    let default_descriptor_pool =
+      unsafe { logical_device.create_descriptor_pool(&descriptor_pool_ci, None)? };
+
+    Ok(default_descriptor_pool)
+  }
+
   // ================================================================================
   //  Storage Creation Methods
   // ================================================================================
@@ -1534,6 +1579,29 @@ impl VulkanRenderer {
       }
     }
     Ok(())
+  }
+
+  // TODO NOW 3 move to draw stage. allocate descriptor sets as you draw and
+  // configure them as you go.
+  // TODO 5 call from draw.
+  fn bind_descriptor_sets(&self) -> SarektResult<Vec<vk::DescriptorSet>> {
+    // Need to make copies of the layouts because allocating descriptor sets takes
+    // an array of layouts.
+
+    // First allocate descriptor sets.
+    let layouts = vec![default_descriptor_set_layout; render_targets.len()];
+    let alloc_info = vk::DescriptorSetAllocateInfo::builder()
+      .descriptor_pool(default_descriptor_pool)
+      .set_layouts(&layouts) // Sets descriptor set count.
+      .build();
+    let descriptor_sets = unsafe { logical_device.allocate_descriptor_sets(&alloc_info)? };
+
+    // TODO NOW 4 have the Uniform Type expose a
+    // function for how to configure them in DescriptorLayoutInfo and bind them.
+    // Expose via drawable object in a non platform specific named way (eg
+    // bind_uniforms or something)(forward via static function, type already there)
+
+    Ok(descriptor_sets)
   }
 
   // ================================================================================
@@ -1747,7 +1815,6 @@ impl Renderer for VulkanRenderer {
 impl Drawer for VulkanRenderer {
   type R = VulkanRenderer;
 
-  // TODO NOW make a new example excercizing uniform buffers.
   // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
   fn draw<UniformBufElem: Sized + Copy>(
     &self, object: &DrawableObject<Self, UniformBufElem>,
@@ -1760,9 +1827,6 @@ impl Drawer for VulkanRenderer {
 
     // Current render target command buffer.
     let command_buffer = self.primary_gfx_command_buffers[current_render_target_index];
-
-    // TODO NOW
-    // Bind uniform data.
 
     // Draw the vertices (indexed or otherwise).
     self.draw_vertices_cmd(object, command_buffer)?;

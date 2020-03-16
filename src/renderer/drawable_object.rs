@@ -49,7 +49,7 @@ where
       None
     };
 
-    // TODO NOW seperate markers/type data into an inner.
+    // TODO NOW LAST seperate markers/type data into an inner.
     Ok(Self {
       vertex_buffer,
       index_buffer: None,

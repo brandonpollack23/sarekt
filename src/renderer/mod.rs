@@ -77,14 +77,19 @@ pub trait Renderer {
   type BL;
   type SL;
 
+  // TODO NOW LAST doc pass all.
+
+  fn set_rendering_enabled(&mut self, enabled: bool);
+
   /// Mark this frame as complete and render it to the target of the renderer
   /// when ready.
   fn frame(&self) -> SarektResult<()>;
 
-  fn set_rendering_enabled(&mut self, enabled: bool);
+  // TODO PIPELINE create a new pipeline type out of shaders, render pass, etc.
 
-  // TODO get_shader and get_buffer? with handle
-
+  // TODO SHADER get_shader with handle
+  // TODO SHADER when loading a shader, use spirv-reflect to make sure you don't
+  // exceed max bound descriptors to use it.
   /// Loads a shader and returns a RAII handle to be used for retrieval or
   /// pipeline creation.
   fn load_shader(
@@ -102,16 +107,16 @@ pub trait Renderer {
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
-  fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
-    &mut self, buffer: UniformBufElem,
-  ) -> SarektResult<UniformBufferHandle<Self::BL, UniformBufElem>>
+  fn get_buffer(
+    &self, handle: &BufferHandle<Self::BL>,
+  ) -> SarektResult<<Self::BL as BufferLoader>::BufferBackendHandle>
   where
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
-  fn get_buffer(
-    &self, handle: &BufferHandle<Self::BL>,
-  ) -> SarektResult<<Self::BL as BufferLoader>::BufferBackendHandle>
+  fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
+    &mut self, buffer: UniformBufElem,
+  ) -> SarektResult<UniformBufferHandle<Self::BL, UniformBufElem>>
   where
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
@@ -122,7 +127,6 @@ pub trait Renderer {
   where
     Self::BL: BufferLoader;
 
-  // TODO NOW doc pass all.
   fn set_uniform<BufElem: Sized + Copy>(
     &self, handle_data: &<Self::BL as BufferLoader>::UniformBufferDataHandle, data: &BufElem,
   ) -> SarektResult<()>
@@ -147,7 +151,7 @@ pub trait Drawer {
     <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle:
       BufferBackendHandleTrait + Copy + Debug;
 
-  // TODO RENDERING select render pass (predefined set?) log when pipeline not
+  // TODO PIPELINE select render pass (predefined set?) log when pipeline not
   // compatible and dont draw? End previous render pass and keep track of last
   // render pass to end it as well.
 }
