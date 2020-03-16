@@ -162,7 +162,7 @@ impl VulkanBufferFunctions {
         vk::Fence::null(),
       )?;
 
-      // TODO PERFORMANCE use fence?
+      // TODO PERFORMANCE use fence or memory barrier?
       self.logical_device.device_wait_idle()?;
 
       self.logical_device.reset_command_buffer(

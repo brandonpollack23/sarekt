@@ -63,7 +63,6 @@ fn main_loop() -> SarektResult<()> {
     BufferType::Index(IndexBufferElemSize::UInt16),
     &RECT_INDICES,
   )?;
-  // TODO NOW actual construct an MVP and then update it every frame.
   let rect_uniform = DefaultForwardShaderUniforms::default();
   let rect_uniform_buffer = renderer.load_uniform_buffer(rect_uniform)?;
   let rect = DrawableObject::new_indexed(
@@ -149,7 +148,7 @@ fn update_uniforms(
     /* znear= */ 0.1f32,
     /* zfar= */ 10f32,
   );
-  // TODO NOW adjust like in tutorial?
+  // TODO NOW LAST adjust y axis like in tutorial?
   let uniform = DefaultForwardShaderUniforms::new(perspective_matrix * view_matrix * model_matrix);
   rect.set_uniform(renderer, &uniform)
 }
