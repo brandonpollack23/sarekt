@@ -4,8 +4,10 @@ use sarekt::{
   self,
   error::{SarektError, SarektResult},
   renderer::{
-    buffers::BufferType, drawable_object::DrawableObject,
-    vertex_bindings::DefaultForwardShaderVertex, Drawer, Renderer, VulkanRenderer,
+    buffers::BufferType,
+    drawable_object::DrawableObject,
+    vertex_bindings::{DefaultForwardShaderUniforms, DefaultForwardShaderVertex},
+    Drawer, Renderer, VulkanRenderer,
   },
 };
 use std::{error::Error, sync::Arc};
@@ -52,7 +54,8 @@ fn main_loop() -> SarektResult<()> {
 
   // Create Resources.
   let triangle_buffer = renderer.load_buffer(BufferType::Vertex, &TRIANGLE_VERTICES)?;
-  let triangle = DrawableObject::new(&renderer, &triangle_buffer)?;
+  let uniform_buffer = renderer.load_uniform_buffer(DefaultForwardShaderUniforms::default())?;
+  let triangle = DrawableObject::new(&renderer, &triangle_buffer, &uniform_buffer)?;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {

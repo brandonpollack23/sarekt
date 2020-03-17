@@ -22,9 +22,6 @@ use winit::{
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
-// TODO NOW fix this and other examples.
-// TODO test lifetimes of drawable object stuff.
-
 lazy_static! {
 static ref RECT_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
   DefaultForwardShaderVertex::new(&[-0.5f32, -0.5f32], &[1.0f32, 0.0f32, 0.0f32]), // Top Left, Red
