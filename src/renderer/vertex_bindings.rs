@@ -1,3 +1,4 @@
+use crate::error::SarektResult;
 use nalgebra as na;
 
 // TODO critical move out of renderer along with different backend files into
@@ -54,9 +55,18 @@ impl DefaultForwardShaderVertex {
 /// information such as which bindings to attach each part of uniform to in the
 /// shader, which stages they are used, etc.
 pub unsafe trait DescriptorLayoutInfo {
+  // TODO NOW LAST doc pass.
+  type BackendBufferType;
   type BackendDescriptorSetLayoutBindings;
+  type BackendUniformBindInfo;
+  type BackendUniformDescriptor;
 
+  // TODO NOW LAST Doc all.
   fn get_descriptor_set_layout_bindings() -> Self::BackendDescriptorSetLayoutBindings;
+
+  fn get_bind_uniform_info(
+    desc: &Self::BackendUniformDescriptor, buffer: &Self::BackendBufferType,
+  ) -> SarektResult<Self::BackendUniformBindInfo>;
 }
 
 /// Input uniforms to the sarekt_forward shader set.

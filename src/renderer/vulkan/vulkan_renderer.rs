@@ -95,7 +95,7 @@ pub struct VulkanRenderer {
   next_image_index: Cell<usize>,
 
   // Descriptor pools.
-  default_descriptor_pools: Vec<vk::DescriptorPool>, // For the default pipeline.
+  main_descriptor_pools: Vec<vk::DescriptorPool>,
 
   // Application controllable fields
   rendering_enabled: bool,
@@ -268,8 +268,12 @@ impl VulkanRenderer {
 
     let draw_synchronization = DrawSynchronization::new(&logical_device, render_targets.len())?;
 
-    let default_descriptor_pools =
-      Self::create_default_descriptor_pools(&logical_device, &render_targets)?;
+    let main_descriptor_pools = Self::create_main_descriptor_pools(
+      &instance,
+      physical_device,
+      &logical_device,
+      &render_targets,
+    )?;
 
     let renderer = Self {
       _entry: entry,
@@ -295,7 +299,7 @@ impl VulkanRenderer {
       current_frame_num: Cell::new(0),
       next_image_index: Cell::new(0),
 
-      default_descriptor_pools,
+      main_descriptor_pools,
 
       rendering_enabled: true,
 
@@ -949,8 +953,12 @@ impl VulkanRenderer {
       new_extent,
     )?;
 
-    self.default_descriptor_pools =
-      Self::create_default_descriptor_pools(logical_device, &self.render_targets)?;
+    self.main_descriptor_pools = Self::create_main_descriptor_pools(
+      instance,
+      self.physical_device,
+      logical_device,
+      &self.render_targets,
+    )?;
 
     // Reset render_frame_count
     self.current_frame_num.set(0);
@@ -984,9 +992,9 @@ impl VulkanRenderer {
     )?;
 
     info!("Destroying descriptor pools...");
-    self
-      .logical_device
-      .destroy_descriptor_pool(self.default_descriptor_pools, None);
+    for &desc_pool in self.main_descriptor_pools.iter() {
+      self.logical_device.destroy_descriptor_pool(desc_pool, None);
+    }
 
     info!("Destroying all framebuffers...");
     for &fb in self.framebuffers.iter() {
@@ -1391,6 +1399,9 @@ impl VulkanRenderer {
       warn!("Swapchain is suboptimal!");
     }
 
+    // TODO MULTITHREADING all things that were only main thread, do for all
+    // renderers, too.
+    let descriptor_pool = self.main_descriptor_pools[image_index as usize];
     let command_buffer = self.primary_gfx_command_buffers[image_index as usize];
     let framebuffer = self.framebuffers[image_index as usize];
     let extent = self.extent;
@@ -1406,6 +1417,12 @@ impl VulkanRenderer {
           .logical_device
           .wait_for_fences(&[fence], true, u64::max_value())?;
       }
+    }
+
+    unsafe {
+      self
+        .logical_device
+        .reset_descriptor_pool(descriptor_pool, vk::DescriptorPoolResetFlags::empty())?;
     }
 
     // Start recording.
@@ -1462,19 +1479,22 @@ impl VulkanRenderer {
     Ok(())
   }
 
-  fn create_default_descriptor_pools(
-    logical_device: &Device, render_targets: &[ImageAndView],
+  fn create_main_descriptor_pools(
+    instance: &Instance, physical_device: vk::PhysicalDevice, logical_device: &Device,
+    render_targets: &[ImageAndView],
   ) -> SarektResult<Vec<vk::DescriptorPool>> {
     // TODO MULTITHREADING one per per frame per thread.
     // TODO TEXTURE add texture descriptor set pool.
 
-    // TODO NOW 1 Make a pool of size max descriptor sets (some const or query
-    // device capabilities) for every frame.
+    let max_uniform_buffers = unsafe {
+      instance
+        .get_physical_device_properties(physical_device)
+        .limits
+        .max_descriptor_set_uniform_buffers
+    };
 
-    // TODO NOW 2 When setting up the next frame in flight, clear the descriptor
-    // pool for it.
     let pool_sizes = [vk::DescriptorPoolSize::builder()
-      .descriptor_count(render_targets.len() as u32) // We will be allocate 1 descriptor PER render target. And they'll all be in one set.
+      .descriptor_count(max_uniform_buffers)
       .build()];
 
     let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
@@ -1482,10 +1502,15 @@ impl VulkanRenderer {
       .max_sets(render_targets.len() as u32) // One set per render target.
       .build();
 
-    let default_descriptor_pool =
-      unsafe { logical_device.create_descriptor_pool(&descriptor_pool_ci, None)? };
+    let mut main_descriptor_pools = Vec::with_capacity(render_targets.len());
+    for _ in 0..render_targets.len() {
+      unsafe {
+        main_descriptor_pools
+          .push(logical_device.create_descriptor_pool(&descriptor_pool_ci, None)?);
+      };
+    }
 
-    Ok(default_descriptor_pool)
+    Ok(main_descriptor_pools)
   }
 
   // ================================================================================
@@ -1581,27 +1606,55 @@ impl VulkanRenderer {
     Ok(())
   }
 
-  // TODO NOW 3 move to draw stage. allocate descriptor sets as you draw and
-  // configure them as you go.
-  // TODO 5 call from draw.
-  fn bind_descriptor_sets(&self) -> SarektResult<Vec<vk::DescriptorSet>> {
-    // Need to make copies of the layouts because allocating descriptor sets takes
-    // an array of layouts.
-
+  fn bind_uniform_descriptor_sets<UniformBufElem>(
+    &self, uniform_buffer: vk::Buffer, descriptor_pool: vk::DescriptorPool,
+    command_buffer: vk::CommandBuffer,
+  ) -> SarektResult<()>
+  where
+    UniformBufElem: Sized
+      + Copy
+      + DescriptorLayoutInfo<
+        BackendBufferType = vk::Buffer,
+        BackendDescriptorSetLayoutBindings = vk::DescriptorSetLayoutBinding,
+        BackendUniformBindInfo = Vec<vk::WriteDescriptorSet>,
+        BackendUniformDescriptor = vk::DescriptorSet,
+      >,
+  {
     // First allocate descriptor sets.
-    let layouts = vec![default_descriptor_set_layout; render_targets.len()];
+    // TODO PIPELINES pass in current pipeline layout.
+    let layouts = [self
+      .base_graphics_pipeline_bundle
+      .descriptor_set_layouts
+      .as_ref()
+      .unwrap()[0]];
     let alloc_info = vk::DescriptorSetAllocateInfo::builder()
-      .descriptor_pool(default_descriptor_pool)
+      .descriptor_pool(descriptor_pool)
       .set_layouts(&layouts) // Sets descriptor set count.
       .build();
-    let descriptor_sets = unsafe { logical_device.allocate_descriptor_sets(&alloc_info)? };
+    // A vec of a single set.
+    let descriptor_sets = unsafe { self.logical_device.allocate_descriptor_sets(&alloc_info)? };
 
-    // TODO NOW 4 have the Uniform Type expose a
-    // function for how to configure them in DescriptorLayoutInfo and bind them.
-    // Expose via drawable object in a non platform specific named way (eg
-    // bind_uniforms or something)(forward via static function, type already there)
+    let descriptor_writes =
+      UniformBufElem::get_bind_uniform_info(&descriptor_sets[0], &uniform_buffer)?;
 
-    Ok(descriptor_sets)
+    unsafe {
+      self
+        .logical_device
+        .update_descriptor_sets(&descriptor_writes, &[]); // No descriptor
+                                                          // copies.
+
+      // TODO PIPELINES select correct pipeline layout.
+      self.logical_device.cmd_bind_descriptor_sets(
+        command_buffer,
+        vk::PipelineBindPoint::GRAPHICS,
+        self.base_graphics_pipeline_bundle.pipeline_layout,
+        0,
+        &descriptor_sets,
+        &[], // No dynamic offsets.
+      );
+    }
+
+    Ok(())
   }
 
   // ================================================================================
@@ -1614,6 +1667,10 @@ impl VulkanRenderer {
 impl Renderer for VulkanRenderer {
   type BL = VulkanBufferFunctions;
   type SL = VulkanShaderFunctions;
+
+  fn set_rendering_enabled(&mut self, enabled: bool) {
+    self.rendering_enabled = enabled;
+  }
 
   // TODO OFFSCREEN handle off screen rendering.
   fn frame(&self) -> SarektResult<()> {
@@ -1702,10 +1759,6 @@ impl Renderer for VulkanRenderer {
     Ok(())
   }
 
-  fn set_rendering_enabled(&mut self, enabled: bool) {
-    self.rendering_enabled = enabled;
-  }
-
   fn load_shader(
     &mut self, code: &ShaderCode, shader_type: ShaderType,
   ) -> SarektResult<ShaderHandle<VulkanShaderFunctions>> {
@@ -1720,6 +1773,16 @@ impl Renderer for VulkanRenderer {
     }
 
     BufferStore::load_buffer_with_staging(&self.buffer_store, buffer_type, buffer)
+  }
+
+  fn get_buffer(
+    &self, handle: &BufferHandle<VulkanBufferFunctions>,
+  ) -> SarektResult<BufferAndMemory> {
+    let store = self
+      .buffer_store
+      .read()
+      .expect("Panic occured can't read from buffer store");
+    Ok(store.get_buffer(handle)?.buffer_handle)
   }
 
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
@@ -1741,16 +1804,6 @@ impl Renderer for VulkanRenderer {
     }
 
     Ok(UniformBufferHandle::new(uniform_buffers))
-  }
-
-  fn get_buffer(
-    &self, handle: &BufferHandle<VulkanBufferFunctions>,
-  ) -> SarektResult<BufferAndMemory> {
-    let store = self
-      .buffer_store
-      .read()
-      .expect("Panic occured can't read from buffer store");
-    Ok(store.get_buffer(handle)?.buffer_handle)
   }
 
   fn get_uniform_buffer<UniformBufElem: Sized + Copy>(
@@ -1813,12 +1866,24 @@ impl Renderer for VulkanRenderer {
   }
 }
 impl Drawer for VulkanRenderer {
+  type BackendBufferType = vk::Buffer;
+  type BackendDescriptorSetLayoutBindings = vk::DescriptorSetLayoutBinding;
+  type BackendUniformBindInfo = Vec<vk::WriteDescriptorSet>;
+  type BackendUniformDescriptor = vk::DescriptorSet;
   type R = VulkanRenderer;
 
   // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
-  fn draw<UniformBufElem: Sized + Copy>(
-    &self, object: &DrawableObject<Self, UniformBufElem>,
-  ) -> SarektResult<()> {
+  fn draw<UniformBufElem>(&self, object: &DrawableObject<Self, UniformBufElem>) -> SarektResult<()>
+  where
+    UniformBufElem: Sized
+      + Copy
+      + DescriptorLayoutInfo<
+        BackendBufferType = Self::BackendBufferType,
+        BackendDescriptorSetLayoutBindings = Self::BackendDescriptorSetLayoutBindings,
+        BackendUniformBindInfo = Self::BackendUniformBindInfo,
+        BackendUniformDescriptor = Self::BackendUniformDescriptor,
+      >,
+  {
     if !self.rendering_enabled {
       return Ok(());
     }
@@ -1827,6 +1892,20 @@ impl Drawer for VulkanRenderer {
 
     // Current render target command buffer.
     let command_buffer = self.primary_gfx_command_buffers[current_render_target_index];
+    let descriptor_pool = self.main_descriptor_pools[current_render_target_index];
+
+    // Allocate and bind the correct uniform descriptors.
+    if object.uniform_buffer.is_some() {
+      let uniform_buffers = object.uniform_buffer.as_ref().unwrap();
+      let uniform_buffer = uniform_buffers[current_render_target_index]
+        .buffer_and_memory
+        .buffer;
+      self.bind_uniform_descriptor_sets::<UniformBufElem>(
+        uniform_buffer,
+        descriptor_pool,
+        command_buffer,
+      )?;
+    }
 
     // Draw the vertices (indexed or otherwise).
     self.draw_vertices_cmd(object, command_buffer)?;

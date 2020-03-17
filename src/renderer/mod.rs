@@ -49,6 +49,7 @@ use crate::renderer::{
     BufferBackendHandleTrait, BufferHandle, BufferLoader, BufferType, UniformBufferHandle,
   },
   drawable_object::DrawableObject,
+  vertex_bindings::DescriptorLayoutInfo,
 };
 use std::fmt::Debug;
 
@@ -76,6 +77,9 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2;
 pub trait Renderer {
   type BL;
   type SL;
+
+  // TODO MULTITHREADING should load/get/update functions be part of drawer so
+  // anyone can do it (within their own pools/queues)
 
   // TODO NOW LAST doc pass all.
 
@@ -140,12 +144,24 @@ pub trait Renderer {
 /// Trait that each renderer as well as its secondary drawers (if supported)
 /// implement for multi-threading purposes.
 pub trait Drawer {
+  type BackendBufferType;
+  type BackendDescriptorSetLayoutBindings;
+  type BackendUniformBindInfo;
+  type BackendUniformDescriptor;
   type R;
 
-  fn draw<UniformBufElem: Sized + Copy>(
+  fn draw<UniformBufElem>(
     &self, object: &DrawableObject<Self::R, UniformBufElem>,
   ) -> SarektResult<()>
   where
+    UniformBufElem: Sized
+      + Copy
+      + DescriptorLayoutInfo<
+        BackendBufferType = Self::BackendBufferType,
+        BackendDescriptorSetLayoutBindings = Self::BackendDescriptorSetLayoutBindings,
+        BackendUniformBindInfo = Self::BackendUniformBindInfo,
+        BackendUniformDescriptor = Self::BackendUniformDescriptor,
+      >,
     Self::R: Renderer,
     <Self::R as Renderer>::BL: BufferLoader,
     <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle:
