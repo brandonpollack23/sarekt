@@ -68,6 +68,7 @@ pub unsafe trait BufferBackendHandleTrait: Copy {}
 ///
 /// For example, on Vulkan more than one frame can be in flight so this needs to
 /// actually create uniform buffers for each framebuffer.
+#[derive(Clone, Debug)]
 pub struct UniformBufferHandle<BL: BufferLoader, BufElem: Sized + Copy> {
   pub(crate) uniform_buffer_backend_handle: BL::UniformBufferHandle,
   _marker: std::marker::PhantomData<BufElem>,
@@ -96,7 +97,7 @@ impl<BL: BufferLoader, BufElem: Sized + Copy> UniformBufferHandle<BL, BufElem> {
 ///    doesn't handle it.
 pub unsafe trait BufferLoader {
   type BufferBackendHandle;
-  type UniformBufferDataHandle;
+  type UniformBufferDataHandle: Debug;
   type UniformBufferHandle;
 
   /// TODO PERFORMANCE some platforms might not actually ever benefit from

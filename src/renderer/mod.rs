@@ -144,24 +144,13 @@ pub trait Renderer {
 /// Trait that each renderer as well as its secondary drawers (if supported)
 /// implement for multi-threading purposes.
 pub trait Drawer {
-  type BackendBufferType;
-  type BackendDescriptorSetLayoutBindings;
-  type BackendUniformBindInfo;
-  type BackendUniformDescriptor;
   type R;
 
   fn draw<UniformBufElem>(
     &self, object: &DrawableObject<Self::R, UniformBufElem>,
   ) -> SarektResult<()>
   where
-    UniformBufElem: Sized
-      + Copy
-      + DescriptorLayoutInfo<
-        BackendBufferType = Self::BackendBufferType,
-        BackendDescriptorSetLayoutBindings = Self::BackendDescriptorSetLayoutBindings,
-        BackendUniformBindInfo = Self::BackendUniformBindInfo,
-        BackendUniformDescriptor = Self::BackendUniformDescriptor,
-      >,
+    UniformBufElem: Sized + Copy + DescriptorLayoutInfo,
     Self::R: Renderer,
     <Self::R as Renderer>::BL: BufferLoader,
     <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle:
