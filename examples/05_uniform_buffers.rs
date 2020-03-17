@@ -138,7 +138,7 @@ fn update_uniforms(
   let rotation = (std::f32::consts::PI * time_since_start_secs) % (2f32 * std::f32::consts::PI);
   let model_matrix = na::Matrix4::new_rotation(rotation * na::Vector3::z()); // No scaling or translation.
   let view_matrix = na::Matrix4::look_at_rh(
-    /* eye= */ &na::Point3::new(2.0f32, 2.0f32, 2.0f32),
+    /* eye= */ &na::Point3::new(1.0f32, 1.0f32, 1.0f32),
     /* origin= */ &na::Point::origin(),
     /* up= */ &na::Vector3::z(),
   );
