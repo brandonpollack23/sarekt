@@ -1,9 +1,6 @@
 use crate::error::SarektResult;
 use nalgebra as na;
 
-// TODO critical move out of renderer along with different backend files into
-// their own folder.
-
 /// A trait that provides a static function that generates backend specific
 /// vertex bindings.  This is mainly provided out of convenience and would need
 /// to be custom defined for each backend otherwise.  It is possible to seperate

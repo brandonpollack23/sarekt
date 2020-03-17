@@ -25,7 +25,7 @@ pub struct DrawableObject<
 {
   pub(crate) vertex_buffer: <R::BL as BufferLoader>::BufferBackendHandle,
   pub(crate) index_buffer: Option<<R::BL as BufferLoader>::BufferBackendHandle>,
-  // TODO update doc
+  // TODO NOW LAST update doc
   pub(crate) uniform_buffer: <R::BL as BufferLoader>::UniformBufferDataHandle,
   _vertex_marker: std::marker::PhantomData<&'a BufferHandle<R::BL>>,
   _index_marker: std::marker::PhantomData<&'b BufferHandle<R::BL>>,
