@@ -255,7 +255,8 @@ impl VulkanRenderer {
       forward_render_pass,
     )?;
 
-    // TODO when I can have multiple render pass types I need new framebuffers.
+    // TODO RENDERING_CAPABILITIES when I can have multiple render pass types I need
+    // new framebuffers.
     let framebuffers = Self::create_framebuffers(
       &logical_device,
       forward_render_pass,
