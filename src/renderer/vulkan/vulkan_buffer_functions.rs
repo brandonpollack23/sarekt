@@ -302,10 +302,10 @@ pub struct BufferAndMemory {
   pub(crate) allocation: Allocation,
 }
 
-/// Stores the mapped pointer along with the allocation.  There is no need to
-/// implement drop here because when the memory itself is dropped, it is freed.
-/// According to the spec in `vkFreeMemory`'s docs "If a memeory object is
-/// mapped at the tiem it is freed, it is implicitly unmapped"
+/// Stores the mapped pointer along with the allocation.  There is no need
+/// tformbo implement drop here because when the memory itself is dropped, it is
+/// freed. According to the spec in `vkFreeMemory`'s docs "If a memeory object
+/// is mapped at the tiem it is freed, it is implicitly unmapped"
 #[derive(Copy, Clone, Debug)]
 pub struct BufferAndMemoryMapped {
   pub(crate) buffer_and_memory: BufferAndMemory,

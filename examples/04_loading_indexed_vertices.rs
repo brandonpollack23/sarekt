@@ -6,7 +6,7 @@ use sarekt::{
   renderer::{
     buffers::{BufferType, IndexBufferElemSize},
     drawable_object::DrawableObject,
-    vertex_bindings::DefaultForwardShaderVertex,
+    vertex_bindings::{DefaultForwardShaderUniforms, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
   },
 };
@@ -21,6 +21,9 @@ use winit::{
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
+
+// TODO NOW fix this and other examples.
+// TODO test lifetimes of drawable object stuff.
 
 lazy_static! {
 static ref RECT_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
@@ -56,12 +59,17 @@ fn main_loop() -> SarektResult<()> {
 
   // Create Resources.
   let rect_vertex_buffer = renderer.load_buffer(BufferType::Vertex, &RECT_VERTICES)?;
+  let rect_uniform_buffer = renderer.load_uniform_buffer(DefaultForwardShaderUniforms::default())?;
   let rect_index_buffer = renderer.load_buffer(
     BufferType::Index(IndexBufferElemSize::UInt16),
     &RECT_INDICES,
   )?;
-  let rect: DrawableObject =
-    DrawableObject::new_indexed(&renderer, &rect_vertex_buffer, &rect_index_buffer, None)?;
+  let rect: DrawableObject = DrawableObject::new_indexed(
+    &renderer,
+    &rect_vertex_buffer,
+    &rect_index_buffer,
+    &rect_uniform_buffer,
+  )?;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {

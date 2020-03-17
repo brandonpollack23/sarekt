@@ -1798,6 +1798,7 @@ impl Renderer for VulkanRenderer {
     Ok(store.get_buffer(handle)?.buffer_handle)
   }
 
+  // TODO NOW LAST add logging.
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
     &mut self, buffer: UniformBufElem,
   ) -> SarektResult<UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>> {
@@ -1893,24 +1894,21 @@ impl Drawer for VulkanRenderer {
     let current_render_target_index = self.next_image_index.get();
 
     // Current render target command buffer.
-    let command_buffer = self.primary_gfx_command_buffers[current_render_target_index];
-    let descriptor_pool = self.main_descriptor_pools[current_render_target_index];
+    let current_command_buffer = self.primary_gfx_command_buffers[current_render_target_index];
+    let current_uniform_buffer = object.uniform_buffer[current_render_target_index]
+      .buffer_and_memory
+      .buffer;
+    let current_descriptor_pool = self.main_descriptor_pools[current_render_target_index];
 
     // Allocate and bind the correct uniform descriptors.
-    if object.uniform_buffer.is_some() {
-      let uniform_buffers = object.uniform_buffer.as_ref().unwrap();
-      let uniform_buffer = uniform_buffers[current_render_target_index]
-        .buffer_and_memory
-        .buffer;
-      self.bind_uniform_descriptor_sets::<UniformBufElem>(
-        uniform_buffer,
-        descriptor_pool,
-        command_buffer,
-      )?;
-    }
+    self.bind_uniform_descriptor_sets::<UniformBufElem>(
+      current_uniform_buffer,
+      current_descriptor_pool,
+      current_command_buffer,
+    )?;
 
     // Draw the vertices (indexed or otherwise).
-    self.draw_vertices_cmd(object, command_buffer)?;
+    self.draw_vertices_cmd(object, current_command_buffer)?;
 
     Ok(())
   }
