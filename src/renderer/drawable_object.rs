@@ -72,6 +72,7 @@ where
     } else {
       None
     };
+    println!("uniform buffer: {:#?}", uniform_buffer);
 
     Ok(Self {
       vertex_buffer,

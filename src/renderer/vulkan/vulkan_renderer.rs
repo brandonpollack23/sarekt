@@ -1611,14 +1611,7 @@ impl VulkanRenderer {
     command_buffer: vk::CommandBuffer,
   ) -> SarektResult<()>
   where
-    UniformBufElem: Sized
-      + Copy
-      + DescriptorLayoutInfo<
-        BackendBufferType = vk::Buffer,
-        BackendDescriptorSetLayoutBindings = vk::DescriptorSetLayoutBinding,
-        BackendUniformBindInfo = Vec<vk::WriteDescriptorSet>,
-        BackendUniformDescriptor = vk::DescriptorSet,
-      >,
+    UniformBufElem: Sized + Copy + DescriptorLayoutInfo,
   {
     // First allocate descriptor sets.
     // TODO PIPELINES pass in current pipeline layout.
@@ -1634,15 +1627,35 @@ impl VulkanRenderer {
     // A vec of a single set.
     let descriptor_sets = unsafe { self.logical_device.allocate_descriptor_sets(&alloc_info)? };
 
-    let descriptor_writes =
-      UniformBufElem::get_bind_uniform_info(&descriptor_sets[0], &uniform_buffer)?;
-
+    // Then configure them to bind the buffer to the pipeline.
+    let bind_uniform_info = UniformBufElem::get_bind_uniform_info()?;
+    let buffer_infos = vec![vk::DescriptorBufferInfo::builder()
+      .buffer(uniform_buffer)
+      .offset(bind_uniform_info.offset as vk::DeviceSize)
+      .range(bind_uniform_info.range as vk::DeviceSize)
+      .build()];
+    // TODO SHADERS array elements.
+    let descriptor_writes: Vec<_> = bind_uniform_info
+      .bindings
+      .iter()
+      .map(|&binding| {
+        vk::WriteDescriptorSet::builder()
+      .dst_set(descriptor_sets[0])
+      .dst_binding(binding) // corresponds to binding in layout.
+      .dst_array_element(0) // We're not using an array yet, just one MVP so index is 0.
+      .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+      .buffer_info(&buffer_infos)
+      // No image infos or texel buffer views because this is a buffer.
+      .build()
+      })
+      .collect();
     unsafe {
       self
         .logical_device
         .update_descriptor_sets(&descriptor_writes, &[]); // No descriptor
                                                           // copies.
 
+      // Bind them to the pipeline layout.
       // TODO PIPELINES select correct pipeline layout.
       self.logical_device.cmd_bind_descriptor_sets(
         command_buffer,
@@ -1866,23 +1879,12 @@ impl Renderer for VulkanRenderer {
   }
 }
 impl Drawer for VulkanRenderer {
-  type BackendBufferType = vk::Buffer;
-  type BackendDescriptorSetLayoutBindings = vk::DescriptorSetLayoutBinding;
-  type BackendUniformBindInfo = Vec<vk::WriteDescriptorSet>;
-  type BackendUniformDescriptor = vk::DescriptorSet;
   type R = VulkanRenderer;
 
   // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
   fn draw<UniformBufElem>(&self, object: &DrawableObject<Self, UniformBufElem>) -> SarektResult<()>
   where
-    UniformBufElem: Sized
-      + Copy
-      + DescriptorLayoutInfo<
-        BackendBufferType = Self::BackendBufferType,
-        BackendDescriptorSetLayoutBindings = Self::BackendDescriptorSetLayoutBindings,
-        BackendUniformBindInfo = Self::BackendUniformBindInfo,
-        BackendUniformDescriptor = Self::BackendUniformDescriptor,
-      >,
+    UniformBufElem: Sized + Copy + DescriptorLayoutInfo,
   {
     if !self.rendering_enabled {
       return Ok(());

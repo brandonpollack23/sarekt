@@ -148,7 +148,7 @@ fn update_uniforms(
     /* znear= */ 0.1f32,
     /* zfar= */ 10f32,
   );
-  // TODO NOW LAST adjust y axis like in tutorial?
+
   let uniform = DefaultForwardShaderUniforms::new(perspective_matrix * view_matrix * model_matrix);
   rect.set_uniform(renderer, &uniform)
 }
