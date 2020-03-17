@@ -17,7 +17,6 @@ pub enum SarektError {
   UnknownShader,
   IncompatibleShaderCode,
   IncorrectLoaderFunction,
-  NoUniformBuffer,
   IncorrectBufferType,
   UnknownBuffer,
   NoSuitableMemoryHeap,
@@ -70,9 +69,6 @@ impl fmt::Display for SarektError {
         "Attempted to load a special buffer type with the generic load_buffer function.  Did you \
          mean to use load_uniform buffer?"
       ),
-      SarektError::NoUniformBuffer => {
-        write!(f, "There is no uniform buffer to access in this object")
-      }
       SarektError::IncorrectBufferType => write!(
         f,
         "Tried to load a buffer type that didn't match with function call.  Perhaps you've \

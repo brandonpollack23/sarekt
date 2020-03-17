@@ -69,7 +69,7 @@ fn main_loop() -> SarektResult<()> {
     &renderer,
     &rect_vertex_buffer,
     &rect_index_buffer,
-    Some(&rect_uniform_buffer),
+    &rect_uniform_buffer,
   )?;
 
   let start_time = Instant::now();
