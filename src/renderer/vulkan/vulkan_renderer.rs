@@ -1799,10 +1799,10 @@ impl Renderer for VulkanRenderer {
     Ok(store.get_buffer(handle)?.buffer_handle)
   }
 
-  // TODO NOW LAST add logging.
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
     &mut self, buffer: UniformBufElem,
   ) -> SarektResult<UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>> {
+    info!("Loading a uniform buffer...");
     // Since each framebuffer may have different values for uniforms, they each need
     // their own UB.  These are stored in the same ordering as the render target
     // images.

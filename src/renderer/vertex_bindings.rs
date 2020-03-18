@@ -54,13 +54,17 @@ impl DefaultForwardShaderVertex {
 pub unsafe trait DescriptorLayoutInfo {
   type BackendDescriptorSetLayoutBindings;
 
-  // TODO NOW LAST Doc all.
+  /// Gets the information for the shaders/pipeline in the backend for how to
+  /// bind descriptors to them.
   fn get_descriptor_set_layout_bindings() -> Self::BackendDescriptorSetLayoutBindings;
 
+  /// Gets the information needed in order to allocate/bind descriptors in the
+  /// backend for uniforms.
   fn get_bind_uniform_info() -> SarektResult<BindUniformInfo>;
 }
 #[derive(Clone, Debug)]
-/// TODO NOW LAST doc
+/// Contains information needed by various backends to configure their
+/// descriptors for uniforms.
 pub struct BindUniformInfo {
   pub offset: u64,
   pub range: u64,
@@ -68,6 +72,9 @@ pub struct BindUniformInfo {
 }
 
 /// Input uniforms to the sarekt_forward shader set.
+///
+/// Note that ***alignment matters*** Please see the specification for your
+/// specific backend.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct DefaultForwardShaderUniforms {

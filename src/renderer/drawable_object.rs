@@ -13,6 +13,11 @@ use std::fmt::Debug;
 
 /// The object that is passed to Drawer's draw method.  Contains all the
 /// necessary information to perform a draw command.
+///
+/// vertex_buffer is the list of vertices for the mesh to draw, index_buffer is
+/// optional and contains the order of indices to make the mesh in the vertex
+/// buffer, and uniform_buffer contains the uniform data for the associated
+/// shaders/pipeline.
 pub struct DrawableObject<
   'a,
   'b,
@@ -25,8 +30,8 @@ pub struct DrawableObject<
 {
   pub(crate) vertex_buffer: <R::BL as BufferLoader>::BufferBackendHandle,
   pub(crate) index_buffer: Option<<R::BL as BufferLoader>::BufferBackendHandle>,
-  // TODO NOW LAST update doc
   pub(crate) uniform_buffer: <R::BL as BufferLoader>::UniformBufferDataHandle,
+
   _vertex_marker: std::marker::PhantomData<&'a BufferHandle<R::BL>>,
   _index_marker: std::marker::PhantomData<&'b BufferHandle<R::BL>>,
   _uniform_marker: std::marker::PhantomData<&'c BufferHandle<R::BL>>,
@@ -45,11 +50,11 @@ where
     let vertex_buffer = renderer.get_buffer(vertex_buffer_handle)?;
     let uniform_buffer = renderer.get_uniform_buffer(uniform_buffer_handle)?;
 
-    // TODO NOW LAST seperate markers/type data into an inner.
     Ok(Self {
       vertex_buffer,
       index_buffer: None,
       uniform_buffer,
+
       _vertex_marker: std::marker::PhantomData,
       _index_marker: std::marker::PhantomData,
       _uniform_marker: std::marker::PhantomData,
@@ -69,6 +74,7 @@ where
       vertex_buffer,
       index_buffer: Some(index_buffer),
       uniform_buffer,
+
       _vertex_marker: std::marker::PhantomData,
       _index_marker: std::marker::PhantomData,
       _uniform_marker: std::marker::PhantomData,
