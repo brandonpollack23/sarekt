@@ -81,8 +81,7 @@ pub trait Renderer {
   // TODO MULTITHREADING should load/get/update functions be part of drawer so
   // anyone can do it (within their own pools/queues)
 
-  // TODO NOW LAST doc pass all.
-
+  /// Enables or disables rendering.
   fn set_rendering_enabled(&mut self, enabled: bool);
 
   /// Mark this frame as complete and render it to the target of the renderer
@@ -111,6 +110,8 @@ pub trait Renderer {
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
+  /// Gets a buffer given th handle generated when it was loaded (see
+  /// load_buffer).
   fn get_buffer(
     &self, handle: &BufferHandle<Self::BL>,
   ) -> SarektResult<<Self::BL as BufferLoader>::BufferBackendHandle>
@@ -118,6 +119,7 @@ pub trait Renderer {
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
+  /// Loads a uniform buffer.
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
     &mut self, buffer: UniformBufElem,
   ) -> SarektResult<UniformBufferHandle<Self::BL, UniformBufElem>>
@@ -125,12 +127,14 @@ pub trait Renderer {
     Self::BL: BufferLoader,
     <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
 
+  /// Returns a uniform buffer given the handle returned in load_uniform_buffer.
   fn get_uniform_buffer<UniformBufElem: Sized + Copy>(
     &self, handle: &UniformBufferHandle<Self::BL, UniformBufElem>,
   ) -> SarektResult<<Self::BL as BufferLoader>::UniformBufferDataHandle>
   where
     Self::BL: BufferLoader;
 
+  /// Updates the uniform buffer's contained value.
   fn set_uniform<BufElem: Sized + Copy>(
     &self, handle_data: &<Self::BL as BufferLoader>::UniformBufferDataHandle, data: &BufElem,
   ) -> SarektResult<()>

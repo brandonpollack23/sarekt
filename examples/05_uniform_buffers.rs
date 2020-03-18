@@ -185,7 +185,6 @@ fn main_loop_window_event(
       if enabled {
         *ar = size.width as f32 / size.height as f32;
       }
-      // TODO NOW why crashing?
       renderer.set_rendering_enabled(enabled);
       return renderer.recreate_swapchain(size.width, size.height);
     }
