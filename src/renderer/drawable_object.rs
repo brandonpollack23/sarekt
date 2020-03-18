@@ -18,6 +18,9 @@ use std::fmt::Debug;
 /// optional and contains the order of indices to make the mesh in the vertex
 /// buffer, and uniform_buffer contains the uniform data for the associated
 /// shaders/pipeline.
+///
+/// This struct is constructed using references and the lifetime specifications
+/// will not allow this class to outlive them.
 pub struct DrawableObject<
   'a,
   'b,
