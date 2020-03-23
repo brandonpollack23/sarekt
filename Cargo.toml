@@ -35,8 +35,8 @@ name = "05_uniform_buffers"
 path = "examples/05_uniform_buffers.rs"
 
 [dependencies]
-ash = "0.29.0"
-ash-window = "0.2.0"
+ash = "0.30.0"
+ash-window = "0.3.0"
 lazy_static = "1.4.0"
 log = "0.4.8"
 memoffset = "0.5.3"
@@ -47,10 +47,6 @@ static_assertions = "1.1.0"
 vk-mem = "0.2.0"
 vk-shader-macros = "0.2.2"
 winit = "0.21.0"
-
-# TODO CRITICAL when ash updates their crate remove these patches.
-[patch.crates-io]
-ash = {git = "https://github.com/MaikKlein/ash"}
 
 [dev-dependencies]
 simple_logger = "1.5.0"
