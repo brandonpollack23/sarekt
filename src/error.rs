@@ -18,7 +18,9 @@ pub enum SarektError {
   IncompatibleShaderCode,
   IncorrectLoaderFunction,
   IncorrectBufferType,
-  UnknownBuffer,
+  IncorrectResourceType,
+  UnsupportedLayoutTransition,
+  UnknownResource,
   NoSuitableMemoryHeap,
   VulkanMemoryAllocatorError(vk_mem::error::Error),
 }
@@ -63,7 +65,9 @@ impl fmt::Display for SarektError {
       SarektError::VulkanError(r) => write!(f, "Vulkan Error: {}", r),
       SarektError::InstanceError(e) => write!(f, "The vulkan wrapper ash produced an error: {}", e),
       SarektError::UnknownShader => write!(f, "Tried to act on unknown shader"),
-      SarektError::UnknownBuffer => write!(f, "Tried to act on unknown buffer"),
+      SarektError::UnknownResource => {
+        write!(f, "Tried to act on unknown resource (image or buffer)")
+      }
       SarektError::IncorrectLoaderFunction => write!(
         f,
         "Attempted to load a special buffer type with the generic load_buffer function.  Did you \
@@ -74,6 +78,12 @@ impl fmt::Display for SarektError {
         "Tried to load a buffer type that didn't match with function call.  Perhaps you've \
          tricked Sarekt into storing a Vertex buffer where it should have been a Uniform buffer?"
       ),
+      SarektError::IncorrectResourceType => write!(
+        f,
+        "Resource type did not match function call, did you try to get a buffer with an image \
+         function or vice versa?"
+      ),
+      SarektError::UnsupportedLayoutTransition => write!(f, "Unsupported Layout Transition"),
       SarektError::NoSuitableMemoryHeap => write!(
         f,
         "Could not find memory heap that was suitable for the device allocation."

@@ -4,13 +4,14 @@ use sarekt::{
   self,
   error::{SarektError, SarektResult},
   renderer::{
-    buffers::{BufferType, IndexBufferElemSize},
+    buffers_and_images::{BufferType, IndexBufferElemSize},
     drawable_object::DrawableObject,
-    vertex_bindings::{DefaultForwardShaderUniforms, DefaultForwardShaderVertex},
+    vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
   },
 };
 use std::{error::Error, sync::Arc};
+use ultraviolet as uv;
 use winit::{
   dpi::{LogicalSize, PhysicalSize},
   event::{ElementState, Event, VirtualKeyCode, WindowEvent},
@@ -24,10 +25,10 @@ const HEIGHT: u32 = 600;
 
 lazy_static! {
 static ref RECT_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
-  DefaultForwardShaderVertex::new(&[-0.5f32, -0.5f32], &[1.0f32, 0.0f32, 0.0f32]), // Top Left, Red
-  DefaultForwardShaderVertex::new(&[0.5f32, -0.5f32], &[0.0f32, 1.0f32, 0.0f32]), // Top Right, Green
-  DefaultForwardShaderVertex::new(&[0.5f32, 0.5f32], &[0.0f32, 0.0f32, 1.0f32]),  // Bottom Right, Blue
-  DefaultForwardShaderVertex::new(&[-0.5f32, 0.5f32], &[1.0f32, 1.0f32, 1.0f32]), // Bottom Left, White
+  DefaultForwardShaderVertex::without_uv(&[-0.5f32, -0.5f32, 0.0f32], &[1.0f32, 0.0f32, 0.0f32]), // Top Left, Red
+  DefaultForwardShaderVertex::without_uv(&[0.5f32, -0.5f32, 0.0f32], &[0.0f32, 1.0f32, 0.0f32]), // Top Right, Green
+  DefaultForwardShaderVertex::without_uv(&[0.5f32, 0.5f32, 0.0f32], &[0.0f32, 0.0f32, 1.0f32]),  // Bottom Right, Blue
+  DefaultForwardShaderVertex::without_uv(&[-0.5f32, 0.5f32, 0.0f32], &[1.0f32, 1.0f32, 1.0f32]), // Bottom Left, White
 ];
 }
 const RECT_INDICES: [u16; 6] = [0u16, 1u16, 2u16, 2u16, 3u16, 0u16]; // two triangles, upper right and lower left
@@ -56,17 +57,21 @@ fn main_loop() -> SarektResult<()> {
 
   // Create Resources.
   let rect_vertex_buffer = renderer.load_buffer(BufferType::Vertex, &RECT_VERTICES)?;
-  let rect_uniform_buffer = renderer.load_uniform_buffer(DefaultForwardShaderUniforms::default())?;
+  let rect_uniform_buffer = renderer.load_uniform_buffer(DefaultForwardShaderLayout::new(
+    uv::Mat4::identity(),
+    true,
+    false,
+  ))?;
+
   let rect_index_buffer = renderer.load_buffer(
     BufferType::Index(IndexBufferElemSize::UInt16),
     &RECT_INDICES,
   )?;
-  let rect: DrawableObject = DrawableObject::new_indexed(
-    &renderer,
-    &rect_vertex_buffer,
-    &rect_index_buffer,
-    &rect_uniform_buffer,
-  )?;
+  let rect: DrawableObject = DrawableObject::builder(&renderer)
+    .vertex_buffer(&rect_vertex_buffer)
+    .index_buffer(&rect_index_buffer)
+    .uniform_buffer(&rect_uniform_buffer)
+    .build()?;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {

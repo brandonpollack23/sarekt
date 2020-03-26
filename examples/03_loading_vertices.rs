@@ -4,13 +4,14 @@ use sarekt::{
   self,
   error::{SarektError, SarektResult},
   renderer::{
-    buffers::BufferType,
+    buffers_and_images::BufferType,
     drawable_object::DrawableObject,
-    vertex_bindings::{DefaultForwardShaderUniforms, DefaultForwardShaderVertex},
+    vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
   },
 };
 use std::{error::Error, sync::Arc};
+use ultraviolet as uv;
 use winit::{
   dpi::{LogicalSize, PhysicalSize},
   event::{ElementState, Event, VirtualKeyCode, WindowEvent},
@@ -24,9 +25,9 @@ const HEIGHT: u32 = 600;
 
 lazy_static! {
 static ref TRIANGLE_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
-  DefaultForwardShaderVertex::new(&[0.0f32, -0.5f32], &[1.0f32, 0.0f32, 0.0f32]), // Top, Red
-  DefaultForwardShaderVertex::new(&[0.5f32, 0.5f32], &[0.0f32, 1.0f32, 0.0f32]),  // Right, Green
-  DefaultForwardShaderVertex::new(&[-0.5f32, 0.5f32], &[0.0f32, 0.0f32, 1.0f32]), // Left, Blue
+  DefaultForwardShaderVertex::without_uv(&[0.0f32, -0.5f32, 0.0f32], &[1.0f32, 0.0f32, 0.0f32]), // Top, Red
+  DefaultForwardShaderVertex::without_uv(&[0.5f32, 0.5f32, 0.0f32], &[0.0f32, 1.0f32, 0.0f32]),  // Right, Green
+  DefaultForwardShaderVertex::without_uv(&[-0.5f32, 0.5f32, 0.0f32], &[0.0f32, 0.0f32, 1.0f32]), // Left, Blue
 ];
 }
 
@@ -54,8 +55,15 @@ fn main_loop() -> SarektResult<()> {
 
   // Create Resources.
   let triangle_buffer = renderer.load_buffer(BufferType::Vertex, &TRIANGLE_VERTICES)?;
-  let uniform_buffer = renderer.load_uniform_buffer(DefaultForwardShaderUniforms::default())?;
-  let triangle = DrawableObject::new(&renderer, &triangle_buffer, &uniform_buffer)?;
+  let uniform_buffer = renderer.load_uniform_buffer(DefaultForwardShaderLayout::new(
+    uv::Mat4::identity(),
+    true,
+    false,
+  ))?;
+  let triangle = DrawableObject::builder(&renderer)
+    .vertex_buffer(&triangle_buffer)
+    .uniform_buffer(&uniform_buffer)
+    .build()?;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {

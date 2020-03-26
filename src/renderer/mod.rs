@@ -30,7 +30,7 @@
 //! - [ ] Support Other backends
 //! - [ ] Moar.
 //! Also see the file in project root.
-pub mod buffers;
+pub mod buffers_and_images;
 pub mod drawable_object;
 pub mod shaders;
 pub mod vertex_bindings;
@@ -42,14 +42,20 @@ pub use crate::{
   renderer::shaders::{ShaderBackendHandleTrait, ShaderCode, ShaderLoader},
 };
 pub use shaders::{ShaderHandle, ShaderType};
-pub use vulkan::{vulkan_buffer_functions::VulkanBufferFunctions, vulkan_renderer::VulkanRenderer};
+pub use vulkan::{
+  vulkan_buffer_image_functions::VulkanBufferFunctions, vulkan_renderer::VulkanRenderer,
+};
 
-use crate::renderer::{
-  buffers::{
-    BufferBackendHandleTrait, BufferHandle, BufferLoader, BufferType, UniformBufferHandle,
+use crate::{
+  image_data::ImageData,
+  renderer::{
+    buffers_and_images::{
+      BackendHandleTrait, BufferAndImageLoader, BufferImageHandle, BufferType,
+      MagnificationMinificationFilter, TextureAddressMode, UniformBufferHandle,
+    },
+    drawable_object::DrawableObject,
+    vertex_bindings::DescriptorLayoutInfo,
   },
-  drawable_object::DrawableObject,
-  vertex_bindings::DescriptorLayoutInfo,
 };
 use std::fmt::Debug;
 
@@ -105,41 +111,63 @@ pub trait Renderer {
   /// Loads a buffer and returns a RAII handle to be used for retrieval.
   fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<BufferHandle<Self::BL>>
+  ) -> SarektResult<BufferImageHandle<Self::BL>>
   where
-    Self::BL: BufferLoader,
-    <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
+    Self::BL: BufferAndImageLoader,
+    <Self::BL as BufferAndImageLoader>::BackendHandle: BackendHandleTrait + Copy + Debug;
 
   /// Gets a buffer given th handle generated when it was loaded (see
   /// load_buffer).
   fn get_buffer(
-    &self, handle: &BufferHandle<Self::BL>,
-  ) -> SarektResult<<Self::BL as BufferLoader>::BufferBackendHandle>
+    &self, handle: &BufferImageHandle<Self::BL>,
+  ) -> SarektResult<<Self::BL as BufferAndImageLoader>::BackendHandle>
   where
-    Self::BL: BufferLoader,
-    <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
+    Self::BL: BufferAndImageLoader,
+    <Self::BL as BufferAndImageLoader>::BackendHandle: BackendHandleTrait + Copy + Debug;
 
   /// Loads a uniform buffer.
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
     &mut self, buffer: UniformBufElem,
   ) -> SarektResult<UniformBufferHandle<Self::BL, UniformBufElem>>
   where
-    Self::BL: BufferLoader,
-    <Self::BL as BufferLoader>::BufferBackendHandle: BufferBackendHandleTrait + Copy + Debug;
+    Self::BL: BufferAndImageLoader,
+    <Self::BL as BufferAndImageLoader>::BackendHandle: BackendHandleTrait + Copy + Debug;
 
   /// Returns a uniform buffer given the handle returned in load_uniform_buffer.
   fn get_uniform_buffer<UniformBufElem: Sized + Copy>(
     &self, handle: &UniformBufferHandle<Self::BL, UniformBufElem>,
-  ) -> SarektResult<<Self::BL as BufferLoader>::UniformBufferDataHandle>
+  ) -> SarektResult<<Self::BL as BufferAndImageLoader>::UniformBufferDataHandle>
   where
-    Self::BL: BufferLoader;
+    Self::BL: BufferAndImageLoader;
 
   /// Updates the uniform buffer's contained value.
   fn set_uniform<BufElem: Sized + Copy>(
-    &self, handle_data: &<Self::BL as BufferLoader>::UniformBufferDataHandle, data: &BufElem,
+    &self, handle_data: &<Self::BL as BufferAndImageLoader>::UniformBufferDataHandle,
+    data: &BufElem,
   ) -> SarektResult<()>
   where
-    Self::BL: BufferLoader;
+    Self::BL: BufferAndImageLoader;
+
+  /// Loads a 32 bit r8b8g8a8 image (texture) into the renderer using a staging
+  /// buffer. [ImageData](trait.ImageData.html) must be implemented for the
+  /// type, see its documentation for details.
+  fn load_image_with_staging_rgba_32(
+    &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
+    minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
+    address_y: TextureAddressMode, address_z: TextureAddressMode,
+  ) -> SarektResult<BufferImageHandle<Self::BL>>
+  where
+    Self::BL: BufferAndImageLoader,
+    <Self::BL as BufferAndImageLoader>::BackendHandle: BackendHandleTrait + Copy + Debug;
+
+  /// Retrieves an image using the handle returned by the `load_image_*` family
+  /// of functions.
+  fn get_image(
+    &self, handle: &BufferImageHandle<Self::BL>,
+  ) -> SarektResult<<Self::BL as BufferAndImageLoader>::BackendHandle>
+  where
+    Self::BL: BufferAndImageLoader,
+    <Self::BL as BufferAndImageLoader>::BackendHandle: BackendHandleTrait + Copy + Debug;
 
   /// Handle swapchain out of date, such as window changes.
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
@@ -156,9 +184,9 @@ pub trait Drawer {
   where
     UniformBufElem: Sized + Copy + DescriptorLayoutInfo,
     Self::R: Renderer,
-    <Self::R as Renderer>::BL: BufferLoader,
-    <<Self::R as Renderer>::BL as BufferLoader>::BufferBackendHandle:
-      BufferBackendHandleTrait + Copy + Debug;
+    <Self::R as Renderer>::BL: BufferAndImageLoader,
+    <<Self::R as Renderer>::BL as BufferAndImageLoader>::BackendHandle:
+      BackendHandleTrait + Copy + Debug;
 
   // TODO PIPELINE select render pass (predefined set?) log when pipeline not
   // compatible and dont draw? End previous render pass and keep track of last
