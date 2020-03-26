@@ -7,7 +7,7 @@ pub mod images;
 pub mod queues;
 pub mod surface;
 pub mod swap_chain;
-pub mod vulkan_buffer_functions;
+pub mod vulkan_buffer_image_functions;
 pub mod vulkan_renderer;
 pub mod vulkan_shader_functions;
 pub mod vulkan_vertex_bindings;

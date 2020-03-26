@@ -37,3 +37,18 @@ There are more but these ones I rely on the most, please check them all out.
 "Sarek" is the Vulcan father of the character "Spok"  of Star Trek. The added t also makes it a portmanteu with rect(angle).
 
 I know and I'm sorry.
+
+## Examples
+All the examples that are straightforward with no params have no section here, just run'em with `cargo run --example NAME`
+
+Those that have arguments just pass them like so:<br/>
+`cargo run --example 06_textures -- colors`
+
+### Example 6, Textures
+This is where things finally start to get fun,there's a param to enable color mixing with the texture.
+
+Starting with this example, the application coordinate space is right handed y 
+up for simplicity, the ultraviolet library perspective functions correct it for the appropriate backend.
+
+arguments:
+* *colors* - turns on the color mixing from raw colors, a simple multiplicative color mix in the default forward shader

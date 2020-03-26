@@ -7,4 +7,5 @@
 extern crate memoffset;
 
 pub mod error;
+pub mod image_data;
 pub mod renderer;

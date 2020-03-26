@@ -1,14 +1,15 @@
 use crate::{
   error::{SarektError, SarektResult},
+  image_data::{ImageData, Monocolor},
   renderer::{
-    buffers::{
-      BufferHandle, BufferLoader, BufferStore, BufferType, IndexBufferElemSize, UniformBufferHandle,
+    buffers_and_images::{
+      BufferAndImageLoader, BufferImageHandle, BufferImageStore, BufferType, IndexBufferElemSize,
+      MagnificationMinificationFilter, ResourceType, TextureAddressMode, UniformBufferHandle,
     },
     drawable_object::DrawableObject,
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
     vertex_bindings::{
-      DefaultForwardShaderUniforms, DefaultForwardShaderVertex, DescriptorLayoutInfo,
-      VertexBindings,
+      DefaultForwardShaderLayout, DefaultForwardShaderVertex, DescriptorLayoutInfo, VertexBindings,
     },
     vulkan::{
       base_pipeline_bundle::BasePipelineBundle,
@@ -18,7 +19,9 @@ use crate::{
       queues::{QueueFamilyIndices, Queues},
       surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
-      vulkan_buffer_functions::{BufferAndMemory, BufferAndMemoryMapped, VulkanBufferFunctions},
+      vulkan_buffer_image_functions::{
+        BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory, VulkanBufferFunctions,
+      },
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
     },
@@ -36,6 +39,7 @@ use ash::{
 use lazy_static::lazy_static;
 use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
+use static_assertions::_core::mem::ManuallyDrop;
 use std::{
   cell::Cell,
   ffi::{CStr, CString},
@@ -104,7 +108,11 @@ pub struct VulkanRenderer {
   #[allow(dead_code)]
   allocator: Arc<vk_mem::Allocator>,
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-  buffer_store: Arc<RwLock<BufferStore<VulkanBufferFunctions>>>,
+  // Manually drop so that the underlying allocator can be dropped in this class.
+  buffer_image_store: ManuallyDrop<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>>,
+
+  // Null objects for default pipeline.
+  default_texture: Option<BufferImageHandle<VulkanBufferFunctions>>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -236,13 +244,15 @@ impl VulkanRenderer {
 
     // TODO MULTITHREADING all graphics command pools needed here to specify
     // concurrent access.
-    let buffer_store = Self::create_buffer_store(
+    let buffer_store = Self::create_buffer_image_store(
       &logical_device,
       &allocator,
       queue_families.graphics_queue_family.unwrap(),
       queue_families.transfer_queue_family.unwrap(),
       transfer_command_pool,
       queues.transfer_queue,
+      main_gfx_command_pool,
+      queues.graphics_queue,
     )?;
 
     // TODO RENDERING_CAPABILITIES support other render pass types.
@@ -276,7 +286,7 @@ impl VulkanRenderer {
       &render_targets,
     )?;
 
-    let renderer = Self {
+    let mut renderer = Self {
       _entry: entry,
       instance,
       debug_utils_and_messenger,
@@ -306,8 +316,12 @@ impl VulkanRenderer {
 
       allocator,
       shader_store,
-      buffer_store,
+      buffer_image_store: ManuallyDrop::new(buffer_store),
+
+      default_texture: None,
     };
+
+    renderer.create_default_texture();
 
     // Begin recording first command buffer so the first call to Drawer::draw is
     // ready to record.  The rest are started by Renderer::frame.
@@ -525,6 +539,13 @@ impl VulkanRenderer {
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<bool> {
+    let has_needed_features = unsafe {
+      instance
+        .get_physical_device_features(physical_device)
+        .sampler_anisotropy
+        == vk::TRUE
+    };
+
     let has_queues = Self::find_queue_families(instance, physical_device, surface_and_extension)
       .map(|qf| qf.is_complete())
       .unwrap_or(false);
@@ -547,7 +568,12 @@ impl VulkanRenderer {
       !sc_support_details.formats.is_empty() && !sc_support_details.present_modes.is_empty();
 
     // TODO OFFSCREEN only if drawing window need swap chain adequete.
-    Ok(has_queues && supports_required_extensions.unwrap() && swap_chain_adequate)
+    Ok(
+      has_needed_features
+        && has_queues
+        && supports_required_extensions.unwrap()
+        && swap_chain_adequate,
+    )
   }
 
   /// Goes through and checks if the device supports all needed extensions for
@@ -638,6 +664,7 @@ impl VulkanRenderer {
   /// needed are present, and returns the logical device, and a
   /// [Queues](struct.Queues.html) containing all the command queues. otherwise
   /// returns the [SarektError](enum.SarektError.html) that occurred.
+  /// TODO CONFIG ANISOTROPY
   fn create_logical_device_and_queues(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
@@ -658,7 +685,9 @@ impl VulkanRenderer {
       })
       .collect();
 
-    let device_features = vk::PhysicalDeviceFeatures::default();
+    let device_features = vk::PhysicalDeviceFeatures::builder()
+      .sampler_anisotropy(true)
+      .build();
 
     let enabled_extension_names = [ash::extensions::khr::Swapchain::name().as_ptr()];
     let device_ci = vk::DeviceCreateInfo::builder()
@@ -1138,7 +1167,7 @@ impl VulkanRenderer {
   ) -> SarektResult<Vec<vk::DescriptorSetLayout>> {
     // Create descriptor set layouts for the default forward shader uniforms.
     let descriptor_set_layout_bindings =
-      [DefaultForwardShaderUniforms::get_descriptor_set_layout_bindings()];
+      DefaultForwardShaderLayout::get_descriptor_set_layout_bindings();
     let descriptor_set_layout_ci = vk::DescriptorSetLayoutCreateInfo::builder()
       .bindings(&descriptor_set_layout_bindings)
       .build();
@@ -1487,16 +1516,26 @@ impl VulkanRenderer {
     // TODO MULTITHREADING one per per frame per thread.
     // TODO TEXTURE add texture descriptor set pool.
 
-    let max_uniform_buffers = unsafe {
-      instance
-        .get_physical_device_properties(physical_device)
-        .limits
-        .max_descriptor_set_uniform_buffers
-    };
+    let physical_device_properties =
+      unsafe { instance.get_physical_device_properties(physical_device) };
 
-    let pool_sizes = [vk::DescriptorPoolSize::builder()
-      .descriptor_count(max_uniform_buffers)
-      .build()];
+    let max_uniform_buffers = physical_device_properties
+      .limits
+      .max_descriptor_set_uniform_buffers;
+    let max_combined_image_samplers = physical_device_properties
+      .limits
+      .max_descriptor_set_samplers;
+
+    let pool_sizes = [
+      vk::DescriptorPoolSize::builder()
+        .ty(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(max_uniform_buffers)
+        .build(),
+      vk::DescriptorPoolSize::builder()
+        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .descriptor_count(max_combined_image_samplers)
+        .build(),
+    ];
 
     let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
       .pool_sizes(&pool_sizes)
@@ -1531,7 +1570,7 @@ impl VulkanRenderer {
       heap_size_limits: None,
     };
 
-    Ok(vk_mem::Allocator::new(&allocator_create_info).map(|allocator| Arc::new(allocator))?)
+    Ok(vk_mem::Allocator::new(&allocator_create_info).map(Arc::new)?)
   }
 
   /// Creates a shader store in the vulkan backend configuration to load and
@@ -1543,11 +1582,12 @@ impl VulkanRenderer {
     Arc::new(RwLock::new(ShaderStore::new(functions)))
   }
 
-  fn create_buffer_store(
+  fn create_buffer_image_store(
     logical_device: &Arc<Device>, allocator: &Arc<vk_mem::Allocator>, graphics_queue_family: u32,
     transfer_queue_family: u32, transfer_command_pool: vk::CommandPool,
-    transfer_command_queue: vk::Queue,
-  ) -> SarektResult<Arc<RwLock<BufferStore<VulkanBufferFunctions>>>> {
+    transfer_command_queue: vk::Queue, graphics_command_pool: vk::CommandPool,
+    graphics_command_queue: vk::Queue,
+  ) -> SarektResult<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>> {
     let functions = VulkanBufferFunctions::new(
       logical_device.clone(),
       allocator.clone(),
@@ -1555,8 +1595,10 @@ impl VulkanRenderer {
       transfer_queue_family,
       transfer_command_pool,
       transfer_command_queue,
+      graphics_command_pool,
+      graphics_command_queue,
     )?;
-    Ok(Arc::new(RwLock::new(BufferStore::new(functions))))
+    Ok(Arc::new(RwLock::new(BufferImageStore::new(functions))))
   }
 
   // ================================================================================
@@ -1567,7 +1609,8 @@ impl VulkanRenderer {
   ) -> SarektResult<()> {
     unsafe {
       // Draw vertices.
-      let vertex_buffers = [object.vertex_buffer.buffer];
+      let vertex_buffers = [object.vertex_buffer.buffer()?.buffer];
+      let vertex_buffer_length = object.vertex_buffer.buffer()?.length;
       let offsets = [0];
       self.logical_device.cmd_bind_vertex_buffers(
         command_buffer,
@@ -1580,10 +1623,10 @@ impl VulkanRenderer {
         // Non indexed draw.
         self
           .logical_device
-          .cmd_draw(command_buffer, object.vertex_buffer.length, 1, 0, 0);
+          .cmd_draw(command_buffer, vertex_buffer_length, 1, 0, 0);
       } else {
         // Indexed Draw.
-        let index_buffer = &object.index_buffer.unwrap();
+        let index_buffer = &object.index_buffer.unwrap().buffer()?;
         let index_buffer_element_size = match index_buffer.index_buffer_elem_size.unwrap() {
           IndexBufferElemSize::UInt16 => vk::IndexType::UINT16,
           IndexBufferElemSize::UInt32 => vk::IndexType::UINT32,
@@ -1607,12 +1650,12 @@ impl VulkanRenderer {
     Ok(())
   }
 
-  fn bind_uniform_descriptor_sets<UniformBufElem>(
-    &self, uniform_buffer: vk::Buffer, descriptor_pool: vk::DescriptorPool,
-    command_buffer: vk::CommandBuffer,
+  fn bind_descriptor_sets<DescriptorLayoutStruct>(
+    &self, uniform_buffer: vk::Buffer, texture_image: &Option<ImageAndMemory>,
+    descriptor_pool: vk::DescriptorPool, command_buffer: vk::CommandBuffer,
   ) -> SarektResult<()>
   where
-    UniformBufElem: Sized + Copy + DescriptorLayoutInfo,
+    DescriptorLayoutStruct: Sized + Copy + DescriptorLayoutInfo,
   {
     // First allocate descriptor sets.
     // TODO PIPELINES pass in current pipeline layout.
@@ -1629,27 +1672,68 @@ impl VulkanRenderer {
     let descriptor_sets = unsafe { self.logical_device.allocate_descriptor_sets(&alloc_info)? };
 
     // Then configure them to bind the buffer to the pipeline.
-    let bind_uniform_info = UniformBufElem::get_bind_uniform_info()?;
-    let buffer_infos = vec![vk::DescriptorBufferInfo::builder()
+    let bind_uniform_info = DescriptorLayoutStruct::get_bind_uniform_info()?;
+    let uniform_buffer_infos = vec![vk::DescriptorBufferInfo::builder()
       .buffer(uniform_buffer)
       .offset(bind_uniform_info.offset as vk::DeviceSize)
       .range(bind_uniform_info.range as vk::DeviceSize)
       .build()];
+
+    // TODO TEXTURES SHADERS when there is more than one texture allowed fill a vec
+    // with null textures for all unused textures in drawable objects, which will
+    // now be a option vec.
+    // Either load the texture in the drawable object or use a transparent null
+    // texture.
+    let bind_texture_info = DescriptorLayoutStruct::get_bind_texture_info()?;
+    let image_infos = vec![match texture_image {
+      Option::Some(image_and_memory) => vk::DescriptorImageInfo::builder()
+        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .image_view(image_and_memory.image_and_view.view)
+        .sampler(image_and_memory.sampler)
+        .build(),
+      None => {
+        let default_texture = self
+          .get_image(self.default_texture.as_ref().unwrap())
+          .unwrap()
+          .image()
+          .unwrap();
+        vk::DescriptorImageInfo::builder()
+          .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+          .sampler(default_texture.sampler)
+          .image_view(default_texture.image_and_view.view)
+          .build()
+      }
+    }];
+
     // TODO SHADERS array elements.
-    let descriptor_writes: Vec<_> = bind_uniform_info
-      .bindings
-      .iter()
-      .map(|&binding| {
-        vk::WriteDescriptorSet::builder()
+    // Create descriptor writes for uniforms.
+    let uniform_descriptor_writes = bind_uniform_info.bindings.iter().map(|&binding| {
+      vk::WriteDescriptorSet::builder()
       .dst_set(descriptor_sets[0])
       .dst_binding(binding) // corresponds to binding in layout.
       .dst_array_element(0) // We're not using an array yet, just one MVP so index is 0.
       .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-      .buffer_info(&buffer_infos)
+      .buffer_info(&uniform_buffer_infos)
       // No image infos or texel buffer views because this is a buffer.
       .build()
-      })
-      .collect();
+    });
+
+    // Create and append descriptor writes for textures.
+    let texture_descriptor_writes = bind_texture_info.bindings.iter().map(|&binding| {
+      vk::WriteDescriptorSet::builder()
+        .dst_set(descriptor_sets[0])
+        .dst_binding(binding)
+        .dst_array_element(0)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .image_info(&image_infos)
+        .build()
+    });
+
+    let mut descriptor_writes =
+      Vec::with_capacity(uniform_descriptor_writes.len() + texture_descriptor_writes.len());
+    descriptor_writes.extend(uniform_descriptor_writes);
+    descriptor_writes.extend(texture_descriptor_writes);
+
     unsafe {
       self
         .logical_device
@@ -1669,6 +1753,24 @@ impl VulkanRenderer {
     }
 
     Ok(())
+  }
+
+  // ================================================================================
+  //  Null object setup methods
+  // ================================================================================
+  fn create_default_texture(&mut self) {
+    let image_handle = BufferImageStore::load_image_with_staging_rgba32(
+      &self.buffer_image_store,
+      Monocolor::clear(),
+      MagnificationMinificationFilter::Nearest,
+      MagnificationMinificationFilter::Nearest,
+      TextureAddressMode::ClampToEdge,
+      TextureAddressMode::ClampToEdge,
+      TextureAddressMode::ClampToEdge,
+    )
+    .unwrap();
+
+    self.default_texture = Some(image_handle);
   }
 
   // ================================================================================
@@ -1781,22 +1883,43 @@ impl Renderer for VulkanRenderer {
 
   fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<BufferHandle<VulkanBufferFunctions>> {
-    if let BufferType::Uniform = buffer_type {
+  ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
+    if matches!(buffer_type, BufferType::Uniform) {
       return Err(SarektError::IncorrectLoaderFunction);
     }
 
-    BufferStore::load_buffer_with_staging(&self.buffer_store, buffer_type, buffer)
+    BufferImageStore::load_buffer_with_staging(&self.buffer_image_store, buffer_type, buffer)
+  }
+
+  fn load_image_with_staging_rgba_32(
+    &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
+    minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
+    address_y: TextureAddressMode, address_z: TextureAddressMode,
+  ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
+    BufferImageStore::load_image_with_staging_rgba32(
+      &self.buffer_image_store,
+      pixels,
+      magnification_filter,
+      minification_filter,
+      address_x,
+      address_y,
+      address_z,
+    )
   }
 
   fn get_buffer(
-    &self, handle: &BufferHandle<VulkanBufferFunctions>,
-  ) -> SarektResult<BufferAndMemory> {
+    &self, handle: &BufferImageHandle<VulkanBufferFunctions>,
+  ) -> SarektResult<ResourceWithMemory> {
     let store = self
-      .buffer_store
+      .buffer_image_store
       .read()
       .expect("Panic occured can't read from buffer store");
-    Ok(store.get_buffer(handle)?.buffer_handle)
+
+    if let result @ ResourceWithMemory::Buffer(_) = store.get_buffer(handle)?.handle {
+      Ok(result)
+    } else {
+      Err(SarektError::IncorrectResourceType)
+    }
   }
 
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
@@ -1810,8 +1933,8 @@ impl Renderer for VulkanRenderer {
     for _ in 0..self.framebuffers.len() {
       // TODO PERFORMANCE EASY create a "locked" version of the loading function
       // so I don't have to keep reacquiring it.
-      let uniform_buffer = BufferStore::load_buffer_without_staging(
-        &self.buffer_store,
+      let uniform_buffer = BufferImageStore::load_buffer_without_staging(
+        &self.buffer_image_store,
         BufferType::Uniform,
         &[buffer],
       )?;
@@ -1825,10 +1948,10 @@ impl Renderer for VulkanRenderer {
     &self, handle: &UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>,
   ) -> SarektResult<Vec<BufferAndMemoryMapped>>
   where
-    Self::BL: BufferLoader,
+    Self::BL: BufferAndImageLoader,
   {
     let store = self
-      .buffer_store
+      .buffer_image_store
       .read()
       .expect("Panic occured can't read from buffer store");
     let mut buffer_handles: Vec<BufferAndMemoryMapped> =
@@ -1836,16 +1959,20 @@ impl Renderer for VulkanRenderer {
     for ubh in handle.uniform_buffer_backend_handle.iter() {
       let handle = store.get_buffer(ubh)?;
 
-      match handle.buffer_type {
-        BufferType::Uniform => (),
-        _ => return Err(SarektError::IncorrectBufferType),
+      // Check this is a uniform buffer handle.
+      match handle.resource_type {
+        ResourceType::Buffer(BufferType::Uniform) => (),
+        ResourceType::Buffer(_) => return Err(SarektError::IncorrectBufferType),
+        _ => return Err(SarektError::IncorrectResourceType),
       };
 
-      let buffer_and_mem_mapped = unsafe {
-        let allocation: &vk_mem::Allocation = std::mem::transmute(&handle.buffer_handle.allocation);
-        let ptr = self.allocator.map_memory(allocation)?;
-        BufferAndMemoryMapped::new(handle.buffer_handle, ptr)
-      };
+      let allocation = &handle.handle.buffer()?.allocation;
+      let ptr = self.allocator.map_memory(allocation)?;
+      let buffer_and_mem_mapped = if let ResourceWithMemory::Buffer(buffer_handle) = handle.handle {
+        Ok(BufferAndMemoryMapped::new(buffer_handle, ptr))
+      } else {
+        Err(SarektError::IncorrectResourceType)
+      }?;
 
       buffer_handles.push(buffer_and_mem_mapped);
     }
@@ -1879,14 +2006,31 @@ impl Renderer for VulkanRenderer {
 
     unsafe { self.recreate_swap_chain(width, height) }
   }
+
+  fn get_image(
+    &self, handle: &BufferImageHandle<VulkanBufferFunctions>,
+  ) -> SarektResult<ResourceWithMemory> {
+    let store = self
+      .buffer_image_store
+      .read()
+      .expect("Panic occured can't read from buffer store");
+
+    if let result @ ResourceWithMemory::Image(_) = store.get_image(handle)?.handle {
+      Ok(result)
+    } else {
+      Err(SarektError::IncorrectResourceType)
+    }
+  }
 }
 impl Drawer for VulkanRenderer {
   type R = VulkanRenderer;
 
   // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
-  fn draw<UniformBufElem>(&self, object: &DrawableObject<Self, UniformBufElem>) -> SarektResult<()>
+  fn draw<DescriptorLayoutStruct>(
+    &self, object: &DrawableObject<Self, DescriptorLayoutStruct>,
+  ) -> SarektResult<()>
   where
-    UniformBufElem: Sized + Copy + DescriptorLayoutInfo,
+    DescriptorLayoutStruct: Sized + Copy + DescriptorLayoutInfo,
   {
     if !self.rendering_enabled {
       return Ok(());
@@ -1902,8 +2046,9 @@ impl Drawer for VulkanRenderer {
     let current_descriptor_pool = self.main_descriptor_pools[current_render_target_index];
 
     // Allocate and bind the correct uniform descriptors.
-    self.bind_uniform_descriptor_sets::<UniformBufElem>(
+    self.bind_descriptor_sets::<DescriptorLayoutStruct>(
       current_uniform_buffer,
+      &object.texture_image.map(|ti| ti.image().unwrap()),
       current_descriptor_pool,
       current_command_buffer,
     )?;
@@ -1922,8 +2067,16 @@ impl Drop for VulkanRenderer {
         error!("Failed to wait for idle! {}", e);
       }
 
-      info!("Destroying all buffers...");
-      self.buffer_store.write().unwrap().destroy_all_buffers();
+      info!("Destroying default null texture...");
+      let default_texture = self.default_texture.take();
+      std::mem::drop(default_texture);
+
+      info!("Destroying all images, buffers, and associated synchronization semaphores...");
+      self.buffer_image_store.write().unwrap().cleanup().unwrap();
+      ManuallyDrop::drop(&mut self.buffer_image_store);
+
+      info!("Destroying VMA...");
+      Arc::get_mut(&mut self.allocator).unwrap().destroy();
 
       // TODO MULTITHREADING do I need to free others?
       info!("Freeing main command buffer...");

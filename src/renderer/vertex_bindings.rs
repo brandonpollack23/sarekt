@@ -1,5 +1,5 @@
 use crate::error::SarektResult;
-use nalgebra as na;
+use ultraviolet as uv;
 
 /// A trait that provides a static function that generates backend specific
 /// vertex bindings.  This is mainly provided out of convenience and would need
@@ -32,14 +32,21 @@ pub unsafe trait VertexBindings {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct DefaultForwardShaderVertex {
-  pub position: na::Vector2<f32>,
-  pub color: na::Vector3<f32>,
+  pub position: uv::Vec3,
+  pub color: uv::Vec3,
+  pub texture_coordinates: uv::Vec2,
 }
 impl DefaultForwardShaderVertex {
-  pub fn new(pos: &[f32; 2], color: &[f32; 3]) -> Self {
+  /// For use when there is no intended texture use.
+  pub fn without_uv(pos: &[f32; 3], color: &[f32; 3]) -> Self {
+    Self::new(pos, color, &[0.0f32, 0.0f32])
+  }
+
+  pub fn new(pos: &[f32; 3], color: &[f32; 3], texture_coordinates: &[f32; 2]) -> Self {
     Self {
-      position: na::Vector2::from_row_slice(pos),
-      color: na::Vector3::from_row_slice(color),
+      position: uv::Vec3::from(pos),
+      color: uv::Vec3::from(color),
+      texture_coordinates: uv::Vec2::from(texture_coordinates),
     }
   }
 
@@ -61,6 +68,10 @@ pub unsafe trait DescriptorLayoutInfo {
   /// Gets the information needed in order to allocate/bind descriptors in the
   /// backend for uniforms.
   fn get_bind_uniform_info() -> SarektResult<BindUniformInfo>;
+
+  /// Gets the information needed to allocate/bind descroptors in teh backend
+  /// for textures.
+  fn get_bind_texture_info() -> SarektResult<BindTextureInfo>;
 }
 #[derive(Clone, Debug)]
 /// Contains information needed by various backends to configure their
@@ -71,26 +82,42 @@ pub struct BindUniformInfo {
   pub bindings: Vec<u32>,
 }
 
+/// Information needed by backend to bind textures.
+pub struct BindTextureInfo {
+  pub bindings: Vec<u32>,
+}
+
 /// Input uniforms to the sarekt_forward shader set.
 ///
 /// Note that ***alignment matters*** Please see the specification for your
 /// specific backend.
+///
+/// The initial backend is Vulkan, which is why booleans are u32, all scalars
+/// need to be aligned to 4 bytes.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-pub struct DefaultForwardShaderUniforms {
+pub struct DefaultForwardShaderLayout {
   /// The model view projection matrix to apply to the containing
   /// DrawableObject.
-  pub mvp: na::Matrix4<f32>,
+  pub mvp: uv::Mat4,
+  pub enable_color_mixing: u32,
+  pub enable_texture_mixing: u32,
 }
-impl DefaultForwardShaderUniforms {
-  pub fn new(mvp: na::Matrix4<f32>) -> Self {
-    Self { mvp }
+impl DefaultForwardShaderLayout {
+  pub fn new(mvp: uv::Mat4, enable_color_mixing: bool, enable_texture_mixing: bool) -> Self {
+    Self {
+      mvp,
+      enable_color_mixing: u32::from(enable_color_mixing),
+      enable_texture_mixing: u32::from(enable_texture_mixing),
+    }
   }
 }
-impl Default for DefaultForwardShaderUniforms {
+impl Default for DefaultForwardShaderLayout {
   fn default() -> Self {
-    DefaultForwardShaderUniforms {
-      mvp: na::Matrix4::identity(),
+    DefaultForwardShaderLayout {
+      mvp: uv::Mat4::identity(),
+      enable_color_mixing: 0u32,
+      enable_texture_mixing: 1u32,
     }
   }
 }

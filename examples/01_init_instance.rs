@@ -1,37 +1,17 @@
 use log::{info, Level};
-use sarekt::{self, error::SarektError, renderer::VulkanRenderer};
+use sarekt::{self, renderer::VulkanRenderer};
 use std::{error::Error, sync::Arc};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 800;
 
-struct SarektApp {
-  _renderer: VulkanRenderer,
-  _event_loop: EventLoop<()>,
-}
-impl SarektApp {
-  fn new() -> Result<Self, SarektError> {
-    info!("Creating App");
-
-    let event_loop = EventLoop::new();
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
-
-    Ok(Self {
-      _event_loop: event_loop,
-      _renderer: renderer,
-    })
-  }
-
-  fn run(&mut self) {
-    info!("Running App");
-  }
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
-  simple_logger::init_with_level(Level::Warn)?;
-  let mut app = SarektApp::new().expect("Could not create instance!");
-  app.run();
+  simple_logger::init_with_level(Level::Info)?;
+  info!("Creating App");
+
+  let event_loop = EventLoop::new();
+  let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+  let _renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
   Ok(())
 }
