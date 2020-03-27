@@ -12,8 +12,7 @@ layout(location = 1)in vec3 inColor;
 layout(location = 2)in vec2 inTexCoord;
 
 layout(location = 0)out vec3 fragColor;
-flat layout(location = 1)out int enableTextureMixing;
-layout(location = 2)out vec2 fragTexCoord;
+layout(location = 1)out vec2 fragTexCoord;
 
 void main() {
   gl_Position = ubo.mvp * vec4(inPosition, 1.0);
@@ -23,8 +22,6 @@ void main() {
   } else {
     fragColor = vec3(1.0);
   }
-
-  enableTextureMixing = ubo.enableTextureMixing;
 
   fragTexCoord = inTexCoord;
 }

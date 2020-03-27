@@ -59,7 +59,7 @@ unsafe impl DescriptorLayoutInfo for DefaultForwardShaderLayout {
       .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
       .descriptor_count(1) // If this uniform contained an array (like of lights, or transforms for each bone for animation) this is how many.
       // TODO PERFORMANCE measure forwarding enables from vertex shader as flat vs making accessible from fragment shader.
-      .stage_flags(vk::ShaderStageFlags::VERTEX) // used in the vertex shader.
+      .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT) // used in the vertex and fragment shader.
       // .immutable_samplers() no samplers since there's no textures. 
       .build(),
       vk::DescriptorSetLayoutBinding::builder()
