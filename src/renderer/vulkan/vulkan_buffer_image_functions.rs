@@ -618,10 +618,12 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     }))
   }
 
+  // TODO NOW change ImageData to return format, rename this function and match on
+  // that instead to select backend format.
+
   /// The procedure for loading an image in vulkan could use a staging image,
   /// but its just as well we use a staging buffer, which is easier and [could even be faster](https://developer.nvidia.com/vulkan-memory-management)
-  /// TODO IMAGES more general load_image functoin that selects best format that
-  /// is available. TODO IMAGES MIPMAPPING
+  /// TODO IMAGES MIPMAPPING
   fn load_image_with_staging_rgba32(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
