@@ -1,5 +1,7 @@
 # Sarekt
 
+[![Crates.io](https://img.shields.io/crates/v/sarekt.svg)](https://crates.io/crates/sarekt)
+
 ## Overview
 
 This is my third attempt to make something in Vulkan.  I think I've accumulated enough knowledge and 
