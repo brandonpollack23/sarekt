@@ -49,13 +49,10 @@ raw-window-handle = "0.3.3"
 slotmap = "0.4.0"
 static_assertions = "1.1.0"
 ultraviolet = "0.4.5"
-vk-mem = "0.2.0"
+vk-mem = "0.2.2"
 vk-shader-macros = "0.2.2"
 winit = "0.21.0"
 
 [dev-dependencies]
 simple_logger = "1.5.0"
 
-# TODO NOW REMOVE AND UPDATE DEP
-[patch.crates-io]
-vk-mem = {git = 'https://github.com/gwihlidal/vk-mem-rs.git'}
