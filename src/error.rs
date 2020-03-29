@@ -20,6 +20,7 @@ pub enum SarektError {
   IncorrectBufferType,
   IncorrectResourceType,
   UnsupportedLayoutTransition,
+  UnsupportedImageFormat,
   UnknownResource,
   NoSuitableMemoryHeap,
   NoSuitableDepthBufferFormat,
@@ -85,6 +86,9 @@ impl fmt::Display for SarektError {
          function or vice versa?"
       ),
       SarektError::UnsupportedLayoutTransition => write!(f, "Unsupported Layout Transition"),
+      SarektError::UnsupportedImageFormat => {
+        write!(f, "Image format of ImageData is not supported")
+      }
       SarektError::NoSuitableMemoryHeap => write!(
         f,
         "Could not find memory heap that was suitable for the device allocation."

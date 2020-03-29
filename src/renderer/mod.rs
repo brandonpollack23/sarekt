@@ -151,7 +151,7 @@ pub trait Renderer {
   /// Loads a 32 bit r8b8g8a8 image (texture) into the renderer using a staging
   /// buffer. [ImageData](trait.ImageData.html) must be implemented for the
   /// type, see its documentation for details.
-  fn load_image_with_staging_rgba_32(
+  fn load_image_with_staging_initialization(
     &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode,

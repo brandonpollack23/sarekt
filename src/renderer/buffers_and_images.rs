@@ -143,7 +143,7 @@ pub unsafe trait BufferAndImageLoader {
 
   /// Same as `load_buffer_with_staging` but loads an r8g8b8a8 32 bit format
   /// image instead.
-  fn load_image_with_staging_rgba32(
+  fn load_image_with_staging_initialization(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode,
@@ -264,7 +264,7 @@ where
 
     let buffer_backend_handle = buffer_store
       .buffer_image_loader
-      .load_image_with_staging_rgba32(
+      .load_image_with_staging_initialization(
         pixels,
         magnification_filter,
         minification_filter,

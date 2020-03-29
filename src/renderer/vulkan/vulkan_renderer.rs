@@ -64,7 +64,7 @@ lazy_static! {
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
 }
 
-// TODO NOW seperate sections into sub files, like now depth_buffer is.
+// TODO NOW AFTER seperate sections into sub files, like now depth_buffer is.
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   // Base vulkan items, driver loader, instance, extensions.
@@ -1892,7 +1892,7 @@ impl Renderer for VulkanRenderer {
     BufferImageStore::load_buffer_with_staging(&self.buffer_image_store, buffer_type, buffer)
   }
 
-  fn load_image_with_staging_rgba_32(
+  fn load_image_with_staging_initialization(
     &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode,

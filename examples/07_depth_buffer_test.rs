@@ -75,7 +75,7 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
   // Load textures and create image.
   let spoderman = image::open("textures/spoderman.gif")?;
   info!("spoderman dimensions: {:?}", spoderman.dimensions());
-  let image = renderer.load_image_with_staging_rgba_32(
+  let image = renderer.load_image_with_staging_initialization(
     spoderman,
     MagnificationMinificationFilter::Linear,
     MagnificationMinificationFilter::Linear,

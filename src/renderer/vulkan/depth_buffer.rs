@@ -1,23 +1,26 @@
 use crate::{
   error::{SarektError, SarektResult},
-  renderer::vulkan::vulkan_buffer_image_functions::ImageAndMemory,
+  renderer::{
+    buffers_and_images::BufferImageStore, vulkan::vulkan_buffer_image_functions::ImageAndMemory,
+    VulkanBufferFunctions,
+  },
 };
 use ash::{version::InstanceV1_0, vk, Device, Instance};
-use crate::renderer::buffers_and_images::BufferImageStore;
 use std::sync::{Arc, RwLock};
-use crate::renderer::VulkanBufferFunctions;
 
 struct DepthResources {
   pub depth_image: ImageAndMemory,
 }
 impl DepthResources {
   fn new(
-    instance: &Instance, physical_device: vk::PhysicalDevice, buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>,
+    instance: &Instance, physical_device: vk::PhysicalDevice,
+    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>,
   ) -> SarektResult<DepthResources> {
     let format = Self::find_depth_format(instance, physical_device)?;
-    let depth_buffer = BufferImageStore::
+    // let depth_buffer = BufferImageStore::
+    // TODO NOW CONTINUE WITH CREATE NONINIT IMAGE FUNCTION
 
-    Ok(())
+    Err(SarektError::UnsupportedImageFormat)
   }
 
   fn find_supported_format(
