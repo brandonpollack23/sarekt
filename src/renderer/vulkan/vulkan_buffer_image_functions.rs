@@ -1,6 +1,6 @@
 use crate::{
   error::{SarektError, SarektResult},
-  image_data::ImageData,
+  image_data::{ImageData, ImageDataFormat},
   renderer::{
     buffers_and_images::{
       BackendHandleTrait, BufferAndImageLoader, BufferImageHandle, BufferType, IndexBufferElemSize,
@@ -551,7 +551,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&staging_allocation)? as *mut BufElem;
     unsafe {
-      data.copy_from(buffer.as_ptr(), buffer_size as usize);
+      data.copy_from_nonoverlapping(buffer.as_ptr(), buffer_size as usize);
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
@@ -599,7 +599,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&allocation)? as *mut BufElem;
     unsafe {
-      data.copy_from(buffer.as_ptr(), buffer_size as usize);
+      data.copy_from_nonoverlapping(buffer.as_ptr(), buffer_size as usize);
     }
     self.allocator.unmap_memory(&allocation)?;
 
@@ -618,32 +618,36 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     }))
   }
 
-  // TODO NOW change ImageData to return format, rename this function and match on
-  // that instead to select backend format.
+  // TODO NOW 3 make a non initializing version of this function:
+  // create_uninitialized_image (for depth buffer).
 
   /// The procedure for loading an image in vulkan could use a staging image,
   /// but its just as well we use a staging buffer, which is easier and [could even be faster](https://developer.nvidia.com/vulkan-memory-management)
   /// TODO IMAGES MIPMAPPING
-  fn load_image_with_staging_rgba32(
+  ///
+  /// TODO IMAGES DETECT IF THERE IS A MORE OPTIMAL RUNTIME FORMAT THAN
+  /// PROVIDED.
+  fn load_image_with_staging_initialization(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
     address_v: TextureAddressMode, address_w: TextureAddressMode,
   ) -> SarektResult<ResourceWithMemory> {
     let dimens = pixels.dimensions();
-    let formatted_pixels = pixels.into_rbga_32();
+    let format: vk::Format = pixels.format()?.into();
+    let pixel_bytes = pixels.into_bytes();
 
     info!(
       "Loading texture with dimensions {:?}, and {} bytes",
       dimens,
-      formatted_pixels.len()
+      pixel_bytes.len()
     );
 
     let (staging_buffer, staging_allocation, _) =
-      self.create_staging_buffer(formatted_pixels.len() as u64)?;
+      self.create_staging_buffer(pixel_bytes.len() as u64)?;
 
     let data = self.allocator.map_memory(&staging_allocation)?;
     unsafe {
-      data.copy_from(formatted_pixels.as_ptr(), formatted_pixels.len());
+      data.copy_from_nonoverlapping(pixel_bytes.as_ptr() as *const u8, pixel_bytes.len());
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
@@ -655,9 +659,9 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       depth: 1,
     };
     self.transfer_staging_to_gpu_buffer_or_image(
-      formatted_pixels.len() as u64,
+      pixel_bytes.len() as u64,
       staging_buffer,
-      ImageOrBuffer::Image(image, vk::Format::R8G8B8A8_SRGB, extent),
+      ImageOrBuffer::Image(image, format, extent),
     )?;
 
     info!("Destroying staging buffer and memory...");
@@ -676,7 +680,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
 
     Ok(ResourceWithMemory::Image(ImageAndMemory {
       allocation: image_allocation,
-      length: formatted_pixels.len() as u32,
+      length: pixel_bytes.len() as u32,
       image_and_view: unsafe { ImageAndView::new(image, image_view) },
       sampler,
     }))
@@ -791,6 +795,23 @@ impl ImageOrBuffer {
     match *self {
       ImageOrBuffer::Image(image, format, extent) => Ok((image, format, extent)),
       _ => Err(SarektError::IncorrectResourceType),
+    }
+  }
+}
+
+impl From<ImageDataFormat> for vk::Format {
+  fn from(image_data_format: ImageDataFormat) -> vk::Format {
+    match image_data_format {
+      ImageDataFormat::R8G8B8 => vk::Format::R8G8B8_SRGB,
+      ImageDataFormat::B8G8R8 => vk::Format::B8G8R8_SRGB,
+      ImageDataFormat::B8G8R8A8 => vk::Format::B8G8R8A8_SRGB,
+      ImageDataFormat::R8G8B8A8 => vk::Format::R8G8B8A8_SRGB,
+      ImageDataFormat::RGB16 => vk::Format::R5G6B5_UNORM_PACK16,
+      ImageDataFormat::RGBA16 => vk::Format::R5G5B5A1_UNORM_PACK16,
+
+      ImageDataFormat::D32Float => vk::Format::D32_SFLOAT,
+      ImageDataFormat::D32FloatS8 => vk::Format::D32_SFLOAT_S8_UINT,
+      ImageDataFormat::D24NormS8 => vk::Format::D24_UNORM_S8_UINT,
     }
   }
 }
