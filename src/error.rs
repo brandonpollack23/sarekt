@@ -22,6 +22,7 @@ pub enum SarektError {
   UnsupportedLayoutTransition,
   UnknownResource,
   NoSuitableMemoryHeap,
+  NoSuitableDepthBufferFormat,
   VulkanMemoryAllocatorError(vk_mem::error::Error),
 }
 
@@ -88,6 +89,9 @@ impl fmt::Display for SarektError {
         f,
         "Could not find memory heap that was suitable for the device allocation."
       ),
+      SarektError::NoSuitableDepthBufferFormat => {
+        write!(f, "Could not select a format for the depth buffer")
+      }
       SarektError::VulkanMemoryAllocatorError(e) => {
         write!(f, "Vulkan memory allocator error: {}", e)
       }

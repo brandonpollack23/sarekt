@@ -64,6 +64,7 @@ lazy_static! {
     vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
 }
 
+// TODO NOW seperate sections into sub files, like now depth_buffer is.
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   // Base vulkan items, driver loader, instance, extensions.
