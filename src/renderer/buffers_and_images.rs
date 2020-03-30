@@ -1,6 +1,6 @@
 use crate::{
   error::{SarektError, SarektResult},
-  image_data::ImageData,
+  image_data::{ImageData, ImageDataFormat},
 };
 use log::warn;
 use slotmap::{DefaultKey, SlotMap};
@@ -149,6 +149,13 @@ pub unsafe trait BufferAndImageLoader {
     address_y: TextureAddressMode, address_z: TextureAddressMode,
   ) -> SarektResult<Self::BackendHandle>;
 
+  /// Loads an image, much like `load_image_with_staging_initialization`, but
+  /// does not give it any initial value, only a size and format.  This is
+  /// useful for initializing internally used attachments, depth buffers, etc.
+  fn create_uninitialized_image(
+    &self, dimensions: (u32, u32), format: ImageDataFormat,
+  ) -> SarektResult<Self::BackendHandle>;
+
   /// Deletes that resource, baby!
   fn delete_buffer_or_image(&self, handle: Self::BackendHandle) -> SarektResult<()>;
 }
@@ -252,7 +259,7 @@ where
   }
 
   /// Same as `load_buffer_with_staging` but loads an r8b8g8a8 image instead.
-  pub fn load_image_with_staging_rgba32(
+  pub fn load_image_with_staging_initialization(
     this: &Arc<RwLock<Self>>, pixels: impl ImageData,
     magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
@@ -272,6 +279,30 @@ where
         address_y,
         address_z,
       )?;
+    let inner_key = buffer_store
+      .loaded_buffers_and_images
+      .insert(BufferOrImage::new(
+        buffer_backend_handle,
+        ResourceType::Image,
+      ));
+
+    Ok(BufferImageHandle {
+      inner_key,
+      resource_type: ResourceType::Image,
+      buffer_store: this.clone(),
+    })
+  }
+
+  pub fn create_uninitialized_image(
+    this: &Arc<RwLock<Self>>, dimensions: (u32, u32), format: ImageDataFormat,
+  ) -> SarektResult<BufferImageHandle<BL>> {
+    let mut buffer_store = this
+      .write()
+      .expect("Could not unlock BufferStore due to previous panic");
+
+    let buffer_backend_handle = buffer_store
+      .buffer_image_loader
+      .create_uninitialized_image(dimensions, format)?;
     let inner_key = buffer_store
       .loaded_buffers_and_images
       .insert(BufferOrImage::new(

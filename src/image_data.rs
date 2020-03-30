@@ -17,6 +17,7 @@ pub trait ImageData {
   fn format(&self) -> SarektResult<ImageDataFormat>;
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum ImageDataFormat {
   R8G8B8,
   B8G8R8,
@@ -63,16 +64,16 @@ impl ImageData for image::DynamicImage {
 
   fn format(&self) -> SarektResult<ImageDataFormat> {
     match self {
-      image::DynamicImage::ImageBgr8(img) => Ok(B8G8R8A8),
+      image::DynamicImage::ImageBgr8(_) => Ok(B8G8R8A8),
       image::DynamicImage::ImageLuma8(_) => Err(SarektError::UnsupportedImageFormat),
       image::DynamicImage::ImageLumaA8(_) => Err(SarektError::UnsupportedImageFormat),
-      image::DynamicImage::ImageRgb8(img) => Ok(R8G8B8),
-      image::DynamicImage::ImageRgba8(img) => Ok(R8G8B8A8),
-      image::DynamicImage::ImageBgra8(img) => Ok(B8G8R8A8),
+      image::DynamicImage::ImageRgb8(_) => Ok(R8G8B8),
+      image::DynamicImage::ImageRgba8(_) => Ok(R8G8B8A8),
+      image::DynamicImage::ImageBgra8(_) => Ok(B8G8R8A8),
       image::DynamicImage::ImageLuma16(_) => Err(SarektError::UnsupportedImageFormat),
       image::DynamicImage::ImageLumaA16(_) => Err(SarektError::UnsupportedImageFormat),
-      image::DynamicImage::ImageRgb16(img) => Ok(RGB16),
-      image::DynamicImage::ImageRgba16(img) => Ok(RGBA16),
+      image::DynamicImage::ImageRgb16(_) => Ok(RGB16),
+      image::DynamicImage::ImageRgba16(_) => Ok(RGBA16),
     }
   }
 }
