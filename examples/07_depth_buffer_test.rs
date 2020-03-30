@@ -99,6 +99,14 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
     .texture_image(&image)
     .build()?;
 
+  let rect3_uniform_buffer = renderer.load_uniform_buffer(rect_uniform)?;
+  let rect3 = DrawableObject::builder(&renderer)
+    .vertex_buffer(&rect_vertex_buffer)
+    .index_buffer(&rect_index_buffer)
+    .uniform_buffer(&rect3_uniform_buffer)
+    .texture_image(&image)
+    .build()?;
+
   let args: Vec<String> = std::env::args().collect();
   let enable_colors = args.contains(&"colors".to_owned());
   info!("Colors enabled: {}", enable_colors);
@@ -154,7 +162,19 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
           ar,
         )
         .unwrap();
+        update_uniforms(
+          &renderer,
+          &rect3,
+          uv::Vec3::new(-0.5f32, 0.25f32, -1.0f32),
+          -rotation,
+          camera_height,
+          enable_colors,
+          time_since_start_secs,
+          ar,
+        )
+        .unwrap();
 
+        renderer.draw(&rect3).unwrap();
         renderer.draw(&rect2).unwrap();
         renderer.draw(&rect).unwrap();
 
