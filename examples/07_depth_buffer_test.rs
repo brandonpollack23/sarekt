@@ -174,6 +174,9 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
         )
         .unwrap();
 
+        // TODO NOW LAST test descriptor tests by making 32/3 + 1 of these and make sure
+        // it works.
+
         renderer.draw(&rect3).unwrap();
         renderer.draw(&rect2).unwrap();
         renderer.draw(&rect).unwrap();

@@ -922,7 +922,7 @@ impl VulkanRenderer {
   /// of stuff to remain compabible and continue rendering to the new surface.
   ///
   /// TODO MAYBE put everything that may need to be recreated in a cell?
-  unsafe fn recreate_swap_chain(&mut self, width: u32, height: u32) -> SarektResult<()> {
+  unsafe fn do_recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
     let instance = &self.instance;
     let logical_device = &self.logical_device;
     let surface_and_extension = &self.surface_and_extension;
@@ -1512,6 +1512,7 @@ impl VulkanRenderer {
     }
 
     unsafe {
+      // TODO PERFORMANCE cache descriptor sets: https://github.com/KhronosGroup/Vulkan-Samples/blob/master/samples/performance/descriptor_management/descriptor_management_tutorial.md
       self
         .logical_device
         .reset_descriptor_pool(descriptor_pool, vk::DescriptorPoolResetFlags::empty())?;
@@ -1605,10 +1606,19 @@ impl VulkanRenderer {
         .build(),
     ];
 
+    info!("Creating descriptor pool with sizes: {:?}", pool_sizes);
+
     let descriptor_pool_ci = vk::DescriptorPoolCreateInfo::builder()
       .pool_sizes(&pool_sizes)
-      .max_sets(render_targets.len() as u32) // One set per render target.
+      .max_sets(
+        max_uniform_buffers.min(max_combined_image_samplers)
+      ) // One set per render object.
       .build();
+
+    info!(
+      "Creating descriptor pool with configuration: {:?}",
+      descriptor_pool_ci
+    );
 
     let mut main_descriptor_pools = Vec::with_capacity(render_targets.len());
     for _ in 0..render_targets.len() {
@@ -2072,7 +2082,7 @@ impl Renderer for VulkanRenderer {
       return Ok(());
     }
 
-    unsafe { self.recreate_swap_chain(width, height) }
+    unsafe { self.do_recreate_swapchain(width, height) }
   }
 
   fn get_image(
