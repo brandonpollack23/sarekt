@@ -1,26 +1,47 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    buffers_and_images::BufferImageStore, vulkan::vulkan_buffer_image_functions::ImageAndMemory,
+    buffers_and_images::{BufferImageHandle, BufferImageStore},
+    vulkan::vulkan_buffer_image_functions::{ImageAndMemory, ResourceWithMemory},
     VulkanBufferFunctions,
   },
 };
 use ash::{version::InstanceV1_0, vk, Device, Instance};
-use std::sync::{Arc, RwLock};
+use log::info;
+use std::{
+  convert::TryInto,
+  sync::{Arc, RwLock},
+};
 
-struct DepthResources {
-  pub depth_image: ImageAndMemory,
+pub struct DepthResources {
+  pub depth_buffer_image_handle: BufferImageHandle<VulkanBufferFunctions>,
+  pub image_and_memory: ImageAndMemory,
+  pub format: vk::Format,
 }
 impl DepthResources {
-  fn new(
+  pub fn new(
     instance: &Instance, physical_device: vk::PhysicalDevice,
-    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>,
+    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>, extent: (u32, u32),
   ) -> SarektResult<DepthResources> {
     let format = Self::find_depth_format(instance, physical_device)?;
-    // let depth_buffer = BufferImageStore::
-    // TODO NOW CONTINUE WITH CREATE NONINIT IMAGE FUNCTION
+    let depth_buffer_image_handle =
+      BufferImageStore::create_uninitialized_image(buffer_image_store, extent, format.try_into()?)?;
 
-    Err(SarektError::UnsupportedImageFormat)
+    // TODO NOW dont relock make create/load functions return the handle and
+    // the backend handle?
+    let image_and_memory = buffer_image_store
+      .read()
+      .unwrap()
+      .get_image(&depth_buffer_image_handle)?
+      .handle
+      .image()
+      .unwrap();
+
+    Ok(DepthResources {
+      depth_buffer_image_handle,
+      image_and_memory,
+      format,
+    })
   }
 
   fn find_supported_format(

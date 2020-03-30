@@ -9,9 +9,9 @@ use crate::{
     vulkan::images::ImageAndView,
   },
 };
-use ash::{version::DeviceV1_0, vk, Device};
+use ash::{version::DeviceV1_0, vk, vk::Format, Device};
 use log::info;
-use std::sync::Arc;
+use std::{convert::TryFrom, sync::Arc};
 
 /// TODO PERFORMANCE MEMORY allow swapping memory with "lost" in VMA.
 
@@ -159,11 +159,11 @@ impl VulkanBufferFunctions {
   /// Creates a buffer with TRANSFER_DST and appropriate image type flags
   /// flipped.
   fn create_gpu_image(
-    &self, dimens: (u32, u32),
+    &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags,
   ) -> SarektResult<(vk::Image, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     let image_ci = vk::ImageCreateInfo::builder()
       .image_type(vk::ImageType::TYPE_2D)
-      .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED)
+      .usage(usage)
       .extent(vk::Extent3D {
         width: dimens.0,
         height: dimens.1,
@@ -171,7 +171,7 @@ impl VulkanBufferFunctions {
       })
       .mip_levels(1) // Not mipmapping.
       .array_layers(1) // Not an array.
-      .format(vk::Format::R8G8B8A8_SRGB)
+      .format(format)
       .tiling(vk::ImageTiling::OPTIMAL) // Texels are laid out in hardware optimal format, not necessarily linearly.
       .initial_layout(vk::ImageLayout::UNDEFINED)
       .sharing_mode(vk::SharingMode::EXCLUSIVE) // Only used by the one queue family.
@@ -362,10 +362,14 @@ impl VulkanBufferFunctions {
     Ok(())
   }
 
-  fn create_image_view(&self, image: vk::Image) -> SarektResult<vk::ImageView> {
+  /// vk::ImageAspectFlags specify what kind of attachment this image can be
+  /// used for (COLOR, DEPTH, etc).
+  fn create_image_view(
+    &self, image: vk::Image, format: vk::Format, aspect: vk::ImageAspectFlags,
+  ) -> SarektResult<vk::ImageView> {
     let subresource_range = vk::ImageSubresourceRange::builder()
       .base_mip_level(0)
-      .aspect_mask(vk::ImageAspectFlags::COLOR)
+      .aspect_mask(aspect)
       .level_count(1)
       .base_array_layer(0)
       .layer_count(1)
@@ -373,7 +377,7 @@ impl VulkanBufferFunctions {
     let image_view_ci = vk::ImageViewCreateInfo::builder()
       .image(image)
       .view_type(vk::ImageViewType::TYPE_2D)
-      .format(vk::Format::R8G8B8A8_SRGB)
+      .format(format)
       .subresource_range(subresource_range)
       .build();
     unsafe {
@@ -618,9 +622,6 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     }))
   }
 
-  // TODO NOW 3 make a non initializing version of this function:
-  // create_uninitialized_image (for depth buffer).
-
   /// The procedure for loading an image in vulkan could use a staging image,
   /// but its just as well we use a staging buffer, which is easier and [could even be faster](https://developer.nvidia.com/vulkan-memory-management)
   /// TODO IMAGES MIPMAPPING
@@ -637,7 +638,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     let pixel_bytes = pixels.into_bytes();
 
     info!(
-      "Loading texture with dimensions {:?}, and {} bytes",
+      "Loading image with dimensions {:?}, and {} bytes",
       dimens,
       pixel_bytes.len()
     );
@@ -651,7 +652,11 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
-    let (image, image_allocation, _) = self.create_gpu_image(dimens)?;
+    let (image, image_allocation, _) = self.create_gpu_image(
+      dimens,
+      format,
+      vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+    )?;
 
     let extent = vk::Extent3D {
       width: dimens.0,
@@ -669,7 +674,9 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       .allocator
       .destroy_buffer(staging_buffer, &staging_allocation)?;
 
-    let image_view = self.create_image_view(image)?;
+    // TODO IMAGES propogate up this parameter to allow users to create stencil etc,
+    // this will involve a Sarekt non vulkan enum in buffers_and_images.
+    let image_view = self.create_image_view(image, format.into(), vk::ImageAspectFlags::COLOR)?;
     let sampler = self.create_sampler(
       magnification_filter,
       minification_filter,
@@ -680,9 +687,26 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
 
     Ok(ResourceWithMemory::Image(ImageAndMemory {
       allocation: image_allocation,
-      length: pixel_bytes.len() as u32,
       image_and_view: unsafe { ImageAndView::new(image, image_view) },
-      sampler,
+      sampler: Some(sampler),
+    }))
+  }
+
+  fn create_uninitialized_image(
+    &self, dimensions: (u32, u32), format: ImageDataFormat,
+  ) -> SarektResult<ResourceWithMemory> {
+    info!("Creating image with dimensions {:?}", dimensions);
+
+    let (image, image_allocation, _) = self.create_gpu_image(
+      dimensions,
+      format.into(),
+      vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+    )?;
+    let image_view = self.create_image_view(image, format.into(), vk::ImageAspectFlags::DEPTH)?;
+    Ok(ResourceWithMemory::Image(ImageAndMemory {
+      allocation: image_allocation,
+      image_and_view: unsafe { ImageAndView::new(image, image_view) },
+      sampler: None,
     }))
   }
 
@@ -698,7 +722,9 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
         .destroy_buffer(handle.buffer, &handle.allocation)?,
       ResourceWithMemory::Image(handle) => {
         unsafe {
-          self.logical_device.destroy_sampler(handle.sampler, None);
+          if let Some(sampler) = handle.sampler {
+            self.logical_device.destroy_sampler(sampler, None);
+          }
           self
             .logical_device
             .destroy_image_view(handle.image_and_view.view, None);
@@ -735,6 +761,10 @@ impl ResourceWithMemory {
   }
 }
 
+/// Allow the ResourceType(Image or Buffer) to be the backend for images and
+/// buffers.
+unsafe impl BackendHandleTrait for ResourceWithMemory {}
+
 #[derive(Copy, Clone, Debug)]
 pub struct BufferAndMemory {
   pub(crate) buffer: vk::Buffer,
@@ -743,7 +773,6 @@ pub struct BufferAndMemory {
   pub(crate) index_buffer_elem_size: Option<IndexBufferElemSize>,
   pub(crate) allocation: vk_mem::Allocation,
 }
-
 /// Stores the mapped pointer along with the allocation.  There is no need
 /// tformbo implement drop here because when the memory itself is dropped, it is
 /// freed. According to the spec in `vkFreeMemory`'s docs "If a memeory object
@@ -753,6 +782,7 @@ pub struct BufferAndMemoryMapped {
   pub(crate) buffer_and_memory: BufferAndMemory,
   pub(crate) ptr: *mut u8,
 }
+
 impl BufferAndMemoryMapped {
   pub(crate) fn new(buffer_and_memory: BufferAndMemory, ptr: *mut u8) -> Self {
     Self {
@@ -775,14 +805,9 @@ fn usage_flags_from_buffer_type(buffer_type: BufferType) -> vk::BufferUsageFlags
 #[derive(Copy, Clone, Debug)]
 pub struct ImageAndMemory {
   pub(crate) image_and_view: ImageAndView,
-  pub(crate) length: u32,
   pub(crate) allocation: vk_mem::Allocation,
-  pub(crate) sampler: vk::Sampler,
+  pub(crate) sampler: Option<vk::Sampler>,
 }
-
-/// Allow the ResourceType(Image or Buffer) to be the backend for images and
-/// buffers.
-unsafe impl BackendHandleTrait for ResourceWithMemory {}
 
 /// Whether the operation will concern a buffer or an image.  Image includes its
 /// extent.
@@ -812,6 +837,27 @@ impl From<ImageDataFormat> for vk::Format {
       ImageDataFormat::D32Float => vk::Format::D32_SFLOAT,
       ImageDataFormat::D32FloatS8 => vk::Format::D32_SFLOAT_S8_UINT,
       ImageDataFormat::D24NormS8 => vk::Format::D24_UNORM_S8_UINT,
+    }
+  }
+}
+
+impl TryFrom<vk::Format> for ImageDataFormat {
+  type Error = SarektError;
+
+  fn try_from(format: Format) -> SarektResult<ImageDataFormat> {
+    match format {
+      vk::Format::R8G8B8_SRGB => Ok(ImageDataFormat::R8G8B8),
+      vk::Format::B8G8R8_SRGB => Ok(ImageDataFormat::B8G8R8),
+      vk::Format::B8G8R8A8_SRGB => Ok(ImageDataFormat::B8G8R8A8),
+      vk::Format::R8G8B8A8_SRGB => Ok(ImageDataFormat::R8G8B8A8),
+      vk::Format::R5G6B5_UNORM_PACK16 => Ok(ImageDataFormat::RGB16),
+      vk::Format::R5G5B5A1_UNORM_PACK16 => Ok(ImageDataFormat::RGBA16),
+
+      vk::Format::D32_SFLOAT => Ok(ImageDataFormat::D32Float),
+      vk::Format::D32_SFLOAT_S8_UINT => Ok(ImageDataFormat::D32FloatS8),
+      vk::Format::D24_UNORM_S8_UINT => Ok(ImageDataFormat::D24NormS8),
+
+      _ => Err(SarektError::UnsupportedImageFormat),
     }
   }
 }

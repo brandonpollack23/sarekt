@@ -14,6 +14,7 @@ use crate::{
     vulkan::{
       base_pipeline_bundle::BasePipelineBundle,
       debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
+      depth_buffer::DepthResources,
       draw_synchronization::DrawSynchronization,
       images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
@@ -257,22 +258,31 @@ impl VulkanRenderer {
     )?;
 
     // TODO RENDERING_CAPABILITIES support other render pass types.
-    let forward_render_pass = Self::create_forward_render_pass(&logical_device, format)?;
-
-    let base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline_and_shaders(
-      &logical_device,
-      &shader_store, // Unlock and get a local mut ref to shaderstore.
-      extent,
-      forward_render_pass,
+    let depth_buffer = DepthResources::new(
+      &instance,
+      physical_device,
+      &buffer_store,
+      (extent.width, extent.height),
     )?;
+    let forward_render_pass =
+      Self::create_forward_render_pass(&logical_device, format, &depth_buffer)?;
 
     // TODO RENDERING_CAPABILITIES when I can have multiple render pass types I need
     // new framebuffers.
     let framebuffers = Self::create_framebuffers(
       &logical_device,
       forward_render_pass,
+      &depth_buffer,
       &render_targets,
       extent,
+    )?;
+
+    let base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline_and_shaders(
+      &logical_device,
+      &shader_store, // Unlock and get a local mut ref to shaderstore.
+      extent,
+      forward_render_pass,
+      depth_buffer,
     )?;
 
     let primary_gfx_command_buffers =
@@ -951,7 +961,15 @@ impl VulkanRenderer {
     self.render_targets =
       Self::create_render_target_image_views(logical_device, render_target_images, new_format)?;
 
-    self.forward_render_pass = Self::create_forward_render_pass(logical_device, new_format)?;
+    let depth_buffer = DepthResources::new(
+      &instance,
+      physical_device,
+      &self.buffer_image_store,
+      (width, height),
+    )?;
+
+    self.forward_render_pass =
+      Self::create_forward_render_pass(logical_device, new_format, &depth_buffer)?;
 
     // Save the handles to the base shaders so they don't have to be recreated for
     // no reason.
@@ -967,21 +985,24 @@ impl VulkanRenderer {
       .base_graphics_pipeline_bundle
       .descriptor_set_layouts
       .take();
+
+    self.framebuffers = Self::create_framebuffers(
+      logical_device,
+      self.forward_render_pass,
+      &depth_buffer,
+      &self.render_targets,
+      new_extent,
+    )?;
+
     self.base_graphics_pipeline_bundle = Self::create_base_graphics_pipeline(
       logical_device,
       shader_store,
       new_extent,
       self.forward_render_pass,
+      depth_buffer,
       descriptor_set_layouts.unwrap(),
       vertex_shader_handle.unwrap(),
       fragment_shader_handle.unwrap(),
-    )?;
-
-    self.framebuffers = Self::create_framebuffers(
-      logical_device,
-      self.forward_render_pass,
-      &self.render_targets,
-      new_extent,
     )?;
 
     self.main_descriptor_pools = Self::create_main_descriptor_pools(
@@ -1067,7 +1088,7 @@ impl VulkanRenderer {
   // ================================================================================
   /// Creates a simple forward render pass with one subpass.
   fn create_forward_render_pass(
-    logical_device: &Device, format: vk::Format,
+    logical_device: &Device, format: vk::Format, depth_buffer: &DepthResources,
   ) -> SarektResult<vk::RenderPass> {
     // Used to reference attachments in render passes.
     let color_attachment = vk::AttachmentDescription::builder()
@@ -1080,8 +1101,6 @@ impl VulkanRenderer {
       .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
       .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO OFFSCREEN only do this if going to present. Otherwise TransferDST optimal would be good.
       .build();
-    let color_attachments = [color_attachment];
-
     // Used to reference attachments in subpasses.
     let color_attachment_ref = vk::AttachmentReference::builder()
       .attachment(0u32) // Only using 1 (indexed from 0) attachment.
@@ -1089,12 +1108,31 @@ impl VulkanRenderer {
       .build();
     let color_attachment_refs = [color_attachment_ref];
 
+    let depth_attachment = vk::AttachmentDescription::builder()
+      .format(depth_buffer.format)
+      .samples(vk::SampleCountFlags::TYPE_1)
+      .load_op(vk::AttachmentLoadOp::CLEAR)
+      .store_op(vk::AttachmentStoreOp::DONT_CARE)
+      .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+      .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+      .initial_layout(vk::ImageLayout::UNDEFINED)
+      .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+      .build();
+    let depth_attachments = [depth_attachment];
+    let depth_attachment_ref = vk::AttachmentReference::builder()
+      .attachment(1)
+      .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+      .build();
+
+    let attachments = [color_attachment, depth_attachment];
+
     // Subpasses could also reference previous subpasses as input, depth/stencil
     // data, or preserve attachments to send them to the next subpass.
     let subpass_description = vk::SubpassDescription::builder()
       .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS) // This is a graphics subpass
       // index of this attachment here is a reference to the output of the shader in the form of layout(location = 0).
       .color_attachments(&color_attachment_refs)
+      .depth_stencil_attachment(&depth_attachment_ref)
       .build();
     let subpass_descriptions = [subpass_description];
 
@@ -1109,7 +1147,7 @@ impl VulkanRenderer {
     let dependencies = [dependency];
 
     let render_pass_ci = vk::RenderPassCreateInfo::builder()
-      .attachments(&color_attachments)
+      .attachments(&attachments)
       .subpasses(&subpass_descriptions) // Only one subpass in this case.
       .dependencies(&dependencies) // Only one dep.
       .build();
@@ -1122,12 +1160,13 @@ impl VulkanRenderer {
   /// this one that they can pass when requesting a draw.
   ///
   /// TODO RENDERING_CAPABILITIES allow for creating custom pipelines via
-  /// LoadShaders etc.
+  /// LoadShaders etc.  When that is done, allow for disabling default pipeline
+  /// creation via config if it wont be used to save resources.
   ///
   /// TODO RENDERING_CAPABILITIES enable pipeline cache.
   fn create_base_graphics_pipeline_and_shaders(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: Extent2D, render_pass: vk::RenderPass,
+    extent: Extent2D, render_pass: vk::RenderPass, depth_buffer: DepthResources,
   ) -> SarektResult<BasePipelineBundle> {
     let (vertex_shader_handle, fragment_shader_handle) =
       Self::create_default_shaders(shader_store)?;
@@ -1140,6 +1179,7 @@ impl VulkanRenderer {
       shader_store,
       extent,
       render_pass,
+      depth_buffer,
       default_descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
@@ -1184,7 +1224,7 @@ impl VulkanRenderer {
 
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: Extent2D, render_pass: vk::RenderPass,
+    extent: Extent2D, render_pass: vk::RenderPass, depth_buffer: DepthResources,
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, vertex_shader_handle: VulkanShaderHandle,
     fragment_shader_handle: VulkanShaderHandle,
   ) -> SarektResult<BasePipelineBundle> {
@@ -1266,16 +1306,32 @@ impl VulkanRenderer {
       .alpha_to_one_enable(false)
       .build();
 
+    // TODO CONFIG enable stencil.
+    // TODO TRANSPARENCY a transparent pipeline (would be a seperate, similar
+    // pipeline) would set depth_write to false (test depth but use existing opaque
+    // object for buffer).
+    let depth_stencil_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
+      .depth_test_enable(true)
+      .depth_write_enable(true)
+      .depth_compare_op(vk::CompareOp::LESS) // Lower depth closer.
+      .depth_bounds_test_enable(false) // Not using bounds test.
+      .min_depth_bounds(0.0f32)
+      .max_depth_bounds(1.0f32)
+      .stencil_test_enable(false)
+      // .front(vk::StencilOpState) // For use in stencil test
+      // .back(vk::StencilOpState)
+      .build();
+
     let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
       .color_write_mask(vk::ColorComponentFlags::all()) // RGBA
       .blend_enable(false)
       // everything else optional because its not enabled.
       .build();
-    let attachements = [color_blend_attachment_state];
+    let attachments = [color_blend_attachment_state];
     let color_blend_ci = vk::PipelineColorBlendStateCreateInfo::builder()
       .logic_op_enable(false)
       .logic_op(vk::LogicOp::COPY)
-      .attachments(&attachements)
+      .attachments(&attachments)
       .build();
 
     let pipeline_layout_ci = vk::PipelineLayoutCreateInfo::builder()
@@ -1292,6 +1348,7 @@ impl VulkanRenderer {
       .viewport_state(&viewport_state_ci)
       .rasterization_state(&raster_state_ci)
       .multisample_state(&multisample_state_ci)
+      .depth_stencil_state(&depth_stencil_ci)
       .color_blend_state(&color_blend_ci)
       .layout(pipeline_layout)
       .render_pass(render_pass)
@@ -1318,19 +1375,25 @@ impl VulkanRenderer {
       pipeline_layout,
       base_graphics_pipeline_ci,
       descriptor_set_layouts,
+      depth_buffer,
       vertex_shader_handle,
       fragment_shader_handle,
     ))
   }
 
   fn create_framebuffers(
-    logical_device: &Device, render_pass: vk::RenderPass, render_target_images: &[ImageAndView],
-    extent: vk::Extent2D,
+    logical_device: &Device, render_pass: vk::RenderPass, depth_buffer: &DepthResources,
+    render_target_images: &[ImageAndView], extent: vk::Extent2D,
   ) -> SarektResult<Vec<vk::Framebuffer>> {
     let mut framebuffers = Vec::with_capacity(render_target_images.len());
 
     for image_and_view in render_target_images.iter() {
-      let attachments = [image_and_view.view];
+      // TODO NOW verify: Can use the same depth attachment for all framebuffers
+      // because only a single subpass is running at a time.
+      let attachments = [
+        image_and_view.view,
+        depth_buffer.image_and_memory.image_and_view.view,
+      ];
       let framebuffer_ci = vk::FramebufferCreateInfo::builder()
         .render_pass(render_pass)
         .attachments(&attachments)
@@ -1472,12 +1535,18 @@ impl VulkanRenderer {
         .offset(vk::Offset2D::default())
         .extent(extent)
         .build();
-      let clear_value = vk::ClearValue {
+      let clear_color_value = vk::ClearValue {
         color: vk::ClearColorValue {
           float32: [0f32, 0f32, 0f32, 1f32],
         },
       };
-      let clear_values = [clear_value];
+      let clear_depth_value = vk::ClearValue {
+        depth_stencil: vk::ClearDepthStencilValue {
+          depth: 1.0f32,
+          stencil: 0u32,
+        },
+      };
+      let clear_values = [clear_color_value, clear_depth_value];
       let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
         .render_pass(render_pass)
         .framebuffer(framebuffer)
@@ -1690,7 +1759,7 @@ impl VulkanRenderer {
       Option::Some(image_and_memory) => vk::DescriptorImageInfo::builder()
         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .image_view(image_and_memory.image_and_view.view)
-        .sampler(image_and_memory.sampler)
+        .sampler(image_and_memory.sampler.unwrap())
         .build(),
       None => {
         let default_texture = self
@@ -1700,7 +1769,7 @@ impl VulkanRenderer {
           .unwrap();
         vk::DescriptorImageInfo::builder()
           .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-          .sampler(default_texture.sampler)
+          .sampler(default_texture.sampler.unwrap())
           .image_view(default_texture.image_and_view.view)
           .build()
       }
@@ -1760,7 +1829,7 @@ impl VulkanRenderer {
   //  Null object setup methods
   // ================================================================================
   fn create_default_texture(&mut self) {
-    let image_handle = BufferImageStore::load_image_with_staging_rgba32(
+    let image_handle = BufferImageStore::load_image_with_staging_initialization(
       &self.buffer_image_store,
       Monocolor::clear(),
       MagnificationMinificationFilter::Nearest,
@@ -1897,7 +1966,7 @@ impl Renderer for VulkanRenderer {
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode,
   ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
-    BufferImageStore::load_image_with_staging_rgba32(
+    BufferImageStore::load_image_with_staging_initialization(
       &self.buffer_image_store,
       pixels,
       magnification_filter,
