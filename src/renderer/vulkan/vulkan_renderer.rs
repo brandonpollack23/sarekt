@@ -1388,8 +1388,6 @@ impl VulkanRenderer {
     let mut framebuffers = Vec::with_capacity(render_target_images.len());
 
     for image_and_view in render_target_images.iter() {
-      // TODO NOW verify: Can use the same depth attachment for all framebuffers
-      // because only a single subpass is running at a time.
       let attachments = [
         image_and_view.view,
         depth_buffer.image_and_memory.image_and_view.view,
