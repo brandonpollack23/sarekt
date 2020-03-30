@@ -12,7 +12,6 @@ pub struct BasePipelineBundle {
   pub pipeline: vk::Pipeline,
   pub pipeline_layout: vk::PipelineLayout,
   pub pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-  // TODO NOW handle swapchain recreation.
   pub depth_resources: Option<DepthResources>,
   pub descriptor_set_layouts: Option<Vec<vk::DescriptorSetLayout>>,
   pub vertex_shader_handle: Option<VulkanShaderHandle>,
