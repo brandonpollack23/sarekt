@@ -7,13 +7,13 @@ use std::cell::Cell;
 /// between acquiring images, presenting them.
 /// Also contains some helper methods.
 pub struct DrawSynchronization {
-  pub image_available_semaphores: Vec<vk::Semaphore>,
-  pub render_finished_semaphores: Vec<vk::Semaphore>,
-  pub in_flight_fences: Vec<vk::Fence>,
+  image_available_semaphores: Vec<vk::Semaphore>,
+  render_finished_semaphores: Vec<vk::Semaphore>,
+  frame_fences: Vec<vk::Fence>,
 
   // Unowned tracking references to in_flight_fences.  This is to track which in flight fences
   // correspond to which images that are in flight.
-  pub images_in_flight: Vec<Cell<vk::Fence>>,
+  image_to_frame_fence: Vec<Cell<vk::Fence>>,
 }
 impl DrawSynchronization {
   pub fn new(logical_device: &Device, num_render_targets: usize) -> SarektResult<Self> {
@@ -35,34 +35,86 @@ impl DrawSynchronization {
     Ok(Self {
       image_available_semaphores,
       render_finished_semaphores,
-      in_flight_fences,
-      images_in_flight: vec![Cell::new(vk::Fence::null()); num_render_targets],
+      frame_fences: in_flight_fences,
+      image_to_frame_fence: vec![Cell::new(vk::Fence::null()); num_render_targets],
     })
   }
 
-  /// Ensures that the image is not currently in flight and marks it to be for
-  /// this upcoming draw.
-  pub fn ensure_images_not_in_flight(
+  /// Returns fence associated with swapchain image, with bounds checking.
+  pub fn get_image_fence(&self, image_index: usize) -> vk::Fence {
+    if image_index >= self.image_to_frame_fence.len() {
+      panic!("Invalid input! image_index {}", image_index);
+    }
+    self.image_to_frame_fence[image_index].get()
+  }
+
+  /// Returns semaphore associated with swapchain image availability, with
+  /// bounds checking.
+  pub fn get_image_available_sem(&self, current_frame_num: usize) -> vk::Semaphore {
+    if current_frame_num >= MAX_FRAMES_IN_FLIGHT {
+      panic!("Invalid input! current_frame_num {}", current_frame_num);
+    }
+    self.image_available_semaphores[current_frame_num]
+  }
+
+  /// Returns semaphore associated with swapchain image render output to COLOR
+  /// attachment, with bounds checking.
+  pub fn get_render_finished_semaphore(&self, current_frame_num: usize) -> vk::Semaphore {
+    if current_frame_num >= MAX_FRAMES_IN_FLIGHT {
+      panic!("Invalid input! current_frame_num {}", current_frame_num);
+    }
+    self.render_finished_semaphores[current_frame_num]
+  }
+
+  /// Ensures that the image is not currently in flight, so the command buffers
+  /// for it are safe to write to (they are in the ready state).
+  ///
+  /// Returns the frame fence to submit the next queue with.
+  pub fn ensure_image_resources_ready(
     &self, logical_device: &Device, image_index: usize, current_frame_num: usize,
-  ) -> SarektResult<()> {
-    if current_frame_num >= MAX_FRAMES_IN_FLIGHT || image_index >= self.images_in_flight.len() {
+  ) -> SarektResult<vk::Fence> {
+    if current_frame_num >= MAX_FRAMES_IN_FLIGHT || image_index >= self.image_to_frame_fence.len() {
       panic!(
         "Invalid input! image_index: {} current_frame_num: {}",
         image_index, current_frame_num
       );
     }
 
-    let image_in_flight_fence = self.images_in_flight[image_index as usize].get();
+    unsafe {
+      // Wait for swapchain image resources to be ready.
+      let image_fence = self.image_to_frame_fence[image_index as usize].get();
+      if image_fence != vk::Fence::null() {
+        logical_device.wait_for_fences(&[image_fence], true, u64::max_value())?;
+      }
 
-    if image_in_flight_fence != vk::Fence::null() {
-      // It wasn't null, that swapchain image is in flight!
-      unsafe { logical_device.wait_for_fences(&[image_in_flight_fence], true, u64::max_value())? };
+      // Wait for the frame in flight to be ready (there are a max number of frames in
+      // flight).
+      let frame_fence = self.frame_fences[current_frame_num];
+      if frame_fence != image_fence {
+        // Wait for swap chain image to be ready.
+        logical_device.wait_for_fences(&[frame_fence], true, u64::max_value())?;
+      }
+
+      logical_device.reset_fences(&[frame_fence])?;
+
+      Ok(frame_fence)
     }
+  }
 
-    // Mark the image as in use by this frame.
-    self.images_in_flight[image_index as usize].set(self.in_flight_fences[current_frame_num]);
+  /// Mark the image as in use by the given frame.
+  pub fn set_image_to_in_flight_frame(&self, image_index: usize, current_frame_num: usize) {
+    if current_frame_num >= MAX_FRAMES_IN_FLIGHT || image_index >= self.image_to_frame_fence.len() {
+      panic!(
+        "Invalid input! image_index: {} current_frame_num: {}",
+        image_index, current_frame_num
+      );
+    }
+    self.image_to_frame_fence[image_index as usize].set(self.frame_fences[current_frame_num]);
+  }
 
-    Ok(())
+  /// Waits for all the in flight frames, ie device idle.
+  pub fn wait_for_all_frames(&self, logical_device: &Device) -> SarektResult<()> {
+    unsafe { Ok(logical_device.wait_for_fences(&self.frame_fences, true, u64::max_value())?) }
   }
 
   /// Makes new semaphores for draw synchronization.  Useful for swapchain
@@ -92,7 +144,7 @@ impl DrawSynchronization {
     for &sem in self.render_finished_semaphores.iter() {
       logical_device.destroy_semaphore(sem, None);
     }
-    for &fence in self.in_flight_fences.iter() {
+    for &fence in self.frame_fences.iter() {
       logical_device.destroy_fence(fence, None);
     }
   }
