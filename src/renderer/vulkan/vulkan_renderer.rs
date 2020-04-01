@@ -1470,10 +1470,10 @@ impl VulkanRenderer {
   /// The command buffers are written to by the [Drawer](trait.Drawer.html) draw
   /// commands.
   fn setup_next_main_command_buffer(&self) -> SarektResult<()> {
-    let current_frame_num_adjusted = self.current_frame_num.get();
+    let current_frame_num = self.current_frame_num.get();
     let image_available_sem = self
       .draw_synchronization
-      .get_image_available_sem(current_frame_num_adjusted);
+      .get_image_available_sem(current_frame_num);
 
     // TODO OFFSCREEN handle drawing without swapchain.
     // Get next image to render to.
@@ -1879,13 +1879,13 @@ impl Renderer for VulkanRenderer {
       return Ok(());
     }
 
-    let current_frame_num_adjusted = self.current_frame_num.get();
+    let current_frame_num = self.current_frame_num.get();
     let image_available_sem = self
       .draw_synchronization
-      .get_image_available_sem(current_frame_num_adjusted);
+      .get_image_available_sem(current_frame_num);
     let render_finished_sem = self
       .draw_synchronization
-      .get_render_finished_semaphore(current_frame_num_adjusted);
+      .get_render_finished_semaphore(current_frame_num);
 
     let image_index = self.next_image_index.get();
     let current_command_buffer = self.primary_gfx_command_buffers[image_index as usize];
@@ -1906,11 +1906,11 @@ impl Renderer for VulkanRenderer {
     let frame_fence = self.draw_synchronization.ensure_image_resources_ready(
       &self.logical_device,
       image_index as usize,
-      current_frame_num_adjusted,
+      current_frame_num,
     )?;
     self
       .draw_synchronization
-      .set_image_to_in_flight_frame(image_index as usize, current_frame_num_adjusted);
+      .set_image_to_in_flight_frame(image_index as usize, current_frame_num);
 
     // Submit draw commands.
     let wait_semaphores = [image_available_sem];
