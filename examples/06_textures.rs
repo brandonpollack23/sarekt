@@ -173,7 +173,7 @@ fn update_uniforms(
   renderer: &VulkanRenderer, rect: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
   camera_height: f32, enable_colors: bool, time_since_start_secs: f32, ar: f32,
 ) -> SarektResult<()> {
-  let spoderman_position = uv::Vec3::new(0.0f32, 0.0f32, -1.0f32);
+  let spoderman_position = uv::Vec3::new(0.0f32, 0.0f32, 1.0f32);
   // Pi radians per second around the z axis.
   let spoderman_rotation =
     (std::f32::consts::PI * time_since_start_secs) % (2f32 * std::f32::consts::PI);
