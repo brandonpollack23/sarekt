@@ -143,7 +143,7 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
         update_uniforms(
           &renderer,
           &rect,
-          uv::Vec3::new(0.0f32, 0.0f32, -1.0f32),
+          uv::Vec3::new(0.0f32, 0.0f32, 1.0f32),
           rotation,
           camera_height,
           enable_colors,
@@ -154,7 +154,7 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
         update_uniforms(
           &renderer,
           &rect2,
-          uv::Vec3::new(0.5f32, 0.5f32, -1.0f32),
+          uv::Vec3::new(0.5f32, 0.5f32, 1.0f32),
           -rotation,
           camera_height,
           enable_colors,
@@ -165,7 +165,7 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
         update_uniforms(
           &renderer,
           &rect3,
-          uv::Vec3::new(-0.5f32, 0.25f32, -1.0f32),
+          uv::Vec3::new(-0.5f32, 0.25f32, 1.0f32),
           -rotation,
           camera_height,
           enable_colors,
@@ -228,7 +228,7 @@ fn update_uniforms(
   let model_matrix = uv::Mat4::from_translation(position) * uv::Mat4::from_rotation_y(rotation);
   let view_matrix = uv::Mat4::look_at(
     /* eye= */ uv::Vec3::new(0.0f32, camera_height, 0.0f32),
-    /* at= */ uv::Vec3::new(0f32, 0f32, -1f32),
+    /* at= */ uv::Vec3::new(0f32, 0f32, 1f32),
     /* up= */ uv::Vec3::unit_y(),
   );
   // TODO BACKENDS this proj should be conditional on backend.
