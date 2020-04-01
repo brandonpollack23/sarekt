@@ -97,6 +97,9 @@ pub struct VulkanRenderer {
   transfer_command_pool: vk::CommandPool,
   draw_synchronization: DrawSynchronization,
   // Frame count since swapchain creation, not beginning of rendering.
+  // TODO CRITICAL renderer function that returns this.
+  frame_count: Cell<usize>,
+  // Frame in flight number 0..MAX_FRAMES_IN_FLIGHT
   current_frame_num: Cell<usize>,
   next_image_index: Cell<usize>,
 
@@ -318,6 +321,7 @@ impl VulkanRenderer {
       primary_gfx_command_buffers,
       transfer_command_pool,
       draw_synchronization,
+      frame_count: Cell::new(0),
       current_frame_num: Cell::new(0),
       next_image_index: Cell::new(0),
 
@@ -1036,12 +1040,9 @@ impl VulkanRenderer {
   /// * Framebuffers
   /// * Command Buffers.
   unsafe fn cleanup_swapchain(&self) -> SarektResult<()> {
-    // Wait for all in flight frames.
-    self.logical_device.wait_for_fences(
-      &self.draw_synchronization.in_flight_fences,
-      true,
-      u64::max_value(),
-    )?;
+    self
+      .draw_synchronization
+      .wait_for_all_frames(&self.logical_device);
 
     info!("Destroying descriptor pools...");
     for &desc_pool in self.main_descriptor_pools.iter() {
@@ -1469,9 +1470,10 @@ impl VulkanRenderer {
   /// The command buffers are written to by the [Drawer](trait.Drawer.html) draw
   /// commands.
   fn setup_next_main_command_buffer(&self) -> SarektResult<()> {
-    let current_frame_num_adjusted = self.current_frame_num.get() % MAX_FRAMES_IN_FLIGHT;
-    let image_available_sem =
-      self.draw_synchronization.image_available_semaphores[current_frame_num_adjusted];
+    let current_frame_num_adjusted = self.current_frame_num.get();
+    let image_available_sem = self
+      .draw_synchronization
+      .get_image_available_sem(current_frame_num_adjusted);
 
     // TODO OFFSCREEN handle drawing without swapchain.
     // Get next image to render to.
@@ -1502,7 +1504,9 @@ impl VulkanRenderer {
 
     // Make sure we wait on any fences for that swap chain image in flight.  Can't
     // write to a command buffer if it is in flight.
-    let fence = self.draw_synchronization.images_in_flight[image_index as usize].get();
+    let fence = self
+      .draw_synchronization
+      .get_image_fence(image_index as usize);
     if fence != vk::Fence::null() {
       unsafe {
         self
@@ -1855,7 +1859,10 @@ impl VulkanRenderer {
   //  Renderer Utility Methods
   // ================================================================================
   fn increment_frame_count(&self) {
-    self.current_frame_num.set(self.current_frame_num.get() + 1);
+    self.frame_count.set(self.frame_count.get() + 1);
+    self
+      .current_frame_num
+      .set((self.current_frame_num.get() + 1) % MAX_FRAMES_IN_FLIGHT);
   }
 }
 impl Renderer for VulkanRenderer {
@@ -1872,11 +1879,13 @@ impl Renderer for VulkanRenderer {
       return Ok(());
     }
 
-    let current_frame_num_adjusted = self.current_frame_num.get() % MAX_FRAMES_IN_FLIGHT;
-    let image_available_sem =
-      self.draw_synchronization.image_available_semaphores[current_frame_num_adjusted];
-    let render_finished_sem =
-      self.draw_synchronization.render_finished_semaphores[current_frame_num_adjusted];
+    let current_frame_num_adjusted = self.current_frame_num.get();
+    let image_available_sem = self
+      .draw_synchronization
+      .get_image_available_sem(current_frame_num_adjusted);
+    let render_finished_sem = self
+      .draw_synchronization
+      .get_render_finished_semaphore(current_frame_num_adjusted);
 
     let image_index = self.next_image_index.get();
     let current_command_buffer = self.primary_gfx_command_buffers[image_index as usize];
@@ -1894,11 +1903,14 @@ impl Renderer for VulkanRenderer {
     }
 
     // Wait for max images in flight.
-    self.draw_synchronization.ensure_images_not_in_flight(
+    let frame_fence = self.draw_synchronization.ensure_image_resources_ready(
       &self.logical_device,
       image_index as usize,
       current_frame_num_adjusted,
     )?;
+    self
+      .draw_synchronization
+      .set_image_to_in_flight_frame(image_index as usize, current_frame_num_adjusted);
 
     // Submit draw commands.
     let wait_semaphores = [image_available_sem];
@@ -1912,19 +1924,9 @@ impl Renderer for VulkanRenderer {
       .signal_semaphores(&signal_semaphores) // Signal we're done drawing when we are.
       .build();
     unsafe {
-      let current_fence = self.draw_synchronization.in_flight_fences[current_frame_num_adjusted];
-      if current_fence != vk::Fence::null() {
-        // Wait for swap chain image to be ready.
-        self
-          .logical_device
-          .wait_for_fences(&[current_fence], true, u64::max_value())?;
-        self.logical_device.reset_fences(&[current_fence])?;
-      }
-      self.logical_device.queue_submit(
-        self.queues.graphics_queue,
-        &[submit_info],
-        self.draw_synchronization.in_flight_fences[current_frame_num_adjusted],
-      )?
+      self
+        .logical_device
+        .queue_submit(self.queues.graphics_queue, &[submit_info], frame_fence)?
     };
 
     // TODO OFFSCREEN only if presenting to swapchain.
