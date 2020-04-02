@@ -197,7 +197,7 @@ where
 
   /// Load a buffer and allocate memory into the backend/GPU and return a
   /// handle.
-  pub fn load_buffer_with_staging<BufElem: Sized + Copy>(
+  pub(crate) fn load_buffer_with_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
@@ -224,7 +224,7 @@ where
     ))
   }
 
-  pub fn load_buffer_without_staging<BufElem: Sized + Copy>(
+  pub(crate) fn load_buffer_without_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
@@ -265,7 +265,7 @@ where
   }
 
   /// Same as `load_buffer_with_staging` but loads an r8b8g8a8 image instead.
-  pub fn load_image_with_staging_initialization(
+  pub(crate) fn load_image_with_staging_initialization(
     this: &Arc<RwLock<Self>>, pixels: impl ImageData,
     magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
@@ -304,7 +304,7 @@ where
   // TODO put lifetime in BufferOrImage
   /// Returns the handle to buffer or image and the backend buffer or image and
   /// memory.
-  pub fn create_uninitialized_image(
+  pub(crate) fn create_uninitialized_image(
     this: &Arc<RwLock<Self>>, dimensions: (u32, u32), format: ImageDataFormat,
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
@@ -374,7 +374,7 @@ where
 
   /// Does what it says on the tin, but for all the buffers.  See
   /// destroy_buffers.
-  pub fn destroy_all_images_and_buffers(&mut self) {
+  pub(crate) fn destroy_all_images_and_buffers(&mut self) {
     for resource in self.loaded_buffers_and_images.iter() {
       if let Err(err) = self
         .buffer_image_loader
