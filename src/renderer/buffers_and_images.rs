@@ -293,9 +293,12 @@ where
     })
   }
 
+  // TODO put lifetime in BufferOrImage
+  /// Returns the handle to buffer or image and the backend buffer or image and
+  /// memory.
   pub fn create_uninitialized_image(
     this: &Arc<RwLock<Self>>, dimensions: (u32, u32), format: ImageDataFormat,
-  ) -> SarektResult<BufferImageHandle<BL>> {
+  ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()
       .expect("Could not unlock BufferStore due to previous panic");
@@ -303,18 +306,20 @@ where
     let buffer_backend_handle = buffer_store
       .buffer_image_loader
       .create_uninitialized_image(dimensions, format)?;
+    let buffer_or_image = BufferOrImage::new(buffer_backend_handle, ResourceType::Image);
+
     let inner_key = buffer_store
       .loaded_buffers_and_images
-      .insert(BufferOrImage::new(
-        buffer_backend_handle,
-        ResourceType::Image,
-      ));
+      .insert(buffer_or_image);
 
-    Ok(BufferImageHandle {
-      inner_key,
-      resource_type: ResourceType::Image,
-      buffer_store: this.clone(),
-    })
+    Ok((
+      BufferImageHandle {
+        inner_key,
+        resource_type: ResourceType::Image,
+        buffer_store: this.clone(),
+      },
+      buffer_or_image,
+    ))
   }
 
   /// Same as `destroy_buffer` but for images.
@@ -380,7 +385,7 @@ where
 
 /// The Buffer in terms of its backend handle and the type of buffer.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct BufferOrImage<BackendHandle: BackendHandleTrait + Copy> {
+pub struct BufferOrImage<BackendHandle: BackendHandleTrait + Copy> {
   pub handle: BackendHandle,
   pub resource_type: ResourceType,
 }
