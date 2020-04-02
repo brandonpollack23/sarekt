@@ -1965,6 +1965,9 @@ impl Renderer for VulkanRenderer {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 
+  // TODO CRITICAL investigate the ability to allow all these to propogate up the
+  // backend handle as well to avoid having to load in drawable object, will this
+  // break the lifetime stuff?
   fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
