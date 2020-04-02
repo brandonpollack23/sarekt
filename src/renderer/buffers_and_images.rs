@@ -199,7 +199,7 @@ where
   /// handle.
   pub fn load_buffer_with_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<BufferImageHandle<BL>> {
+  ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()
       .expect("Could not unlock BufferStore due to previous panic");
@@ -207,23 +207,26 @@ where
     let buffer_backend_handle = buffer_store
       .buffer_image_loader
       .load_buffer_with_staging(buffer_type, buffer)?;
+    let buffer_or_image =
+      BufferOrImage::new(buffer_backend_handle, ResourceType::Buffer(buffer_type));
+
     let inner_key = buffer_store
       .loaded_buffers_and_images
-      .insert(BufferOrImage::new(
-        buffer_backend_handle,
-        ResourceType::Buffer(buffer_type),
-      ));
+      .insert(buffer_or_image);
 
-    Ok(BufferImageHandle {
-      inner_key,
-      resource_type: ResourceType::Buffer(buffer_type),
-      buffer_store: this.clone(),
-    })
+    Ok((
+      BufferImageHandle {
+        inner_key,
+        resource_type: ResourceType::Buffer(buffer_type),
+        buffer_store: this.clone(),
+      },
+      buffer_or_image,
+    ))
   }
 
   pub fn load_buffer_without_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<BufferImageHandle<BL>> {
+  ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()
       .expect("Could not unlock BufferStore due to previous panic");
@@ -231,18 +234,21 @@ where
     let buffer_backend_handle = buffer_store
       .buffer_image_loader
       .load_buffer_without_staging(buffer_type, buffer)?;
+    let buffer_or_image =
+      BufferOrImage::new(buffer_backend_handle, ResourceType::Buffer(buffer_type));
+
     let inner_key = buffer_store
       .loaded_buffers_and_images
-      .insert(BufferOrImage::new(
-        buffer_backend_handle,
-        ResourceType::Buffer(buffer_type),
-      ));
+      .insert(buffer_or_image);
 
-    Ok(BufferImageHandle {
-      inner_key,
-      resource_type: ResourceType::Buffer(buffer_type),
-      buffer_store: this.clone(),
-    })
+    Ok((
+      BufferImageHandle {
+        inner_key,
+        resource_type: ResourceType::Buffer(buffer_type),
+        buffer_store: this.clone(),
+      },
+      buffer_or_image,
+    ))
   }
 
   /// Destroy a buffer and free the memory associated with it from the
@@ -264,7 +270,7 @@ where
     magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode,
-  ) -> SarektResult<BufferImageHandle<BL>> {
+  ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()
       .expect("Could not unlock BufferStore due to previous panic");
@@ -279,18 +285,20 @@ where
         address_y,
         address_z,
       )?;
+    let buffer_or_image = BufferOrImage::new(buffer_backend_handle, ResourceType::Image);
+
     let inner_key = buffer_store
       .loaded_buffers_and_images
-      .insert(BufferOrImage::new(
-        buffer_backend_handle,
-        ResourceType::Image,
-      ));
+      .insert(buffer_or_image);
 
-    Ok(BufferImageHandle {
-      inner_key,
-      resource_type: ResourceType::Image,
-      buffer_store: this.clone(),
-    })
+    Ok((
+      BufferImageHandle {
+        inner_key,
+        resource_type: ResourceType::Image,
+        buffer_store: this.clone(),
+      },
+      buffer_or_image,
+    ))
   }
 
   // TODO put lifetime in BufferOrImage
