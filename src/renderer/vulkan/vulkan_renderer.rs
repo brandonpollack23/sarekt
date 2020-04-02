@@ -291,7 +291,8 @@ impl VulkanRenderer {
     let primary_gfx_command_buffers =
       Self::create_main_gfx_command_buffers(&logical_device, main_gfx_command_pool, &framebuffers)?;
 
-    let draw_synchronization = DrawSynchronization::new(&logical_device, render_targets.len())?;
+    let draw_synchronization =
+      DrawSynchronization::new(logical_device.clone(), render_targets.len())?;
 
     let main_descriptor_pools = Self::create_main_descriptor_pools(
       &instance,
@@ -1024,9 +1025,7 @@ impl VulkanRenderer {
       self.main_gfx_command_pool,
       vk::CommandPoolResetFlags::empty(),
     )?;
-    self
-      .draw_synchronization
-      .recreate_semaphores(&self.logical_device)?;
+    self.draw_synchronization.recreate_semaphores()?;
     self.setup_next_main_command_buffer()?;
 
     Ok(())
@@ -1040,9 +1039,7 @@ impl VulkanRenderer {
   /// * Framebuffers
   /// * Command Buffers.
   unsafe fn cleanup_swapchain(&self) -> SarektResult<()> {
-    self
-      .draw_synchronization
-      .wait_for_all_frames(&self.logical_device);
+    self.draw_synchronization.wait_for_all_frames()?;
 
     info!("Destroying descriptor pools...");
     for &desc_pool in self.main_descriptor_pools.iter() {
@@ -1475,6 +1472,8 @@ impl VulkanRenderer {
       .draw_synchronization
       .get_image_available_sem(current_frame_num);
 
+    self.draw_synchronization.wait_for_acquire_fence()?;
+    self.draw_synchronization.reset_acquire_fence()?;
     // TODO OFFSCREEN handle drawing without swapchain.
     // Get next image to render to.
     let (image_index, is_suboptimal) = unsafe {
@@ -1486,7 +1485,7 @@ impl VulkanRenderer {
           self.swapchain_and_extension.swapchain,
           u64::max_value(),
           image_available_sem,
-          vk::Fence::null(),
+          self.draw_synchronization.get_acquire_fence(),
         )?
     };
     if is_suboptimal {
@@ -1903,11 +1902,9 @@ impl Renderer for VulkanRenderer {
     }
 
     // Wait for max images in flight.
-    let frame_fence = self.draw_synchronization.ensure_image_resources_ready(
-      &self.logical_device,
-      image_index as usize,
-      current_frame_num,
-    )?;
+    let frame_fence = self
+      .draw_synchronization
+      .ensure_image_resources_ready(image_index as usize, current_frame_num)?;
     self
       .draw_synchronization
       .set_image_to_in_flight_frame(image_index as usize, current_frame_num);
@@ -2063,6 +2060,8 @@ impl Renderer for VulkanRenderer {
   fn set_uniform<BufElem: Sized + Copy>(
     &self, handle_data: &Vec<BufferAndMemoryMapped>, data: &BufElem,
   ) -> SarektResult<()> {
+    self.draw_synchronization.wait_for_acquire_fence()?;
+
     let next_image_index = self.next_image_index.get();
     unsafe {
       let ptr = handle_data[next_image_index].ptr as *mut BufElem;
@@ -2180,7 +2179,7 @@ impl Drop for VulkanRenderer {
         }
       }
 
-      self.draw_synchronization.destroy_all(&self.logical_device);
+      self.draw_synchronization.destroy_all();
 
       info!("Destroying all command pools...");
       self

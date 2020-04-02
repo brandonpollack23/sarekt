@@ -1,12 +1,14 @@
 use crate::{error::SarektResult, renderer::MAX_FRAMES_IN_FLIGHT};
 use ash::{version::DeviceV1_0, vk, Device};
 use log::info;
-use std::cell::Cell;
+use std::{cell::Cell, sync::Arc};
 
 /// Draw synchronization primitives for frames in flight and synchronizing
 /// between acquiring images, presenting them.
 /// Also contains some helper methods.
 pub struct DrawSynchronization {
+  logical_device: Arc<Device>,
+  acquire_fence: vk::Fence,
   image_available_semaphores: Vec<vk::Semaphore>,
   render_finished_semaphores: Vec<vk::Semaphore>,
   frame_fences: Vec<vk::Fence>,
@@ -16,7 +18,7 @@ pub struct DrawSynchronization {
   image_to_frame_fence: Vec<Cell<vk::Fence>>,
 }
 impl DrawSynchronization {
-  pub fn new(logical_device: &Device, num_render_targets: usize) -> SarektResult<Self> {
+  pub fn new(logical_device: Arc<Device>, num_render_targets: usize) -> SarektResult<Self> {
     let semaphore_ci = vk::SemaphoreCreateInfo::default();
     let fence_ci = vk::FenceCreateInfo::builder()
       .flags(vk::FenceCreateFlags::SIGNALED)
@@ -32,12 +34,37 @@ impl DrawSynchronization {
       }
     }
 
+    let acquire_fence = unsafe { logical_device.create_fence(&fence_ci, None)? };
+
     Ok(Self {
+      logical_device,
+      acquire_fence,
       image_available_semaphores,
       render_finished_semaphores,
       frame_fences: in_flight_fences,
       image_to_frame_fence: vec![Cell::new(vk::Fence::null()); num_render_targets],
     })
+  }
+
+  /// Returns fence used for image acquisition for swapchain.
+  pub fn get_acquire_fence(&self) -> vk::Fence {
+    self.acquire_fence
+  }
+
+  /// Waits for the image and its associated objects to be ready to be written
+  /// to.
+  pub fn wait_for_acquire_fence(&self) -> SarektResult<()> {
+    unsafe {
+      Ok(
+        self
+          .logical_device
+          .wait_for_fences(&[self.acquire_fence], true, u64::max_value())?,
+      )
+    }
+  }
+
+  pub fn reset_acquire_fence(&self) -> SarektResult<()> {
+    unsafe { Ok(self.logical_device.reset_fences(&[self.acquire_fence])?) }
   }
 
   /// Returns fence associated with swapchain image, with bounds checking.
@@ -71,7 +98,7 @@ impl DrawSynchronization {
   ///
   /// Returns the frame fence to submit the next queue with.
   pub fn ensure_image_resources_ready(
-    &self, logical_device: &Device, image_index: usize, current_frame_num: usize,
+    &self, image_index: usize, current_frame_num: usize,
   ) -> SarektResult<vk::Fence> {
     if current_frame_num >= MAX_FRAMES_IN_FLIGHT || image_index >= self.image_to_frame_fence.len() {
       panic!(
@@ -84,7 +111,9 @@ impl DrawSynchronization {
       // Wait for swapchain image resources to be ready.
       let image_fence = self.image_to_frame_fence[image_index as usize].get();
       if image_fence != vk::Fence::null() {
-        logical_device.wait_for_fences(&[image_fence], true, u64::max_value())?;
+        self
+          .logical_device
+          .wait_for_fences(&[image_fence], true, u64::max_value())?;
       }
 
       // Wait for the frame in flight to be ready (there are a max number of frames in
@@ -92,10 +121,12 @@ impl DrawSynchronization {
       let frame_fence = self.frame_fences[current_frame_num];
       if frame_fence != image_fence {
         // Wait for swap chain image to be ready.
-        logical_device.wait_for_fences(&[frame_fence], true, u64::max_value())?;
+        self
+          .logical_device
+          .wait_for_fences(&[frame_fence], true, u64::max_value())?;
       }
 
-      logical_device.reset_fences(&[frame_fence])?;
+      self.logical_device.reset_fences(&[frame_fence])?;
 
       Ok(frame_fence)
     }
@@ -113,39 +144,47 @@ impl DrawSynchronization {
   }
 
   /// Waits for all the in flight frames, ie device idle.
-  pub fn wait_for_all_frames(&self, logical_device: &Device) -> SarektResult<()> {
-    unsafe { Ok(logical_device.wait_for_fences(&self.frame_fences, true, u64::max_value())?) }
+  pub fn wait_for_all_frames(&self) -> SarektResult<()> {
+    unsafe {
+      Ok(
+        self
+          .logical_device
+          .wait_for_fences(&self.frame_fences, true, u64::max_value())?,
+      )
+    }
   }
 
   /// Makes new semaphores for draw synchronization.  Useful for swapchain
   /// recreation.
   ///
   /// Unsafe because they must not be in use.
-  pub unsafe fn recreate_semaphores(&mut self, logical_device: &Device) -> SarektResult<()> {
+  pub unsafe fn recreate_semaphores(&mut self) -> SarektResult<()> {
     let semaphore_ci = vk::SemaphoreCreateInfo::default();
     for i in 0..MAX_FRAMES_IN_FLIGHT {
       let to_destroy = self.image_available_semaphores[i];
-      self.image_available_semaphores[i] = logical_device.create_semaphore(&semaphore_ci, None)?;
-      logical_device.destroy_semaphore(to_destroy, None);
+      self.image_available_semaphores[i] =
+        self.logical_device.create_semaphore(&semaphore_ci, None)?;
+      self.logical_device.destroy_semaphore(to_destroy, None);
 
       let to_destroy = self.render_finished_semaphores[i];
-      self.render_finished_semaphores[i] = logical_device.create_semaphore(&semaphore_ci, None)?;
-      logical_device.destroy_semaphore(to_destroy, None);
+      self.render_finished_semaphores[i] =
+        self.logical_device.create_semaphore(&semaphore_ci, None)?;
+      self.logical_device.destroy_semaphore(to_destroy, None);
     }
 
     Ok(())
   }
 
-  pub unsafe fn destroy_all(&self, logical_device: &Device) {
+  pub unsafe fn destroy_all(&self) {
     info!("Destroying all synchronization primitives...");
     for &sem in self.image_available_semaphores.iter() {
-      logical_device.destroy_semaphore(sem, None);
+      self.logical_device.destroy_semaphore(sem, None);
     }
     for &sem in self.render_finished_semaphores.iter() {
-      logical_device.destroy_semaphore(sem, None);
+      self.logical_device.destroy_semaphore(sem, None);
     }
     for &fence in self.frame_fences.iter() {
-      logical_device.destroy_fence(fence, None);
+      self.logical_device.destroy_fence(fence, None);
     }
   }
 }
