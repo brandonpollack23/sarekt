@@ -3,8 +3,9 @@ use crate::{
   image_data::{ImageData, Monocolor},
   renderer::{
     buffers_and_images::{
-      BufferAndImageLoader, BufferImageHandle, BufferImageStore, BufferType, IndexBufferElemSize,
-      MagnificationMinificationFilter, ResourceType, TextureAddressMode, UniformBufferHandle,
+      BufferAndImageLoader, BufferImageHandle, BufferImageStore, BufferOrImage, BufferType,
+      IndexBufferElemSize, MagnificationMinificationFilter, ResourceType, TextureAddressMode,
+      UniformBufferHandle,
     },
     drawable_object::DrawableObject,
     shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
@@ -117,7 +118,10 @@ pub struct VulkanRenderer {
   buffer_image_store: ManuallyDrop<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>>,
 
   // Null objects for default pipeline.
-  default_texture: Option<BufferImageHandle<VulkanBufferFunctions>>,
+  default_texture: Option<(
+    BufferImageHandle<VulkanBufferFunctions>,
+    BufferOrImage<ResourceWithMemory>,
+  )>,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -1774,8 +1778,11 @@ impl VulkanRenderer {
         .build(),
       None => {
         let default_texture = self
-          .get_image(self.default_texture.as_ref().unwrap())
+          .default_texture
+          .as_ref()
           .unwrap()
+          .1
+          .handle
           .image()
           .unwrap();
         vk::DescriptorImageInfo::builder()
@@ -1840,7 +1847,7 @@ impl VulkanRenderer {
   //  Null object setup methods
   // ================================================================================
   fn create_default_texture(&mut self) {
-    let image_handle = BufferImageStore::load_image_with_staging_initialization(
+    let image_and_handle = BufferImageStore::load_image_with_staging_initialization(
       &self.buffer_image_store,
       Monocolor::clear(),
       MagnificationMinificationFilter::Nearest,
@@ -1851,7 +1858,7 @@ impl VulkanRenderer {
     )
     .unwrap();
 
-    self.default_texture = Some(image_handle);
+    self.default_texture = Some(image_and_handle);
   }
 
   // ================================================================================
@@ -1965,7 +1972,7 @@ impl Renderer for VulkanRenderer {
       return Err(SarektError::IncorrectLoaderFunction);
     }
 
-    BufferImageStore::load_buffer_with_staging(&self.buffer_image_store, buffer_type, buffer)
+    Ok(BufferImageStore::load_buffer_with_staging(&self.buffer_image_store, buffer_type, buffer)?.0)
   }
 
   fn load_image_with_staging_initialization(
@@ -1973,14 +1980,17 @@ impl Renderer for VulkanRenderer {
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode,
   ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
-    BufferImageStore::load_image_with_staging_initialization(
-      &self.buffer_image_store,
-      pixels,
-      magnification_filter,
-      minification_filter,
-      address_x,
-      address_y,
-      address_z,
+    Ok(
+      BufferImageStore::load_image_with_staging_initialization(
+        &self.buffer_image_store,
+        pixels,
+        magnification_filter,
+        minification_filter,
+        address_x,
+        address_y,
+        address_z,
+      )?
+      .0,
     )
   }
 
@@ -2010,12 +2020,12 @@ impl Renderer for VulkanRenderer {
     for _ in 0..self.framebuffers.len() {
       // TODO PERFORMANCE EASY create a "locked" version of the loading function
       // so I don't have to keep reacquiring it.
-      let uniform_buffer = BufferImageStore::load_buffer_without_staging(
+      let (uniform_buffer_handle, _) = BufferImageStore::load_buffer_without_staging(
         &self.buffer_image_store,
         BufferType::Uniform,
         &[buffer],
       )?;
-      uniform_buffers.push(uniform_buffer);
+      uniform_buffers.push(uniform_buffer_handle);
     }
 
     Ok(UniformBufferHandle::new(uniform_buffers))
