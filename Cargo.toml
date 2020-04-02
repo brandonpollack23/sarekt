@@ -38,6 +38,10 @@ path = "examples/05_uniform_buffers.rs"
 name = "06_textures"
 path = "examples/06_textures.rs"
 
+[[example]]
+name = "07_depth_buffer_test"
+path = "examples/07_depth_buffer_test.rs"
+
 [dependencies]
 ash = "0.30.0"
 ash-window = "0.3.0"
