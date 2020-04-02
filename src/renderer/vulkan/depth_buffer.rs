@@ -31,6 +31,8 @@ impl DepthResources {
     // the backend handle?
     // TODO NOW once thats done double check how null texture is loaded and change
     // it up :)
+    // TODO NOW any other places that a relock could be avoided, there is a TODO
+    // somewhere.
     let image_and_memory = buffer_image_store
       .read()
       .unwrap()
