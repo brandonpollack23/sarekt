@@ -24,8 +24,10 @@ impl DepthResources {
     buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>, extent: (u32, u32),
   ) -> SarektResult<DepthResources> {
     let format = Self::find_depth_format(instance, physical_device)?;
-    let depth_buffer_image_handle =
+    let (depth_buffer_image_handle, buffer_or_image) =
       BufferImageStore::create_uninitialized_image(buffer_image_store, extent, format.try_into()?)?;
+
+    let image_and_memory = buffer_or_image.handle.image().unwrap();
 
     // TODO NOW dont relock make create/load functions return the handle and
     // the backend handle?
@@ -33,13 +35,6 @@ impl DepthResources {
     // it up :)
     // TODO NOW any other places that a relock could be avoided, there is a TODO
     // somewhere.
-    let image_and_memory = buffer_image_store
-      .read()
-      .unwrap()
-      .get_image(&depth_buffer_image_handle)?
-      .handle
-      .image()
-      .unwrap();
 
     Ok(DepthResources {
       depth_buffer_image_handle,
