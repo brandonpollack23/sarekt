@@ -13,6 +13,7 @@ use sarekt::{
     Drawer, Renderer, VulkanRenderer,
   },
 };
+use static_assertions::_core::time::Duration;
 use std::{error::Error, f32, sync::Arc, time::Instant};
 use ultraviolet as uv;
 use winit::{
@@ -109,9 +110,14 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
 
   let args: Vec<String> = std::env::args().collect();
   let enable_colors = args.contains(&"colors".to_owned());
+  let show_fps = args.contains(&"fps".to_owned());
   info!("Colors enabled: {}", enable_colors);
+  info!("Show FPS: {}", show_fps);
 
   let start_time = Instant::now();
+  let mut last_frame_time = start_time;
+  let mut frame_number = 0;
+  let mut fps_average = 0f32;
 
   let mut camera_height = 0.5f32;
 
@@ -127,6 +133,23 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
         // engine state update etc.)
         let now = Instant::now();
         let time_since_start_secs = ((now - start_time).as_millis() as f32) / 1000f32;
+
+        if show_fps {
+          let time_since_last_frame_secs = ((now - last_frame_time).as_nanos() as f32) / 1e9f32;
+          let fps = 1f32 / time_since_last_frame_secs;
+          if frame_number == 0 {
+            fps_average = 0f32;
+          } else {
+            fps_average =
+              ((frame_number as f32 * fps_average) + fps) / (frame_number as f32 + 1f32);
+          }
+          frame_number += 1;
+
+          info!("Frame Period: {}", time_since_last_frame_secs);
+          info!("FPS: {}", fps);
+          info!("FPS averaged: {}", fps_average);
+          last_frame_time = now;
+        }
 
         // Rise to max height then gently go back down.
         let camera_rate = 0.5f32;
@@ -176,8 +199,10 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
 
         // TODO NOW LAST test descriptor tests by making 32/3 + 1 of these and make sure
         // it works.
+        for _ in 0..100 {
+          renderer.draw(&rect3).unwrap();
+        }
 
-        renderer.draw(&rect3).unwrap();
         renderer.draw(&rect2).unwrap();
         renderer.draw(&rect).unwrap();
 
