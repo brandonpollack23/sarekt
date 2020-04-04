@@ -1690,12 +1690,9 @@ impl Drop for VulkanRenderer {
       self.buffer_image_store.write().unwrap().cleanup().unwrap();
       ManuallyDrop::drop(&mut self.buffer_image_store);
 
-      // TODO NOW FIX
-      info!(
-        "Destroying VMA which has {}s references...",
-        Arc::strong_count(&self.allocator)
-      );
-      Arc::get_mut(&mut self.allocator).unwrap().destroy();
+      info!("Destroying VMA...");
+      // Safe to do because the above buffer image store frees all the memory.
+      Arc::get_mut_unchecked(&mut self.allocator).destroy();
 
       // TODO MULTITHREADING do I need to free others?
       info!("Freeing main command buffer...");
