@@ -13,7 +13,6 @@ use sarekt::{
     Drawer, Renderer, VulkanRenderer,
   },
 };
-use static_assertions::_core::time::Duration;
 use std::{error::Error, f32, sync::Arc, time::Instant};
 use ultraviolet as uv;
 use winit::{
@@ -170,7 +169,6 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
           rotation,
           camera_height,
           enable_colors,
-          time_since_start_secs,
           ar,
         )
         .unwrap();
@@ -181,7 +179,6 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
           -rotation,
           camera_height,
           enable_colors,
-          time_since_start_secs,
           ar,
         )
         .unwrap();
@@ -192,7 +189,6 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
           -rotation,
           camera_height,
           enable_colors,
-          time_since_start_secs,
           ar,
         )
         .unwrap();
@@ -244,8 +240,7 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
 
 fn update_uniforms(
   renderer: &VulkanRenderer, rect: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
-  position: uv::Vec3, rotation: f32, camera_height: f32, enable_colors: bool,
-  time_since_start_secs: f32, ar: f32,
+  position: uv::Vec3, rotation: f32, camera_height: f32, enable_colors: bool, ar: f32,
 ) -> SarektResult<()> {
   // Pi radians per second around the z axis.
   let model_matrix = uv::Mat4::from_translation(position) * uv::Mat4::from_rotation_y(rotation);

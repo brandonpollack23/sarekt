@@ -2,12 +2,11 @@ use crate::{
   error::{SarektError, SarektResult},
   renderer::{
     buffers_and_images::{BufferImageHandle, BufferImageStore},
-    vulkan::vulkan_buffer_image_functions::{ImageAndMemory, ResourceWithMemory},
+    vulkan::vulkan_buffer_image_functions::ImageAndMemory,
     VulkanBufferFunctions,
   },
 };
-use ash::{version::InstanceV1_0, vk, Device, Instance};
-use log::info;
+use ash::{version::InstanceV1_0, vk, Instance};
 use std::{
   convert::TryInto,
   sync::{Arc, RwLock},
