@@ -1,3 +1,7 @@
+mod debug_utils_ext;
+mod surface;
+mod vulkan_core;
+
 use crate::{
   error::{SarektError, SarektResult},
   image_data::{ImageData, Monocolor},
@@ -8,27 +12,27 @@ use crate::{
       UniformBufferHandle,
     },
     drawable_object::DrawableObject,
-    shaders::{ShaderCode, ShaderHandle, ShaderStore, ShaderType},
+    shaders::ShaderStore,
     vertex_bindings::{
       DefaultForwardShaderLayout, DefaultForwardShaderVertex, DescriptorLayoutInfo, VertexBindings,
     },
     vulkan::{
       base_pipeline_bundle::BasePipelineBundle,
-      debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
       depth_buffer::DepthResources,
       draw_synchronization::DrawSynchronization,
       images::ImageAndView,
       queues::{QueueFamilyIndices, Queues},
-      surface::SurfaceAndExtension,
       swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
-      vulkan_buffer_image_functions::{
-        BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory, VulkanBufferFunctions,
+      vulkan_buffer_image_functions::{BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory},
+      vulkan_renderer::{
+        debug_utils_ext::DebugUserData, surface::SurfaceAndExtension,
+        vulkan_core::VulkanCoreStructures,
       },
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
     },
-    ApplicationDetails, Drawer, EngineDetails, Renderer, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
-    MAX_FRAMES_IN_FLIGHT,
+    ApplicationDetails, Drawer, EngineDetails, Renderer, ShaderCode, ShaderHandle, ShaderType,
+    VulkanBufferFunctions, MAX_FRAMES_IN_FLIGHT,
   },
 };
 use ash::{
@@ -38,7 +42,6 @@ use ash::{
   vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, Extent2D, Offset2D},
   Device, Entry, Instance,
 };
-use lazy_static::lazy_static;
 use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use static_assertions::_core::mem::ManuallyDrop;
@@ -61,19 +64,10 @@ pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.
 /// the future.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
-lazy_static! {
-  static ref VALIDATION_LAYERS: Vec<CString> =
-    vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
-}
-
 // TODO NOW AFTER seperate sections into sub files, like now depth_buffer is.
 /// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
-  // Base vulkan items, driver loader, instance, extensions.
-  _entry: Entry,
-  instance: Arc<Instance>,
-  debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
-  surface_and_extension: SurfaceAndExtension, // TODO OFFSCREEN option
+  vulkan_core: ManuallyDrop<VulkanCoreStructures>,
 
   // Device related fields
   #[allow(dead_code)]
@@ -160,62 +154,37 @@ impl VulkanRenderer {
     application_details: ApplicationDetails, engine_details: EngineDetails,
     debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> SarektResult<Self> {
-    // TODO OFFSCREEN Support rendering to a non window surface if window is None
-    // (change it to an Enum of WindowHandle or OtherSurface).
-    info!("Creating Sarekt Renderer with Vulkan Backend...");
-
     let window = window
       .into()
       .expect("Sarekt only supports rendering to a window right now :(");
 
-    // Load vulkan driver dynamic library and populate functions.
-    let entry = ash::Entry::new().expect("Failed to load dynamic library and create Vulkan Entry");
+    // TODO OFFSCREEN Support rendering to a non window surface if window is None
+    // (change it to an Enum of WindowHandle or OtherSurface).
+    info!("Creating Sarekt Renderer with Vulkan Backend...");
 
-    // Create client side vulkan instance.
-    let instance = Self::create_instance(
-      &entry,
+    let vulkan_core = ManuallyDrop::new(VulkanCoreStructures::new(
       window.as_ref(),
-      application_details.name,
-      application_details.get_u32_version(),
-      engine_details.name,
-      engine_details.get_u32_version(),
+      application_details,
+      engine_details,
+      debug_user_data,
+    )?);
+
+    let physical_device =
+      Self::pick_physical_device(&vulkan_core.instance, &vulkan_core.surface_and_extension)?;
+
+    let (logical_device, queue_families, queues) = Self::create_logical_device_and_queues(
+      &vulkan_core.instance,
+      physical_device,
+      &vulkan_core.surface_and_extension,
     )?;
-
-    // Only setup the debug utils extension and callback messenger if we are in
-    // debug mode.
-    let debug_utils_and_messenger = if IS_DEBUG_MODE {
-      Some(Self::setup_debug_callback_messenger(
-        &entry,
-        &instance,
-        debug_user_data,
-      ))
-    } else {
-      None
-    };
-
-    // TODO OFFSCREEN only create surface and swapchain if window was
-    // passed, otherwise make images directly.
-    // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
-    // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
-    let surface =
-      unsafe { ash_window::create_surface(&entry, instance.as_ref(), window.as_ref(), None)? };
-    let surface_and_extension = SurfaceAndExtension::new(
-      surface,
-      ash::extensions::khr::Surface::new(&entry, instance.as_ref()),
-    );
-
-    let physical_device = Self::pick_physical_device(&instance, &surface_and_extension)?;
-
-    let (logical_device, queue_families, queues) =
-      Self::create_logical_device_and_queues(&instance, physical_device, &surface_and_extension)?;
 
     // TODO OFFSCREEN only create if drawing to window, get format and extent
     // elsewhere.
     let swapchain_extension =
-      ash::extensions::khr::Swapchain::new(instance.as_ref(), logical_device.as_ref());
+      ash::extensions::khr::Swapchain::new(vulkan_core.instance.as_ref(), logical_device.as_ref());
     let (swapchain, format, extent) = Self::create_swap_chain(
-      &instance,
-      &surface_and_extension,
+      &vulkan_core.instance,
+      &vulkan_core.surface_and_extension,
       &swapchain_extension,
       physical_device,
       requested_width,
@@ -238,14 +207,14 @@ impl VulkanRenderer {
     )?;
 
     let (main_gfx_command_pool, transfer_command_pool) = Self::create_primary_command_pools(
-      &instance,
+      &vulkan_core.instance,
       physical_device,
-      &surface_and_extension,
+      &vulkan_core.surface_and_extension,
       &logical_device,
     )?;
 
     let allocator = Self::create_memory_allocator(
-      instance.as_ref().clone(),
+      vulkan_core.instance.as_ref().clone(),
       physical_device,
       logical_device.as_ref().clone(),
     )?;
@@ -253,7 +222,7 @@ impl VulkanRenderer {
 
     // TODO MULTITHREADING all graphics command pools needed here to specify
     // concurrent access.
-    let buffer_store = Self::create_buffer_image_store(
+    let buffer_image_store = ManuallyDrop::new(Self::create_buffer_image_store(
       &logical_device,
       &allocator,
       queue_families.graphics_queue_family.unwrap(),
@@ -262,13 +231,13 @@ impl VulkanRenderer {
       queues.transfer_queue,
       main_gfx_command_pool,
       queues.graphics_queue,
-    )?;
+    )?);
 
     // TODO RENDERING_CAPABILITIES support other render pass types.
     let depth_buffer = DepthResources::new(
-      &instance,
+      &vulkan_core.instance,
       physical_device,
-      &buffer_store,
+      &buffer_image_store,
       (extent.width, extent.height),
     )?;
     let forward_render_pass =
@@ -299,17 +268,14 @@ impl VulkanRenderer {
       DrawSynchronization::new(logical_device.clone(), render_targets.len())?;
 
     let main_descriptor_pools = Self::create_main_descriptor_pools(
-      &instance,
+      &vulkan_core.instance,
       physical_device,
       &logical_device,
       &render_targets,
     )?;
 
     let mut renderer = Self {
-      _entry: entry,
-      instance,
-      debug_utils_and_messenger,
-      surface_and_extension,
+      vulkan_core,
       physical_device,
       logical_device,
       queues,
@@ -336,7 +302,7 @@ impl VulkanRenderer {
 
       allocator,
       shader_store,
-      buffer_image_store: ManuallyDrop::new(buffer_store),
+      buffer_image_store,
 
       default_texture: None,
     };
@@ -352,138 +318,6 @@ impl VulkanRenderer {
 }
 /// Private implementation details.
 impl VulkanRenderer {
-  // ================================================================================
-  //  Instance Creation
-  // ================================================================================
-  /// Creates an instance of the Vulkan client side driver given the raw handle.
-  /// Currently Sarekt doesn't support drawing to anything but a presentable
-  /// window surface.
-  fn create_instance<W: HasRawWindowHandle>(
-    entry: &Entry, window: &W, application_name: &str, application_version: u32, engine_name: &str,
-    engine_version: u32,
-  ) -> SarektResult<Arc<Instance>> {
-    // TODO Detect vulkan versions available?
-    let app_info = vk::ApplicationInfo::builder()
-      .application_name(CString::new(application_name)?.as_c_str())
-      .application_version(application_version)
-      .engine_name(CString::new(engine_name)?.as_c_str())
-      .engine_version(engine_version)
-      .api_version(ash::vk::make_version(1, 2, 131))
-      .build();
-
-    let mut layer_names: Vec<_> = Vec::new(); // Will not alloc until stuff put in, so no problem.
-    unsafe {
-      if ENABLE_VALIDATION_LAYERS {
-        assert!(
-          Self::check_validation_layer_support(entry),
-          "The requested validation layers were not available!"
-        );
-        layer_names = VALIDATION_LAYERS.iter().map(|name| name.as_ptr()).collect();
-      }
-    }
-
-    let extension_names = Self::get_required_extensions(window)?;
-    unsafe {
-      if IS_DEBUG_MODE {
-        Self::log_extensions_dialog(entry, &extension_names);
-      }
-    }
-    let extension_names: Vec<_> = extension_names
-      .iter()
-      .map(|&ext| ext.as_ptr() as *const i8)
-      .collect();
-
-    let mut debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-      .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
-      .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
-      .pfn_user_callback(Some(DebugUtilsAndMessenger::debug_callback))
-      .build();
-
-    let instance_create_info = vk::InstanceCreateInfo::builder()
-      .application_info(&app_info)
-      .enabled_layer_names(&layer_names)
-      .enabled_extension_names(&extension_names)
-      .push_next(&mut debug_create_info)
-      .build();
-
-    let instance = unsafe { entry.create_instance(&instance_create_info, None) }?;
-    Ok(Arc::new(instance))
-  }
-
-  // ================================================================================
-  //  Instance Helper Methods
-  // ================================================================================
-  /// Returns all extension needed for this renderer, depending on windowing
-  /// system (or lack thereof) etc.
-  fn get_required_extensions<W: HasRawWindowHandle>(window: &W) -> SarektResult<Vec<&CStr>> {
-    // Includes VK_KHR_Surface and
-    // VK_KHR_Win32_Surface/VK_KHR_xcb_surface/
-    // VK_GGP_stream_descriptor_surface(stadia)
-    let mut extensions = ash_window::enumerate_required_extensions(window)?;
-
-    if IS_DEBUG_MODE {
-      extensions.push(DebugUtils::name());
-    }
-
-    Ok(extensions)
-  }
-
-  /// Checks if all the validation layers specified are supported supported in
-  /// this machine.
-  unsafe fn check_validation_layer_support(entry: &Entry) -> bool {
-    let available_layers: Vec<_> = entry
-      .enumerate_instance_layer_properties()
-      .expect("Unable to enumerate layers")
-      .iter()
-      .map(|layer| CStr::from_ptr(layer.layer_name.as_ptr()).to_owned())
-      .collect();
-
-    info!(
-      "Supported Layers:\n\t{:?}\nRequested Layers:\n\t{:?}",
-      available_layers,
-      VALIDATION_LAYERS
-        .iter()
-        .map(|vl| vl.to_str().unwrap())
-        .collect::<Vec<_>>()
-    );
-
-    VALIDATION_LAYERS
-      .iter()
-      .map(|requested_layer| available_layers.contains(&requested_layer))
-      .all(|b| b)
-  }
-
-  /// Logs extensions that are available and what was requested.
-  unsafe fn log_extensions_dialog(entry: &Entry, extension_names: &[&CStr]) {
-    let available_extensions: Vec<CString> = entry
-      .enumerate_instance_extension_properties()
-      .expect("Couldn't enumerate extensions")
-      .iter_mut()
-      .map(|e| CStr::from_ptr(e.extension_name.as_mut_ptr()).to_owned())
-      .collect();
-    info!(
-      "Available Instance Extensions:\n\t{:?}\nRequested Instance Extensions:\n\t{:?}\n",
-      available_extensions, extension_names
-    );
-  }
-
-  // ================================================================================
-  //  Debug Extension Helper Methods.
-  // ================================================================================
-  /// Creates a debug messenger within the VK_EXT_debug_utils extension that
-  /// counts number of errors, warnings, and info messages and logs them using the [log](https://www.crates.io/crate/log) crate.
-  fn setup_debug_callback_messenger(
-    entry: &Entry, instance: &Instance, debug_user_data: Option<Pin<Arc<DebugUserData>>>,
-  ) -> DebugUtilsAndMessenger {
-    DebugUtilsAndMessenger::new(
-      entry,
-      instance,
-      DebugUtilsMessageSeverityFlagsEXT::all(),
-      DebugUtilsMessageTypeFlagsEXT::all(),
-      debug_user_data,
-    )
-  }
-
   // ================================================================================
   //  Physical Device Helper Methods
   // ================================================================================
@@ -932,9 +766,9 @@ impl VulkanRenderer {
   ///
   /// TODO MAYBE put everything that may need to be recreated in a cell?
   unsafe fn do_recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
-    let instance = &self.instance;
+    let instance = &self.vulkan_core.instance;
+    let surface_and_extension = &self.vulkan_core.surface_and_extension;
     let logical_device = &self.logical_device;
-    let surface_and_extension = &self.surface_and_extension;
     let physical_device = self.physical_device;
     let old_swapchain = self.swapchain_and_extension.swapchain;
     let swapchain_extension = &self.swapchain_and_extension.swapchain_functions;
@@ -2207,24 +2041,10 @@ impl Drop for VulkanRenderer {
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
 
-      // TODO OFFSCREEN if there is one
-      info!("Destrying surface...");
-      let surface_functions = &self.surface_and_extension.surface_functions;
-      let surface = self.surface_and_extension.surface;
-      surface_functions.destroy_surface(surface, None);
-
       info!("Destrying logical device...");
       self.logical_device.destroy_device(None);
 
-      info!("Destroying debug messenger...");
-      if let Some(dbum) = &self.debug_utils_and_messenger {
-        dbum
-          .debug_utils
-          .destroy_debug_utils_messenger(dbum.messenger, None);
-      }
-
-      info!("Destroying renderer...");
-      self.instance.destroy_instance(None);
+      ManuallyDrop::drop(&mut self.vulkan_core);
     }
   }
 }
@@ -2232,8 +2052,8 @@ impl Drop for VulkanRenderer {
 #[cfg(test)]
 mod tests {
   use crate::renderer::{
-    vulkan::debug_utils_ext::DebugUserData, ApplicationDetails, EngineDetails, Version,
-    VulkanRenderer, IS_DEBUG_MODE,
+    vulkan::{debug_utils_ext::DebugUserData, vulkan_renderer::debug_utils_ext::DebugUserData},
+    ApplicationDetails, EngineDetails, Version, VulkanRenderer, IS_DEBUG_MODE,
   };
   use log::Level;
   use std::{pin::Pin, sync::Arc};
