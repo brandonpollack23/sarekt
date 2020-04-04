@@ -68,7 +68,6 @@ pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
 pub struct VulkanRenderer {
-  // TODO NOW any subfunctionable things?
   vulkan_core: ManuallyDrop<VulkanCoreStructures>,
   vulkan_device_structures: ManuallyDrop<VulkanDeviceStructures>,
 
