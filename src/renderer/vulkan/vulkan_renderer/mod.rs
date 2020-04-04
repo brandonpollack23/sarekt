@@ -21,12 +21,13 @@ use crate::{
       depth_buffer::DepthResources,
       draw_synchronization::DrawSynchronization,
       images::ImageAndView,
-      queues::{QueueFamilyIndices, Queues},
-      swap_chain::{SwapchainAndExtension, SwapchainSupportDetails},
+      queues::QueueFamilyIndices,
+      swap_chain::SwapchainAndExtension,
       vulkan_buffer_image_functions::{BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory},
       vulkan_renderer::{
-        debug_utils_ext::DebugUserData, surface::SurfaceAndExtension,
-        vulkan_core::VulkanCoreStructures,
+        debug_utils_ext::DebugUserData,
+        surface::SurfaceAndExtension,
+        vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
       },
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
@@ -36,19 +37,17 @@ use crate::{
   },
 };
 use ash::{
-  extensions::ext::DebugUtils,
-  version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
+  version::{DeviceV1_0, InstanceV1_0},
   vk,
-  vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, Extent2D, Offset2D},
-  Device, Entry, Instance,
+  vk::{Extent2D, Offset2D},
+  Device, Instance,
 };
 use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use static_assertions::_core::mem::ManuallyDrop;
 use std::{
   cell::Cell,
-  ffi::{CStr, CString},
-  os::raw::c_char,
+  ffi::CStr,
   pin::Pin,
   sync::{Arc, RwLock},
 };
@@ -64,21 +63,15 @@ pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.
 /// the future.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
-// TODO NOW AFTER seperate sections into sub files, like now depth_buffer is.
-/// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   vulkan_core: ManuallyDrop<VulkanCoreStructures>,
+  vulkan_device_structures: ManuallyDrop<VulkanDeviceStructures>,
 
-  // Device related fields
-  #[allow(dead_code)]
-  physical_device: vk::PhysicalDevice,
-  logical_device: Arc<Device>,
-  #[allow(dead_code)]
-  queues: Queues,
-
+  // TODO NOW AFTER seperate sections into sub files, like now depth_buffer is.
+  /// The Sarekt Vulkan Renderer, see module level documentation for details.
   // Rendering related.
   swapchain_and_extension: SwapchainAndExtension, // TODO OFFSCREEN option
-  render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
+  render_targets: Vec<ImageAndView>, // aka SwapChainImages if presenting.
   extent: vk::Extent2D,
 
   // Pipeline related
@@ -169,24 +162,21 @@ impl VulkanRenderer {
       debug_user_data,
     )?);
 
-    let physical_device =
-      Self::pick_physical_device(&vulkan_core.instance, &vulkan_core.surface_and_extension)?;
-
-    let (logical_device, queue_families, queues) = Self::create_logical_device_and_queues(
-      &vulkan_core.instance,
-      physical_device,
-      &vulkan_core.surface_and_extension,
-    )?;
+    let vulkan_device_structures = ManuallyDrop::new(VulkanDeviceStructures::new(&vulkan_core)?);
+    let physical_device = vulkan_device_structures.physical_device;
+    let logical_device = &vulkan_device_structures.logical_device;
+    let queue_families = &vulkan_device_structures.queue_families;
+    let queues = &vulkan_device_structures.queues;
 
     // TODO OFFSCREEN only create if drawing to window, get format and extent
     // elsewhere.
     let swapchain_extension =
       ash::extensions::khr::Swapchain::new(vulkan_core.instance.as_ref(), logical_device.as_ref());
     let (swapchain, format, extent) = Self::create_swap_chain(
-      &vulkan_core.instance,
       &vulkan_core.surface_and_extension,
       &swapchain_extension,
       physical_device,
+      queue_families,
       requested_width,
       requested_height,
       None,
@@ -206,12 +196,8 @@ impl VulkanRenderer {
       swapchain_and_extension.format,
     )?;
 
-    let (main_gfx_command_pool, transfer_command_pool) = Self::create_primary_command_pools(
-      &vulkan_core.instance,
-      physical_device,
-      &vulkan_core.surface_and_extension,
-      &logical_device,
-    )?;
+    let (main_gfx_command_pool, transfer_command_pool) =
+      Self::create_primary_command_pools(queue_families, &logical_device)?;
 
     let allocator = Self::create_memory_allocator(
       vulkan_core.instance.as_ref().clone(),
@@ -276,9 +262,7 @@ impl VulkanRenderer {
 
     let mut renderer = Self {
       vulkan_core,
-      physical_device,
-      logical_device,
-      queues,
+      vulkan_device_structures,
 
       swapchain_and_extension,
       render_targets,
@@ -319,272 +303,19 @@ impl VulkanRenderer {
 /// Private implementation details.
 impl VulkanRenderer {
   // ================================================================================
-  //  Physical Device Helper Methods
-  // ================================================================================
-  /// Evaluates all the available physical devices in the system and picks the
-  /// best one based on a heuristic.
-  ///
-  /// TODO CONFIG have this be overridable somehow with config etc.
-  fn pick_physical_device(
-    instance: &Instance, surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<vk::PhysicalDevice> {
-    let available_physical_devices = unsafe {
-      instance
-        .enumerate_physical_devices()
-        .expect("Unable to enumerate physical devices")
-    };
-
-    // Assign some rank to all devices and get the highest one.
-    let mut suitable_devices_ranked: Vec<_> = available_physical_devices
-      .into_iter()
-      .map(|device| Self::rank_device(instance, device, surface_and_extension))
-      .filter(|&(_, rank)| rank > -1i32)
-      .collect();
-    suitable_devices_ranked.sort_by(|&(_, l_rank), &(_, r_rank)| l_rank.cmp(&r_rank));
-
-    info!(
-      "Physical Devices most to least desirable:\n\t{:?}",
-      suitable_devices_ranked
-    );
-
-    suitable_devices_ranked
-      .first()
-      .map(|&(device, _)| device)
-      .ok_or(SarektError::CouldNotSelectPhysicalDevice)
-  }
-
-  /// Rank the devices based on an internal scoring mechanism.
-  /// A score of -1 means the device is not supported.
-  ///
-  /// TODO CONFIG add ways to configure device selection later.
-  fn rank_device(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-    surface_and_extension: &SurfaceAndExtension,
-  ) -> (vk::PhysicalDevice, i32) {
-    let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
-    // TODO CONFIG utilize physicsl_device_features
-
-    if !Self::is_device_suitable(instance, physical_device, surface_and_extension).unwrap_or(false)
-    {
-      return (physical_device, -1);
-    }
-
-    let mut score = 0;
-    if device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
-      score += 10;
-    } else if device_properties.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU {
-      score += 5;
-    }
-
-    (physical_device, score)
-  }
-
-  /// Tells us if this device is compatible with Sarekt.
-  /// This means it has what is needed by this configuration in terms of:
-  /// * Supported Queue Families (Graphics, Presentation if drawing to a window)
-  /// * Required Extensions (swapchain creation when drawing to a window)
-  /// * Swapchain support for the physical device (when drawing to a window).
-  ///
-  /// This will become more complex as more features are added.
-  ///
-  /// Certain features can be behind cargo feature flags that also affect this
-  /// function.
-  fn is_device_suitable(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-    surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<bool> {
-    let has_needed_features = unsafe {
-      instance
-        .get_physical_device_features(physical_device)
-        .sampler_anisotropy
-        == vk::TRUE
-    };
-
-    let has_queues = Self::find_queue_families(instance, physical_device, surface_and_extension)
-      .map(|qf| qf.is_complete())
-      .unwrap_or(false);
-
-    let supports_required_extensions =
-      VulkanRenderer::device_supports_required_extensions(instance, physical_device);
-    if supports_required_extensions.is_err() {
-      warn!(
-        "Could not enumerate physical device properties on device {:?}",
-        physical_device
-      );
-      return Ok(false);
-    }
-
-    let sc_support_details =
-      Self::query_swap_chain_support(surface_and_extension, physical_device)?;
-
-    // TODO OFFSCREEN only if drawing to a window.
-    let swap_chain_adequate =
-      !sc_support_details.formats.is_empty() && !sc_support_details.present_modes.is_empty();
-
-    // TODO OFFSCREEN only if drawing window need swap chain adequete.
-    Ok(
-      has_needed_features
-        && has_queues
-        && supports_required_extensions.unwrap()
-        && swap_chain_adequate,
-    )
-  }
-
-  /// Goes through and checks if the device supports all needed extensions for
-  /// current configuration, such as swapchains when drawing to a window.
-  fn device_supports_required_extensions(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-  ) -> SarektResult<bool> {
-    let device_extension_properties =
-      unsafe { instance.enumerate_device_extension_properties(physical_device)? };
-
-    let supports_swapchain = device_extension_properties
-      .iter()
-      .map(|ext_props| ext_props.extension_name)
-      .any(|ext_name| unsafe {
-        // TODO OFFSCREEN only if drawing to a window.
-        CStr::from_ptr(ext_name.as_ptr() as *const c_char)
-          .eq(ash::extensions::khr::Swapchain::name())
-      });
-
-    Ok(supports_swapchain)
-  }
-
-  /// Finds the queue family indices to use for the rendering command
-  /// submissions.  Right now only picks the first suitable queue family for
-  /// each type of command.
-  fn find_queue_families(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-    surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<QueueFamilyIndices> {
-    let surface_functions = &surface_and_extension.surface_functions;
-    let surface = surface_and_extension.surface;
-
-    let mut queue_family_indices = QueueFamilyIndices::default();
-    let queue_family_properties =
-      unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
-
-    for (i, queue_family_properties) in queue_family_properties.iter().enumerate() {
-      if queue_family_indices.transfer_queue_family.is_none()
-        && queue_family_properties
-          .queue_flags
-          .intersects(vk::QueueFlags::TRANSFER)
-        && !queue_family_properties
-          .queue_flags
-          .intersects(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE)
-      {
-        // Is transfer but NOT graphics or compute.  This queue is optimal for
-        // transfer.
-        queue_family_indices.transfer_queue_family = Some(i as u32);
-      }
-
-      if queue_family_indices.graphics_queue_family.is_none()
-        && queue_family_properties
-          .queue_flags
-          .intersects(vk::QueueFlags::GRAPHICS)
-      {
-        queue_family_indices.graphics_queue_family = Some(i as u32);
-      }
-
-      if queue_family_indices.presentation_queue_family.is_none() {
-        let presentation_support = unsafe {
-          surface_functions.get_physical_device_surface_support(
-            physical_device,
-            i as u32,
-            surface,
-          )?
-        };
-        if presentation_support {
-          queue_family_indices.presentation_queue_family = Some(i as u32);
-        }
-      }
-
-      if queue_family_indices.is_complete() {
-        return Ok(queue_family_indices);
-      }
-    }
-
-    // Iterated through all queue types, but explicit transfer queue family not
-    // found, just set it to the same as graphics queue family.
-    queue_family_indices.transfer_queue_family = queue_family_indices.graphics_queue_family;
-
-    Ok(queue_family_indices)
-  }
-
-  // ================================================================================
-  //  Logical Device Helper Methods
-  // ================================================================================
-  /// Creates the logical device after confirming all the features and queues
-  /// needed are present, and returns the logical device, and a
-  /// [Queues](struct.Queues.html) containing all the command queues. otherwise
-  /// returns the [SarektError](enum.SarektError.html) that occurred.
-  /// TODO CONFIG ANISOTROPY
-  fn create_logical_device_and_queues(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-    surface_and_extension: &SurfaceAndExtension,
-  ) -> SarektResult<(Arc<Device>, QueueFamilyIndices, Queues)> {
-    let queue_family_indices =
-      Self::find_queue_families(instance, physical_device, surface_and_extension)?;
-    let mut indices = queue_family_indices.as_vec().unwrap();
-    indices.dedup();
-
-    let queue_prios = [1.0];
-    let queue_cis: Vec<_> = indices
-      .iter()
-      .map(|&queue_index| {
-        vk::DeviceQueueCreateInfo::builder()
-        .queue_family_index(queue_index)
-        .queue_priorities(&queue_prios) // MULTITHREADING All queues have the same priority, and there's one. more than 1 if multiple threads (one for each thread)
-        .build()
-      })
-      .collect();
-
-    let device_features = vk::PhysicalDeviceFeatures::builder()
-      .sampler_anisotropy(true)
-      .build();
-
-    let enabled_extension_names = [ash::extensions::khr::Swapchain::name().as_ptr()];
-    let device_ci = vk::DeviceCreateInfo::builder()
-      .queue_create_infos(&queue_cis)
-      .enabled_features(&device_features)
-      // TODO OFFSCREEN only if drawing to a window
-      .enabled_extension_names(&enabled_extension_names)
-      .build();
-
-    unsafe {
-      // TODO VULKAN_INQUIRY when would i have seperate queues even if in the same
-      // family for presentation and graphics?
-      // TODO OFFSCREEN no presentation queue needed when not presenting to a
-      // swapchain, right?
-      //
-      // TODO MULTITHREADING I would create one queue for each
-      // thread, right now I'm only using one.
-      let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
-      let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
-      let transfer_queue_family = queue_family_indices.transfer_queue_family.unwrap();
-
-      let logical_device = instance.create_device(physical_device, &device_ci, None)?;
-      let graphics_queue = logical_device.get_device_queue(graphics_queue_family, 0);
-      let presentation_queue = logical_device.get_device_queue(presentation_queue_family, 0);
-      let transfer_queue = logical_device.get_device_queue(transfer_queue_family, 0);
-
-      let queues = Queues::new(graphics_queue, presentation_queue, transfer_queue);
-      Ok((Arc::new(logical_device), queue_family_indices, queues))
-    }
-  }
-
-  // ================================================================================
   //  Presentation and Swapchain Helper Methods
   // ================================================================================
   /// Based on the capabilities of the surface, the physical device, and the
   /// configuration of sarekt, creates a swapchain with the appropriate
   /// configuration (format, color space, present mode, and extent).
   fn create_swap_chain(
-    instance: &Instance, surface_and_extension: &SurfaceAndExtension,
+    surface_and_extension: &SurfaceAndExtension,
     swapchain_extension: &ash::extensions::khr::Swapchain, physical_device: vk::PhysicalDevice,
-    requested_width: u32, requested_height: u32, old_swapchain: Option<vk::SwapchainKHR>,
+    queue_family_indices: &QueueFamilyIndices, requested_width: u32, requested_height: u32,
+    old_swapchain: Option<vk::SwapchainKHR>,
   ) -> SarektResult<(vk::SwapchainKHR, vk::Format, vk::Extent2D)> {
-    let swapchain_support = Self::query_swap_chain_support(surface_and_extension, physical_device)?;
+    let swapchain_support =
+      VulkanDeviceStructures::query_swap_chain_support(surface_and_extension, physical_device)?;
 
     let format = Self::choose_swap_surface_format(&swapchain_support.formats);
     let present_mode = Self::choose_presentation_mode(&swapchain_support.present_modes);
@@ -608,8 +339,6 @@ impl VulkanRenderer {
     };
     let min_image_count = (swapchain_support.capabilities.min_image_count + 1).min(max_image_count);
 
-    let queue_family_indices =
-      Self::find_queue_families(instance, physical_device, surface_and_extension)?;
     let sharing_mode = if queue_family_indices.graphics_queue_family.unwrap()
       != queue_family_indices.presentation_queue_family.unwrap()
     {
@@ -641,30 +370,6 @@ impl VulkanRenderer {
 
     let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
     Ok((swapchain, format.format, extent))
-  }
-
-  /// Retrieves the details of the swapchain's supported formats, present modes,
-  /// and capabilities.
-  fn query_swap_chain_support(
-    surface_and_extension: &SurfaceAndExtension, physical_device: vk::PhysicalDevice,
-  ) -> SarektResult<SwapchainSupportDetails> {
-    let surface = surface_and_extension.surface;
-    let surface_functions = &surface_and_extension.surface_functions;
-
-    let phys_d_surface_capabilities = unsafe {
-      surface_functions.get_physical_device_surface_capabilities(physical_device, surface)?
-    };
-    let phys_d_formats =
-      unsafe { surface_functions.get_physical_device_surface_formats(physical_device, surface)? };
-    let phys_d_present_modes = unsafe {
-      surface_functions.get_physical_device_surface_present_modes(physical_device, surface)?
-    };
-
-    Ok(SwapchainSupportDetails::new(
-      phys_d_surface_capabilities,
-      phys_d_formats,
-      phys_d_present_modes,
-    ))
   }
 
   /// If drawing to a surface, chooses the best format from the ones available
@@ -768,8 +473,9 @@ impl VulkanRenderer {
   unsafe fn do_recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
     let instance = &self.vulkan_core.instance;
     let surface_and_extension = &self.vulkan_core.surface_and_extension;
-    let logical_device = &self.logical_device;
-    let physical_device = self.physical_device;
+    let logical_device = &self.vulkan_device_structures.logical_device;
+    let physical_device = self.vulkan_device_structures.physical_device;
+    let queue_family_indices = &self.vulkan_device_structures.queue_families;
     let old_swapchain = self.swapchain_and_extension.swapchain;
     let swapchain_extension = &self.swapchain_and_extension.swapchain_functions;
     let shader_store = &self.shader_store;
@@ -784,10 +490,10 @@ impl VulkanRenderer {
     logical_device.device_wait_idle()?;
 
     let (new_swapchain, new_format, new_extent) = Self::create_swap_chain(
-      instance,
       surface_and_extension,
       swapchain_extension,
       physical_device,
+      queue_family_indices,
       width,
       height,
       Some(old_swapchain),
@@ -850,7 +556,7 @@ impl VulkanRenderer {
 
     self.main_descriptor_pools = Self::create_main_descriptor_pools(
       instance,
-      self.physical_device,
+      physical_device,
       logical_device,
       &self.render_targets,
     )?;
@@ -877,36 +583,33 @@ impl VulkanRenderer {
   /// * Framebuffers
   /// * Command Buffers.
   unsafe fn cleanup_swapchain(&self) -> SarektResult<()> {
+    let logical_device = &self.vulkan_device_structures.logical_device;
+
     self.draw_synchronization.wait_for_all_frames()?;
 
     info!("Destroying descriptor pools...");
     for &desc_pool in self.main_descriptor_pools.iter() {
-      self.logical_device.destroy_descriptor_pool(desc_pool, None);
+      logical_device.destroy_descriptor_pool(desc_pool, None);
     }
 
     info!("Destroying all framebuffers...");
     for &fb in self.framebuffers.iter() {
-      self.logical_device.destroy_framebuffer(fb, None);
+      logical_device.destroy_framebuffer(fb, None);
     }
 
     info!("Destroying base graphics pipeline...");
-    self
-      .logical_device
-      .destroy_pipeline(self.base_graphics_pipeline_bundle.pipeline, None);
+    logical_device.destroy_pipeline(self.base_graphics_pipeline_bundle.pipeline, None);
 
     info!("Destroying base pipeline layouts...");
-    self
-      .logical_device
+    logical_device
       .destroy_pipeline_layout(self.base_graphics_pipeline_bundle.pipeline_layout, None);
 
     info!("Destroying render pass...");
-    self
-      .logical_device
-      .destroy_render_pass(self.forward_render_pass, None);
+    logical_device.destroy_render_pass(self.forward_render_pass, None);
 
     info!("Destrying render target views...");
     for view in self.render_targets.iter() {
-      self.logical_device.destroy_image_view(view.view, None);
+      logical_device.destroy_image_view(view.view, None);
     }
     // TODO OFFSCREEN if images and not swapchain destroy images.
 
@@ -954,7 +657,6 @@ impl VulkanRenderer {
       .initial_layout(vk::ImageLayout::UNDEFINED)
       .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
       .build();
-    let depth_attachments = [depth_attachment];
     let depth_attachment_ref = vk::AttachmentReference::builder()
       .attachment(1)
       .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
@@ -1252,12 +954,8 @@ impl VulkanRenderer {
   ///
   /// May be expanded in the future (compute etc).
   fn create_primary_command_pools(
-    instance: &Instance, physical_device: vk::PhysicalDevice,
-    surface_and_extension: &SurfaceAndExtension, logical_device: &Device,
+    queue_family_indices: &QueueFamilyIndices, logical_device: &Device,
   ) -> SarektResult<(vk::CommandPool, vk::CommandPool)> {
-    let queue_family_indices =
-      Self::find_queue_families(instance, physical_device, surface_and_extension)?;
-
     info!("Command Queues Selected: {:?}", queue_family_indices);
 
     let gfx_pool_ci = vk::CommandPoolCreateInfo::builder()
@@ -1332,6 +1030,7 @@ impl VulkanRenderer {
 
     // TODO MULTITHREADING all things that were only main thread, do for all
     // renderers, too.
+    let logical_device = &self.vulkan_device_structures.logical_device;
     let descriptor_pool = self.main_descriptor_pools[image_index as usize];
     let command_buffer = self.primary_gfx_command_buffers[image_index as usize];
     let framebuffer = self.framebuffers[image_index as usize];
@@ -1346,16 +1045,13 @@ impl VulkanRenderer {
       .get_image_fence(image_index as usize);
     if fence != vk::Fence::null() {
       unsafe {
-        self
-          .logical_device
-          .wait_for_fences(&[fence], true, u64::max_value())?;
+        logical_device.wait_for_fences(&[fence], true, u64::max_value())?;
       }
     }
 
     unsafe {
       // TODO PERFORMANCE cache descriptor sets: https://github.com/KhronosGroup/Vulkan-Samples/blob/master/samples/performance/descriptor_management/descriptor_management_tutorial.md
-      self
-        .logical_device
+      logical_device
         .reset_descriptor_pool(descriptor_pool, vk::DescriptorPoolResetFlags::empty())?;
     }
 
@@ -1364,9 +1060,7 @@ impl VulkanRenderer {
       let begin_ci = vk::CommandBufferBeginInfo::builder()
         .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
         .build();
-      self
-        .logical_device
-        .begin_command_buffer(command_buffer, &begin_ci)?
+      logical_device.begin_command_buffer(command_buffer, &begin_ci)?
     };
 
     unsafe {
@@ -1394,7 +1088,7 @@ impl VulkanRenderer {
         .clear_values(&clear_values) // Clear to black.
         .build();
 
-      self.logical_device.cmd_begin_render_pass(
+      logical_device.cmd_begin_render_pass(
         command_buffer,
         &render_pass_begin_info,
         vk::SubpassContents::INLINE,
@@ -1404,11 +1098,7 @@ impl VulkanRenderer {
       // TODO RENDERING_CAPABILITIES MULTITHREADING we can keep track in each thread's
       // command buffer waht pipeline is bound so we don't insert extra rebind
       // commands.
-      self.logical_device.cmd_bind_pipeline(
-        command_buffer,
-        vk::PipelineBindPoint::GRAPHICS,
-        pipeline,
-      )
+      logical_device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
     };
 
     // Save image index for frame presentation.
@@ -1526,12 +1216,14 @@ impl VulkanRenderer {
   fn draw_vertices_cmd<UniformBufElem: Sized + Copy>(
     &self, object: &DrawableObject<Self, UniformBufElem>, command_buffer: vk::CommandBuffer,
   ) -> SarektResult<()> {
+    let logical_device = &self.vulkan_device_structures.logical_device;
+
     unsafe {
       // Draw vertices.
       let vertex_buffers = [object.vertex_buffer.buffer()?.buffer];
       let vertex_buffer_length = object.vertex_buffer.buffer()?.length;
       let offsets = [0];
-      self.logical_device.cmd_bind_vertex_buffers(
+      logical_device.cmd_bind_vertex_buffers(
         command_buffer,
         0,
         &vertex_buffers,
@@ -1540,9 +1232,7 @@ impl VulkanRenderer {
 
       if object.index_buffer.is_none() {
         // Non indexed draw.
-        self
-          .logical_device
-          .cmd_draw(command_buffer, vertex_buffer_length, 1, 0, 0);
+        logical_device.cmd_draw(command_buffer, vertex_buffer_length, 1, 0, 0);
       } else {
         // Indexed Draw.
         let index_buffer = &object.index_buffer.unwrap().buffer()?;
@@ -1550,13 +1240,13 @@ impl VulkanRenderer {
           IndexBufferElemSize::UInt16 => vk::IndexType::UINT16,
           IndexBufferElemSize::UInt32 => vk::IndexType::UINT32,
         };
-        self.logical_device.cmd_bind_index_buffer(
+        logical_device.cmd_bind_index_buffer(
           command_buffer,
           index_buffer.buffer,
           0,
           index_buffer_element_size,
         );
-        self.logical_device.cmd_draw_indexed(
+        logical_device.cmd_draw_indexed(
           command_buffer,
           index_buffer.length,
           1, // One instance
@@ -1576,6 +1266,8 @@ impl VulkanRenderer {
   where
     DescriptorLayoutStruct: Sized + Copy + DescriptorLayoutInfo,
   {
+    let logical_device = &self.vulkan_device_structures.logical_device;
+
     // First allocate descriptor sets.
     // TODO PIPELINES pass in current pipeline layout.
     let layouts = [self
@@ -1588,7 +1280,7 @@ impl VulkanRenderer {
       .set_layouts(&layouts) // Sets descriptor set count.
       .build();
     // A vec of a single set.
-    let descriptor_sets = unsafe { self.logical_device.allocate_descriptor_sets(&alloc_info)? };
+    let descriptor_sets = unsafe { logical_device.allocate_descriptor_sets(&alloc_info)? };
 
     // Then configure them to bind the buffer to the pipeline.
     let bind_uniform_info = DescriptorLayoutStruct::get_bind_uniform_info()?;
@@ -1657,14 +1349,11 @@ impl VulkanRenderer {
     descriptor_writes.extend(texture_descriptor_writes);
 
     unsafe {
-      self
-        .logical_device
-        .update_descriptor_sets(&descriptor_writes, &[]); // No descriptor
-                                                          // copies.
+      logical_device.update_descriptor_sets(&descriptor_writes, &[]); // No descriptor copies.
 
       // Bind them to the pipeline layout.
       // TODO PIPELINES select correct pipeline layout.
-      self.logical_device.cmd_bind_descriptor_sets(
+      logical_device.cmd_bind_descriptor_sets(
         command_buffer,
         vk::PipelineBindPoint::GRAPHICS,
         self.base_graphics_pipeline_bundle.pipeline_layout,
@@ -1715,6 +1404,9 @@ impl Renderer for VulkanRenderer {
 
   // TODO OFFSCREEN handle off screen rendering.
   fn frame(&self) -> SarektResult<()> {
+    let logical_device = &self.vulkan_device_structures.logical_device;
+    let queues = &self.vulkan_device_structures.queues;
+
     if !self.rendering_enabled {
       return Ok(());
     }
@@ -1731,15 +1423,11 @@ impl Renderer for VulkanRenderer {
     let current_command_buffer = self.primary_gfx_command_buffers[image_index as usize];
     unsafe {
       // End Render Pass.
-      self
-        .logical_device
-        .cmd_end_render_pass(current_command_buffer);
+      logical_device.cmd_end_render_pass(current_command_buffer);
 
       // Finish recording on all command buffers.
       // TODO MULTITHREADING all of them not just main.
-      self
-        .logical_device
-        .end_command_buffer(current_command_buffer)?;
+      logical_device.end_command_buffer(current_command_buffer)?;
     }
 
     // Wait for max images in flight.
@@ -1761,11 +1449,7 @@ impl Renderer for VulkanRenderer {
       .command_buffers(&command_buffers) // Only use the command buffer corresponding to this image index.
       .signal_semaphores(&signal_semaphores) // Signal we're done drawing when we are.
       .build();
-    unsafe {
-      self
-        .logical_device
-        .queue_submit(self.queues.graphics_queue, &[submit_info], frame_fence)?
-    };
+    unsafe { logical_device.queue_submit(queues.graphics_queue, &[submit_info], frame_fence)? };
 
     // TODO OFFSCREEN only if presenting to swapchain.
     // Present to swapchain and display completed frame.
@@ -1781,7 +1465,7 @@ impl Renderer for VulkanRenderer {
       self
         .swapchain_and_extension
         .swapchain_functions
-        .queue_present(self.queues.presentation_queue, &present_info)?
+        .queue_present(queues.presentation_queue, &present_info)?
     };
 
     // Increment frames rendered count.
@@ -1988,8 +1672,10 @@ impl Drawer for VulkanRenderer {
 impl Drop for VulkanRenderer {
   fn drop(&mut self) {
     unsafe {
+      let logical_device = &self.vulkan_device_structures.logical_device;
+
       info!("Waiting for the device to be idle before cleaning up...");
-      if let Err(e) = self.logical_device.device_wait_idle() {
+      if let Err(e) = logical_device.device_wait_idle() {
         error!("Failed to wait for idle! {}", e);
       }
 
@@ -2006,7 +1692,7 @@ impl Drop for VulkanRenderer {
 
       // TODO MULTITHREADING do I need to free others?
       info!("Freeing main command buffer...");
-      self.logical_device.free_command_buffers(
+      logical_device.free_command_buffers(
         self.main_gfx_command_pool,
         &self.primary_gfx_command_buffers,
       );
@@ -2020,30 +1706,22 @@ impl Drop for VulkanRenderer {
         &self.base_graphics_pipeline_bundle.descriptor_set_layouts
       {
         for &layout in descriptor_set_layouts.iter() {
-          self
-            .logical_device
-            .destroy_descriptor_set_layout(layout, None);
+          logical_device.destroy_descriptor_set_layout(layout, None);
         }
       }
 
       self.draw_synchronization.destroy_all();
 
       info!("Destroying all command pools...");
-      self
-        .logical_device
-        .destroy_command_pool(self.main_gfx_command_pool, None);
+      logical_device.destroy_command_pool(self.main_gfx_command_pool, None);
       if self.main_gfx_command_pool != self.transfer_command_pool {
-        self
-          .logical_device
-          .destroy_command_pool(self.transfer_command_pool, None);
+        logical_device.destroy_command_pool(self.transfer_command_pool, None);
       }
 
       info!("Destroying all shaders...");
       self.shader_store.write().unwrap().destroy_all_shaders();
 
-      info!("Destrying logical device...");
-      self.logical_device.destroy_device(None);
-
+      ManuallyDrop::drop(&mut self.vulkan_device_structures);
       ManuallyDrop::drop(&mut self.vulkan_core);
     }
   }
