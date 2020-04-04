@@ -1,9 +1,9 @@
-pub mod base_pipeline_bundle;
+mod base_pipeline_bundle;
 mod debug_utils_ext;
-pub mod depth_buffer;
-pub mod draw_synchronization;
+mod depth_buffer;
+mod draw_synchronization;
 mod surface;
-pub mod swap_chain;
+mod swap_chain;
 mod vulkan_core;
 
 use crate::{
