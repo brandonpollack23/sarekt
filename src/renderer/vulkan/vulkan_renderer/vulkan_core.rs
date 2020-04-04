@@ -3,10 +3,10 @@ use crate::{
   renderer::{
     vulkan::{
       queues::{QueueFamilyIndices, Queues},
-      swap_chain::SwapchainSupportDetails,
       vulkan_renderer::{
         debug_utils_ext::{DebugUserData, DebugUtilsAndMessenger},
         surface::SurfaceAndExtension,
+        swap_chain::SwapchainSupportDetails,
       },
     },
     ApplicationDetails, EngineDetails, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,

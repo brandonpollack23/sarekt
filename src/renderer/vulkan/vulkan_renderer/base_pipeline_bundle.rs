@@ -1,6 +1,6 @@
 use crate::renderer::{
   vulkan::{
-    depth_buffer::DepthResources, vulkan_shader_functions::VulkanShaderFunctions,
+    vulkan_renderer::depth_buffer::DepthResources, vulkan_shader_functions::VulkanShaderFunctions,
     VulkanShaderHandle,
   },
   ShaderHandle,

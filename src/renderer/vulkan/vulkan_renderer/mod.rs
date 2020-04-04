@@ -1,5 +1,9 @@
+pub mod base_pipeline_bundle;
 mod debug_utils_ext;
+pub mod depth_buffer;
+pub mod draw_synchronization;
 mod surface;
+pub mod swap_chain;
 mod vulkan_core;
 
 use crate::{
@@ -17,16 +21,16 @@ use crate::{
       DefaultForwardShaderLayout, DefaultForwardShaderVertex, DescriptorLayoutInfo, VertexBindings,
     },
     vulkan::{
-      base_pipeline_bundle::BasePipelineBundle,
-      depth_buffer::DepthResources,
-      draw_synchronization::DrawSynchronization,
       images::ImageAndView,
       queues::QueueFamilyIndices,
-      swap_chain::SwapchainAndExtension,
       vulkan_buffer_image_functions::{BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory},
       vulkan_renderer::{
+        base_pipeline_bundle::BasePipelineBundle,
         debug_utils_ext::DebugUserData,
+        depth_buffer::DepthResources,
+        draw_synchronization::DrawSynchronization,
         surface::SurfaceAndExtension,
+        swap_chain::SwapchainAndExtension,
         vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
       },
       vulkan_shader_functions::VulkanShaderFunctions,
@@ -64,6 +68,7 @@ pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
 pub struct VulkanRenderer {
+  // TODO NOW any subfunctionable things?
   vulkan_core: ManuallyDrop<VulkanCoreStructures>,
   vulkan_device_structures: ManuallyDrop<VulkanDeviceStructures>,
 
