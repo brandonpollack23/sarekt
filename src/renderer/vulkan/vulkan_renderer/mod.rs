@@ -102,7 +102,6 @@ pub struct VulkanRenderer {
   rendering_enabled: bool,
 
   // Utilities
-  #[allow(dead_code)]
   allocator: Arc<vk_mem::Allocator>,
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
   // Manually drop so that the underlying allocator can be dropped in this class.
@@ -213,8 +212,8 @@ impl VulkanRenderer {
     // TODO MULTITHREADING all graphics command pools needed here to specify
     // concurrent access.
     let buffer_image_store = ManuallyDrop::new(Self::create_buffer_image_store(
-      &logical_device,
-      &allocator,
+      logical_device.clone(),
+      allocator.clone(),
       queue_families.graphics_queue_family.unwrap(),
       queue_families.transfer_queue_family.unwrap(),
       transfer_command_pool,
@@ -1169,7 +1168,7 @@ impl VulkanRenderer {
   // ================================================================================
   //  Storage Creation Methods
   // ================================================================================
-  /// Creates a [Vulkan Memory ALlocator](https://github.com/gwihlidal/vk-mem-rs)
+  /// Creates a [Vulkan Memory Allocator](https://github.com/gwihlidal/vk-mem-rs)
   fn create_memory_allocator(
     instance: Instance, physical_device: vk::PhysicalDevice, logical_device: Device,
   ) -> SarektResult<Arc<vk_mem::Allocator>> {
@@ -1196,14 +1195,14 @@ impl VulkanRenderer {
   }
 
   fn create_buffer_image_store(
-    logical_device: &Arc<Device>, allocator: &Arc<vk_mem::Allocator>, graphics_queue_family: u32,
+    logical_device: Arc<Device>, allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32,
     transfer_queue_family: u32, transfer_command_pool: vk::CommandPool,
     transfer_command_queue: vk::Queue, graphics_command_pool: vk::CommandPool,
     graphics_command_queue: vk::Queue,
   ) -> SarektResult<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>> {
     let functions = VulkanBufferFunctions::new(
-      logical_device.clone(),
-      allocator.clone(),
+      logical_device,
+      allocator,
       graphics_queue_family,
       transfer_queue_family,
       transfer_command_pool,
@@ -1691,7 +1690,11 @@ impl Drop for VulkanRenderer {
       self.buffer_image_store.write().unwrap().cleanup().unwrap();
       ManuallyDrop::drop(&mut self.buffer_image_store);
 
-      info!("Destroying VMA...");
+      // TODO NOW FIX
+      info!(
+        "Destroying VMA which has {}s references...",
+        Arc::strong_count(&self.allocator)
+      );
       Arc::get_mut(&mut self.allocator).unwrap().destroy();
 
       // TODO MULTITHREADING do I need to free others?
@@ -1733,10 +1736,8 @@ impl Drop for VulkanRenderer {
 
 #[cfg(test)]
 mod tests {
-  use crate::renderer::{
-    vulkan::{debug_utils_ext::DebugUserData, vulkan_renderer::debug_utils_ext::DebugUserData},
-    ApplicationDetails, EngineDetails, Version, VulkanRenderer, IS_DEBUG_MODE,
-  };
+  use super::{debug_utils_ext::DebugUserData, VulkanRenderer};
+  use crate::renderer::{ApplicationDetails, EngineDetails, Version, IS_DEBUG_MODE};
   use log::Level;
   use std::{pin::Pin, sync::Arc};
   #[cfg(unix)]
@@ -1767,11 +1768,7 @@ mod tests {
     let renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
 
     assert_no_warnings_or_errors_in_debug_user_data(
-      &renderer
-        .debug_utils_and_messenger
-        .as_ref()
-        .unwrap()
-        .debug_user_data,
+      &renderer.vulkan_core.get_debug_user_data().unwrap(),
     );
   }
 
@@ -1790,11 +1787,7 @@ mod tests {
     .unwrap();
 
     assert_no_warnings_or_errors_in_debug_user_data(
-      &renderer
-        .debug_utils_and_messenger
-        .as_ref()
-        .unwrap()
-        .debug_user_data,
+      &renderer.vulkan_core.get_debug_user_data().unwrap(),
     );
   }
 

@@ -89,6 +89,13 @@ impl VulkanCoreStructures {
     })
   }
 
+  pub fn get_debug_user_data(&self) -> Option<&Pin<Arc<DebugUserData>>> {
+    self
+      .debug_utils_and_messenger
+      .as_ref()
+      .map(|d| &d.debug_user_data)
+  }
+
   // ================================================================================
   //  Instance Creation
   // ================================================================================
