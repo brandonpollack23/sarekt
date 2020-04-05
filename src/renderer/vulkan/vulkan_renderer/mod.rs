@@ -2,6 +2,7 @@ mod base_pipeline_bundle;
 mod debug_utils_ext;
 mod depth_buffer;
 mod draw_synchronization;
+mod render_targets;
 mod surface;
 mod swap_chain;
 mod vulkan_core;
@@ -29,8 +30,7 @@ use crate::{
         debug_utils_ext::DebugUserData,
         depth_buffer::DepthResources,
         draw_synchronization::DrawSynchronization,
-        surface::SurfaceAndExtension,
-        swap_chain::SwapchainAndExtension,
+        render_targets::RenderTargetBundle,
         vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
       },
       vulkan_shader_functions::VulkanShaderFunctions,
@@ -67,17 +67,13 @@ pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.
 /// the future.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
+/// The Sarekt Vulkan Renderer, see module level documentation for details.
 pub struct VulkanRenderer {
   vulkan_core: ManuallyDrop<VulkanCoreStructures>,
   vulkan_device_structures: ManuallyDrop<VulkanDeviceStructures>,
+  render_target_bundle: ManuallyDrop<RenderTargetBundle>,
 
   // TODO NOW AFTER seperate sections into sub files, like now depth_buffer is.
-  /// The Sarekt Vulkan Renderer, see module level documentation for details.
-  // Rendering related.
-  swapchain_and_extension: SwapchainAndExtension, // TODO OFFSCREEN option
-  render_targets: Vec<ImageAndView>, // aka SwapChainImages if presenting.
-  extent: vk::Extent2D,
-
   // Pipeline related
   forward_render_pass: vk::RenderPass,
   base_graphics_pipeline_bundle: BasePipelineBundle,
@@ -173,31 +169,14 @@ impl VulkanRenderer {
 
     // TODO OFFSCREEN only create if drawing to window, get format and extent
     // elsewhere.
-    let swapchain_extension =
-      ash::extensions::khr::Swapchain::new(vulkan_core.instance.as_ref(), logical_device.as_ref());
-    let (swapchain, format, extent) = Self::create_swap_chain(
-      &vulkan_core.surface_and_extension,
-      &swapchain_extension,
-      physical_device,
-      queue_families,
+    let render_target_bundle = ManuallyDrop::new(RenderTargetBundle::new(
+      &vulkan_core,
+      &vulkan_device_structures,
       requested_width,
       requested_height,
-      None,
-    )?;
-    let swapchain_and_extension =
-      SwapchainAndExtension::new(swapchain, format, swapchain_extension);
-
-    // TODO OFFSCREEN if not swapchain create images that im rendering to.
-    let render_target_images = unsafe {
-      swapchain_and_extension
-        .swapchain_functions
-        .get_swapchain_images(swapchain_and_extension.swapchain)?
-    };
-    let render_targets = Self::create_render_target_image_views(
-      &logical_device,
-      render_target_images,
-      swapchain_and_extension.format,
-    )?;
+    )?);
+    let render_targets = &render_target_bundle.render_targets;
+    let extent = render_target_bundle.extent;
 
     let (main_gfx_command_pool, transfer_command_pool) =
       Self::create_primary_command_pools(queue_families, &logical_device)?;
@@ -229,8 +208,11 @@ impl VulkanRenderer {
       &buffer_image_store,
       (extent.width, extent.height),
     )?;
-    let forward_render_pass =
-      Self::create_forward_render_pass(&logical_device, format, &depth_buffer)?;
+    let forward_render_pass = Self::create_forward_render_pass(
+      &logical_device,
+      render_target_bundle.get_render_target_format(),
+      &depth_buffer,
+    )?;
 
     // TODO RENDERING_CAPABILITIES when I can have multiple render pass types I need
     // new framebuffers.
@@ -266,10 +248,7 @@ impl VulkanRenderer {
     let mut renderer = Self {
       vulkan_core,
       vulkan_device_structures,
-
-      swapchain_and_extension,
-      render_targets,
-      extent,
+      render_target_bundle,
 
       forward_render_pass,
       base_graphics_pipeline_bundle,
@@ -305,182 +284,14 @@ impl VulkanRenderer {
 }
 /// Private implementation details.
 impl VulkanRenderer {
-  // ================================================================================
-  //  Presentation and Swapchain Helper Methods
-  // ================================================================================
-  /// Based on the capabilities of the surface, the physical device, and the
-  /// configuration of sarekt, creates a swapchain with the appropriate
-  /// configuration (format, color space, present mode, and extent).
-  fn create_swap_chain(
-    surface_and_extension: &SurfaceAndExtension,
-    swapchain_extension: &ash::extensions::khr::Swapchain, physical_device: vk::PhysicalDevice,
-    queue_family_indices: &QueueFamilyIndices, requested_width: u32, requested_height: u32,
-    old_swapchain: Option<vk::SwapchainKHR>,
-  ) -> SarektResult<(vk::SwapchainKHR, vk::Format, vk::Extent2D)> {
-    let swapchain_support =
-      VulkanDeviceStructures::query_swap_chain_support(surface_and_extension, physical_device)?;
-
-    let format = Self::choose_swap_surface_format(&swapchain_support.formats);
-    let present_mode = Self::choose_presentation_mode(&swapchain_support.present_modes);
-    let extent = Self::choose_swap_extent(
-      &swapchain_support.capabilities,
-      requested_width,
-      requested_height,
-    );
-
-    // Select minimum number of images to render to.  For triple buffering this
-    // would be 3, etc. But don't exceed the max.  Implementation may create more
-    // than this depending on present mode.
-    // [vulkan tutorial](https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Swap_chain)
-    // recommends setting this to min + 1 because if we select minimum we may wait
-    // on internal driver operations.
-    let max_image_count = swapchain_support.capabilities.max_image_count;
-    let max_image_count = if max_image_count == 0 {
-      u32::max_value()
-    } else {
-      max_image_count
-    };
-    let min_image_count = (swapchain_support.capabilities.min_image_count + 1).min(max_image_count);
-
-    let sharing_mode = if queue_family_indices.graphics_queue_family.unwrap()
-      != queue_family_indices.presentation_queue_family.unwrap()
-    {
-      // Concurrent sharing mode because the images will need to be accessed by more
-      // than one queue family.
-      vk::SharingMode::CONCURRENT
-    } else {
-      // Exclusive (probly) has best performance, not sharing the image with other
-      // queue families.
-      vk::SharingMode::EXCLUSIVE
-    };
-
-    let swapchain_ci = vk::SwapchainCreateInfoKHR::builder()
-      .surface(surface_and_extension.surface)
-      .min_image_count(min_image_count)
-      .image_format(format.format)
-      .image_color_space(format.color_space)
-      .image_extent(extent)
-      .image_array_layers(1) // Number of views (multiview/stereo surface for 3D applications with glasses or maybe VR).
-      .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT) // We'll just be rendering colors to this.  We could render to another image and transfer here after post processing but we're not.
-      .image_sharing_mode(sharing_mode)
-      .queue_family_indices(&queue_family_indices.as_vec().unwrap())
-      .pre_transform(swapchain_support.capabilities.current_transform) // Match the transform of the swapchain, I'm not trying to redner upside down!
-      .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // No alpha blending within the window system for now.
-      .present_mode(present_mode)
-      .clipped(true) // Go ahead and discard rendering ops we dont need (window half off screen).
-      .old_swapchain(old_swapchain.unwrap_or_else(vk::SwapchainKHR::null)) // Pass old swapchain for recreation.
-      .build();
-
-    let swapchain = unsafe { swapchain_extension.create_swapchain(&swapchain_ci, None)? };
-    Ok((swapchain, format.format, extent))
-  }
-
-  /// If drawing to a surface, chooses the best format from the ones available
-  /// for the surface.  Tries to use B8G8R8A8_SRGB format with SRGB_NONLINEAR
-  /// colorspace.
-  ///
-  /// If that isn't available, for now we just use the 0th SurfaceFormatKHR.
-  fn choose_swap_surface_format(
-    available_formats: &[vk::SurfaceFormatKHR],
-  ) -> vk::SurfaceFormatKHR {
-    *available_formats
-      .iter()
-      .find(|format| {
-        format.format == vk::Format::B8G8R8A8_UNORM
-          && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
-      })
-      .unwrap_or(&available_formats[0])
-  }
-
-  /// Selects Mailbox if available, but if not tries to fallback to FIFO. See the [spec](https://renderdoc.org/vkspec_chunked/chap32.html#VkPresentModeKHR) for details on modes.
-  ///
-  /// TODO CONFIG support immediate mode if possible and allow the user to have
-  /// tearing if they wish.
-  fn choose_presentation_mode(
-    available_presentation_modes: &[vk::PresentModeKHR],
-  ) -> vk::PresentModeKHR {
-    *available_presentation_modes
-      .iter()
-      .find(|&pm| *pm == vk::PresentModeKHR::MAILBOX)
-      .unwrap_or(&vk::PresentModeKHR::FIFO)
-  }
-
-  /// Selects the resolution of the swap chain images.
-  /// This is almost always equal to the resolution of the Surface we're drawing
-  /// too, but we need to double check since some window managers allow us to
-  /// differ.
-  fn choose_swap_extent(
-    capabilities: &vk::SurfaceCapabilitiesKHR, requested_width: u32, requested_height: u32,
-  ) -> vk::Extent2D {
-    if capabilities.current_extent.width != u32::max_value() {
-      return capabilities.current_extent;
-    }
-    // The window system indicates that we can specify our own extent if this is
-    // true
-    let clipped_requested_width = requested_width.min(capabilities.max_image_extent.width);
-    let width = capabilities
-      .min_image_extent
-      .width
-      .max(clipped_requested_width);
-    let clipped_requested_height = requested_height.min(capabilities.max_image_extent.height);
-    let height = capabilities
-      .min_image_extent
-      .height
-      .max(clipped_requested_height);
-
-    if width != requested_width || height != requested_height {
-      warn!(
-        "Could not create a swapchain with the requested height and width, rendering to a \
-         resolution of {}x{} instead",
-        width, height
-      );
-    }
-
-    vk::Extent2D::builder().width(width).height(height).build()
-  }
-
-  /// Given the render target images and format, create an image view suitable
-  /// for rendering on. (one level, no mipmapping, color bit access).
-  fn create_render_target_image_views(
-    logical_device: &Arc<Device>, targets: Vec<vk::Image>, format: vk::Format,
-  ) -> SarektResult<Vec<ImageAndView>> {
-    let mut views = Vec::with_capacity(targets.len());
-    for &image in targets.iter() {
-      // Not swizzling rgba around.
-      let component_mapping = vk::ComponentMapping::default();
-      let image_subresource_range = vk::ImageSubresourceRange::builder()
-        .aspect_mask(vk::ImageAspectFlags::COLOR) // We're writing color to this view
-        .base_mip_level(0) // access to all mipmap levels
-        .level_count(1) // Only one level, no mipmapping
-        .base_array_layer(0) // access to all layers
-        .layer_count(1) // Only one layer. (not sterescopic)
-        .build();
-
-      let ci = vk::ImageViewCreateInfo::builder()
-        .image(image)
-        .view_type(vk::ImageViewType::TYPE_2D)
-        .format(format)
-        .components(component_mapping)
-        .subresource_range(image_subresource_range);
-
-      let view = unsafe { logical_device.create_image_view(&ci, None)? };
-      unsafe { views.push(ImageAndView::new(image, view)) };
-    }
-    Ok(views)
-  }
-
   /// When the target dimensions or requirments change, we must recreate a bunch
   /// of stuff to remain compabible and continue rendering to the new surface.
   ///
   /// TODO MAYBE put everything that may need to be recreated in a cell?
   unsafe fn do_recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
     let instance = &self.vulkan_core.instance;
-    let surface_and_extension = &self.vulkan_core.surface_and_extension;
     let logical_device = &self.vulkan_device_structures.logical_device;
     let physical_device = self.vulkan_device_structures.physical_device;
-    let queue_family_indices = &self.vulkan_device_structures.queue_families;
-    let old_swapchain = self.swapchain_and_extension.swapchain;
-    let swapchain_extension = &self.swapchain_and_extension.swapchain_functions;
     let shader_store = &self.shader_store;
 
     // Procedure: Wait for the device to be idle, make new Swapchain (recycling old
@@ -492,26 +303,15 @@ impl VulkanRenderer {
     // * Command Buffers.
     logical_device.device_wait_idle()?;
 
-    let (new_swapchain, new_format, new_extent) = Self::create_swap_chain(
-      surface_and_extension,
-      swapchain_extension,
-      physical_device,
-      queue_family_indices,
+    let (old_swapchain, old_images) = self.render_target_bundle.recreate_swapchain(
+      &self.vulkan_core,
+      &self.vulkan_device_structures,
       width,
       height,
-      Some(old_swapchain),
     )?;
-    self.cleanup_swapchain()?;
-
-    // Create all new resources and set them in this struct.
-    self.swapchain_and_extension.swapchain = new_swapchain;
-    self.swapchain_and_extension.format = new_format;
-    self.extent = new_extent;
-
-    // TODO OFFSCREEN if not swapchain create images that im rendering to.
-    let render_target_images = swapchain_extension.get_swapchain_images(new_swapchain)?;
-    self.render_targets =
-      Self::create_render_target_image_views(logical_device, render_target_images, new_format)?;
+    self.cleanup_swapchain(Some((&old_images, old_swapchain)))?;
+    let new_format = self.render_target_bundle.swapchain_and_extension.format;
+    let new_extent = self.render_target_bundle.extent;
 
     let depth_buffer = DepthResources::new(
       &instance,
@@ -542,7 +342,7 @@ impl VulkanRenderer {
       logical_device,
       self.forward_render_pass,
       &depth_buffer,
-      &self.render_targets,
+      &self.render_target_bundle.render_targets,
       new_extent,
     )?;
 
@@ -561,7 +361,7 @@ impl VulkanRenderer {
       instance,
       physical_device,
       logical_device,
-      &self.render_targets,
+      &self.render_target_bundle.render_targets,
     )?;
 
     // Reset render_frame_count
@@ -585,7 +385,12 @@ impl VulkanRenderer {
   /// * Graphics Pipelines
   /// * Framebuffers
   /// * Command Buffers.
-  unsafe fn cleanup_swapchain(&self) -> SarektResult<()> {
+  ///
+  /// Optionally takes in the old swapchain images and handle to clean up for
+  /// recreation, otherwise cleans up the currently active swapchain.
+  unsafe fn cleanup_swapchain(
+    &self, old_swapchain_bundle: Option<(&[ImageAndView], vk::SwapchainKHR)>,
+  ) -> SarektResult<()> {
     let logical_device = &self.vulkan_device_structures.logical_device;
 
     self.draw_synchronization.wait_for_all_frames()?;
@@ -610,17 +415,15 @@ impl VulkanRenderer {
     info!("Destroying render pass...");
     logical_device.destroy_render_pass(self.forward_render_pass, None);
 
-    info!("Destrying render target views...");
-    for view in self.render_targets.iter() {
-      logical_device.destroy_image_view(view.view, None);
-    }
-    // TODO OFFSCREEN if images and not swapchain destroy images.
-
-    // TODO OFFSCREEN if there is one, if not destroy images (as above todo states).
-    info!("Destrying swapchain...");
-    let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
-    let swapchain = self.swapchain_and_extension.swapchain;
-    swapchain_functions.destroy_swapchain(swapchain, None);
+    let (images, swapchain) = old_swapchain_bundle.unwrap_or((
+      self.render_target_bundle.render_targets.as_slice(),
+      self.render_target_bundle.swapchain_and_extension.swapchain,
+    ));
+    self.render_target_bundle.cleanup_render_targets(
+      &self.vulkan_device_structures,
+      images,
+      swapchain,
+    );
 
     Ok(())
   }
@@ -1013,19 +816,14 @@ impl VulkanRenderer {
 
     self.draw_synchronization.wait_for_acquire_fence()?;
     self.draw_synchronization.reset_acquire_fence()?;
-    // TODO OFFSCREEN handle drawing without swapchain.
     // Get next image to render to.
     let (image_index, is_suboptimal) = unsafe {
       // Will return if swapchain is out of date.
-      self
-        .swapchain_and_extension
-        .swapchain_functions
-        .acquire_next_image(
-          self.swapchain_and_extension.swapchain,
-          u64::max_value(),
-          image_available_sem,
-          self.draw_synchronization.get_acquire_fence(),
-        )?
+      self.render_target_bundle.acquire_next_image(
+        u64::max_value(),
+        image_available_sem,
+        self.draw_synchronization.get_acquire_fence(),
+      )?
     };
     if is_suboptimal {
       warn!("Swapchain is suboptimal!");
@@ -1037,7 +835,7 @@ impl VulkanRenderer {
     let descriptor_pool = self.main_descriptor_pools[image_index as usize];
     let command_buffer = self.primary_gfx_command_buffers[image_index as usize];
     let framebuffer = self.framebuffers[image_index as usize];
-    let extent = self.extent;
+    let extent = self.render_target_bundle.extent;
     let render_pass = self.forward_render_pass;
     let pipeline = self.base_graphics_pipeline_bundle.pipeline;
 
@@ -1457,19 +1255,11 @@ impl Renderer for VulkanRenderer {
     // TODO OFFSCREEN only if presenting to swapchain.
     // Present to swapchain and display completed frame.
     let wait_semaphores = [render_finished_sem];
-    let swapchains = [self.swapchain_and_extension.swapchain];
-    let image_indices = [image_index as u32];
-    let present_info = vk::PresentInfoKHR::builder()
-      .wait_semaphores(&wait_semaphores)
-      .swapchains(&swapchains)
-      .image_indices(&image_indices)
-      .build();
-    unsafe {
-      self
-        .swapchain_and_extension
-        .swapchain_functions
-        .queue_present(queues.presentation_queue, &present_info)?
-    };
+    self.render_target_bundle.queue_present(
+      image_index,
+      queues.presentation_queue,
+      &wait_semaphores,
+    )?;
 
     // Increment frames rendered count.
     self.increment_frame_count();
@@ -1566,7 +1356,7 @@ impl Renderer for VulkanRenderer {
       .read()
       .expect("Panic occured can't read from buffer store");
     let mut buffer_handles: Vec<BufferAndMemoryMapped> =
-      Vec::with_capacity(self.render_targets.len());
+      Vec::with_capacity(self.render_target_bundle.render_targets.len());
     for ubh in handle.uniform_buffer_backend_handle.iter() {
       let handle = store.get_buffer(ubh)?;
 
@@ -1612,7 +1402,7 @@ impl Renderer for VulkanRenderer {
       return Ok(());
     }
 
-    if self.extent.width == width && self.extent.height == height {
+    if self.render_target_bundle.extent_is_equal_to(width, height) {
       info!("No change, nothing to do");
       return Ok(());
     }
@@ -1691,7 +1481,8 @@ impl Drop for VulkanRenderer {
       ManuallyDrop::drop(&mut self.buffer_image_store);
 
       info!("Destroying VMA...");
-      // Safe to do because the above buffer image store frees all the memory.
+      // Safe to do because the above buffer image store frees all the memory
+      // allocations in allocator and no one else is going to be using this now...
       Arc::get_mut_unchecked(&mut self.allocator).destroy();
 
       // TODO MULTITHREADING do I need to free others?
@@ -1702,7 +1493,7 @@ impl Drop for VulkanRenderer {
       );
 
       self
-        .cleanup_swapchain()
+        .cleanup_swapchain(None)
         .expect("Could not clean up swapchain while cleaning up VulkanRenderer...");
 
       info!("Destroying default descriptor set layouts for default pipeline...");
