@@ -1,4 +1,6 @@
 use ash::vk;
+
+/// Wrapper for the swapchain, its format, and various methods.
 pub struct SwapchainAndExtension {
   pub swapchain: vk::SwapchainKHR,
   pub format: vk::Format,

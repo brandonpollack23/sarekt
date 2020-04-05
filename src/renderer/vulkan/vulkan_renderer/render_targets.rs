@@ -14,6 +14,8 @@ use ash::{version::DeviceV1_0, vk, Device};
 use log::{info, warn};
 use std::sync::Arc;
 
+/// Render target related structures, such as the swapchain extension, the
+/// extent, and the images themselves.
 pub struct RenderTargetBundle {
   pub swapchain_and_extension: SwapchainAndExtension, // TODO OFFSCREEN option
   pub render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
