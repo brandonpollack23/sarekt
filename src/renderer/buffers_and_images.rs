@@ -6,7 +6,7 @@ use log::warn;
 use slotmap::{DefaultKey, SlotMap};
 use std::{
   fmt::Debug,
-  sync::{Arc, RwLock},
+  sync::{Arc, RwLock, Weak},
 };
 
 /// A type that can be used to retrieve a buffer from the renderer and
@@ -21,7 +21,7 @@ where
 {
   inner_key: DefaultKey,
   resource_type: ResourceType,
-  buffer_store: Arc<RwLock<BufferImageStore<BL>>>,
+  buffer_store: Weak<RwLock<BufferImageStore<BL>>>,
 }
 impl<BL> Drop for BufferImageHandle<BL>
 where
@@ -29,8 +29,14 @@ where
   BL::BackendHandle: BackendHandleTrait + Copy + Debug,
 {
   fn drop(&mut self) {
-    let mut buffer_store_guard = self
-      .buffer_store
+    let buffer_store = self.buffer_store.upgrade();
+    if matches!(buffer_store, None) {
+      return;
+    }
+
+    let mut buffer_store_guard = buffer_store
+      .as_ref()
+      .unwrap()
       .write()
       .expect("Could not unlock BufferStore due to previous panic");
 
@@ -218,7 +224,7 @@ where
       BufferImageHandle {
         inner_key,
         resource_type: ResourceType::Buffer(buffer_type),
-        buffer_store: this.clone(),
+        buffer_store: Arc::downgrade(this),
       },
       buffer_or_image,
     ))
@@ -245,7 +251,7 @@ where
       BufferImageHandle {
         inner_key,
         resource_type: ResourceType::Buffer(buffer_type),
-        buffer_store: this.clone(),
+        buffer_store: Arc::downgrade(this),
       },
       buffer_or_image,
     ))
@@ -295,7 +301,7 @@ where
       BufferImageHandle {
         inner_key,
         resource_type: ResourceType::Image,
-        buffer_store: this.clone(),
+        buffer_store: Arc::downgrade(this),
       },
       buffer_or_image,
     ))
@@ -324,7 +330,7 @@ where
       BufferImageHandle {
         inner_key,
         resource_type: ResourceType::Image,
-        buffer_store: this.clone(),
+        buffer_store: Arc::downgrade(this),
       },
       buffer_or_image,
     ))
