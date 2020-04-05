@@ -69,8 +69,6 @@ pub struct VulkanRenderer {
   render_target_bundle: RenderTargetBundle,
   pipelines: Pipelines,
 
-  // TODO NOW AFTER seperate sections into sub files, like now depth_buffer is.
-
   // Command pools, buffers, drawing, and synchronization related primitives and information.
   main_gfx_command_pool: vk::CommandPool,
   primary_gfx_command_buffers: Vec<vk::CommandBuffer>,
