@@ -89,7 +89,7 @@ pub unsafe trait ShaderLoader {
 /// A storage for all shaders to be loaded or destroyed from.  Returns a handle
 /// that can be used to retrieve the associated shader, which includes it's type
 /// and it's handle to whichever backend you're using.
-pub(crate) struct ShaderStore<SL>
+pub struct ShaderStore<SL>
 where
   SL: ShaderLoader,
   SL::SBH: ShaderBackendHandleTrait + Copy + Debug,

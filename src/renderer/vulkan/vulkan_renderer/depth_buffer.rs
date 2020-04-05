@@ -12,6 +12,8 @@ use std::{
   sync::{Arc, RwLock},
 };
 
+/// All resources relating to the Depth buffer (z buffer).
+/// This includes the image handle, the image that references, and the format.
 pub struct DepthResources {
   pub depth_buffer_image_handle: BufferImageHandle<VulkanBufferFunctions>,
   pub image_and_memory: ImageAndMemory,
