@@ -8,13 +8,14 @@ use sarekt::{
     buffers_and_images::{
       BufferType, IndexBufferElemSize, MagnificationMinificationFilter, TextureAddressMode,
     },
-    drawable_object::DrawableObject,
+    drawable_object::{DrawableObject, DrawableObjectBuilder},
     vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
   },
 };
-use std::{error::Error, f32, sync::Arc, time::Instant};
+use std::{error::Error, f32, fs::File, io::Read, sync::Arc, time::Instant};
 use ultraviolet as uv;
+use wavefront_obj as obj;
 use winit::{
   dpi::{LogicalSize, PhysicalSize},
   event::{ElementState, Event, VirtualKeyCode, WindowEvent},
@@ -26,25 +27,16 @@ use winit::{
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
-lazy_static! {
-static ref RECT_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
-  // Texture is bound to the four corners.
-  DefaultForwardShaderVertex::new(&[-0.5f32, 0.0f32, -0.5f32], &[1.0f32, 0.0f32, 0.0f32], &[1.0f32, 0.0f32]), // Top Left, Red,
-  DefaultForwardShaderVertex::new(&[0.5f32, 0.0f32, -0.5f32], &[0.0f32, 1.0f32, 0.0f32], &[0.0f32, 0.0f32]), // Top Right, Green
-  DefaultForwardShaderVertex::new(&[0.5f32, 0.0f32, 0.5f32], &[0.0f32, 0.0f32, 1.0f32], &[0.0f32, 1.0f32]),  // Bottom Right, Blue
-  DefaultForwardShaderVertex::new(&[-0.5f32, 0.0f32, 0.5f32], &[1.0f32, 1.0f32, 1.0f32], &[1.0f32, 1.0f32]), // Bottom Left, White
-];
-}
-const RECT_INDICES: [u16; 6] = [0u16, 1u16, 2u16, 2u16, 3u16, 0u16]; // two triangles, upper right and lower left
+const MODEL_FILE_NAME: &str = "models/chalet.obj";
+const MODEL_TEXTURE_FILE_NAME: &str = "textures/chalet.jpg";
 
-fn main() -> Result<(), Box<dyn Error>> {
-  simple_logger::init_with_level(Level::Info)?;
-  main_loop()?;
-  Ok(())
+fn main() {
+  simple_logger::init_with_level(Level::Info).unwrap();
+  main_loop();
 }
 
 /// Takes full control of the executing thread and runs the event loop for it.
-fn main_loop() -> Result<(), Box<dyn Error>> {
+fn main_loop() {
   info!("Running main loop...");
 
   let mut ar = WIDTH as f32 / HEIGHT as f32;
@@ -61,56 +53,51 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
   // Build Renderer.
   let mut renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 
+  // TODO NOW update readme to include everything up to this
+  // TODO NOW update readme for lfs cloning stuff.
+
   // Create Vertex Resources.
-  let rect_vertex_buffer = renderer.load_buffer(BufferType::Vertex, &RECT_VERTICES)?;
-  let rect_index_buffer = renderer.load_buffer(
-    BufferType::Index(IndexBufferElemSize::UInt16),
-    &RECT_INDICES,
-  )?;
+  let (model_vertices, model_indices) = load_model();
+  info!("Model file loaded");
+  let model_index_buffer = renderer
+    .load_buffer(
+      BufferType::Index(IndexBufferElemSize::UInt32),
+      &model_indices,
+    )
+    .unwrap();
+  let model_buffer = renderer
+    .load_buffer(BufferType::Vertex, &model_vertices)
+    .unwrap();
 
   // Create MVP uniform.
-  let rect_uniform = DefaultForwardShaderLayout::default();
-  let rect_uniform_buffer = renderer.load_uniform_buffer(rect_uniform)?;
+  let uniform_handle = renderer
+    .load_uniform_buffer(DefaultForwardShaderLayout::default())
+    .unwrap();
 
   // Load textures and create image.
-  let spoderman = image::open("textures/spoderman.gif")?;
-  info!("spoderman dimensions: {:?}", spoderman.dimensions());
-  let image = renderer.load_image_with_staging_initialization(
-    spoderman,
-    MagnificationMinificationFilter::Linear,
-    MagnificationMinificationFilter::Linear,
-    TextureAddressMode::Repeat,
-    TextureAddressMode::Repeat,
-    TextureAddressMode::Repeat,
-  )?;
+  let model_texture_file =
+    image::DynamicImage::ImageRgba8(image::open(MODEL_TEXTURE_FILE_NAME).unwrap().into_rgba());
+  let model_texture = renderer
+    .load_image_with_staging_initialization(
+      model_texture_file,
+      MagnificationMinificationFilter::Linear,
+      MagnificationMinificationFilter::Linear,
+      TextureAddressMode::ClampToEdge,
+      TextureAddressMode::ClampToEdge,
+      TextureAddressMode::ClampToEdge,
+    )
+    .unwrap();
 
-  let rect = DrawableObject::builder(&renderer)
-    .vertex_buffer(&rect_vertex_buffer)
-    .index_buffer(&rect_index_buffer)
-    .uniform_buffer(&rect_uniform_buffer)
-    .texture_image(&image)
-    .build()?;
-
-  let rect2_uniform_buffer = renderer.load_uniform_buffer(rect_uniform)?;
-  let rect2 = DrawableObject::builder(&renderer)
-    .vertex_buffer(&rect_vertex_buffer)
-    .index_buffer(&rect_index_buffer)
-    .uniform_buffer(&rect2_uniform_buffer)
-    .texture_image(&image)
-    .build()?;
-
-  let rect3_uniform_buffer = renderer.load_uniform_buffer(rect_uniform)?;
-  let rect3 = DrawableObject::builder(&renderer)
-    .vertex_buffer(&rect_vertex_buffer)
-    .index_buffer(&rect_index_buffer)
-    .uniform_buffer(&rect3_uniform_buffer)
-    .texture_image(&image)
-    .build()?;
+  let drawable_object = DrawableObject::builder(&renderer)
+    .uniform_buffer(&uniform_handle)
+    .vertex_buffer(&model_buffer)
+    .index_buffer(&model_index_buffer)
+    .texture_image(&model_texture)
+    .build()
+    .unwrap();
 
   let args: Vec<String> = std::env::args().collect();
-  let enable_colors = args.contains(&"colors".to_owned());
   let show_fps = args.contains(&"fps".to_owned());
-  info!("Colors enabled: {}", enable_colors);
   info!("Show FPS: {}", show_fps);
 
   let start_time = Instant::now();
@@ -151,54 +138,29 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
         }
 
         // Rise to max height then gently go back down.
-        let camera_rate = 0.5f32;
-        let min_camera_height = 0.5f32;
-        let camera_range = 1.5f32;
-        camera_height =
-          (camera_rate * time_since_start_secs) % (2.0f32 * camera_range) + min_camera_height;
-        if camera_height >= (camera_range + min_camera_height) {
-          camera_height = (2.0f32 * (camera_range + min_camera_height)) - camera_height;
-        }
+        // let camera_rate = 0.5f32;
+        // let min_camera_height = 0.5f32;
+        // let camera_range = 1.5f32;
+        // camera_height =
+        //   (camera_rate * time_since_start_secs) % (2.0f32 * camera_range) +
+        // min_camera_height; if camera_height >= (camera_range +
+        // min_camera_height) {   camera_height = (2.0f32 * (camera_range +
+        // min_camera_height)) - camera_height; }
 
-        let rotation =
-          (std::f32::consts::PI * time_since_start_secs) % (2f32 * std::f32::consts::PI);
+        camera_height = 0f32;
+
         update_uniforms(
           &renderer,
-          &rect,
-          uv::Vec3::new(0.0f32, 0.0f32, 1.0f32),
-          rotation,
+          &drawable_object,
+          uv::Vec3::new(0f32, 0f32, -5f32),
+          0f32,
           camera_height,
-          enable_colors,
-          ar,
-        )
-        .unwrap();
-        update_uniforms(
-          &renderer,
-          &rect2,
-          uv::Vec3::new(0.5f32, 0.5f32, 1.0f32),
-          -rotation,
-          camera_height,
-          enable_colors,
-          ar,
-        )
-        .unwrap();
-        update_uniforms(
-          &renderer,
-          &rect3,
-          uv::Vec3::new(-0.5f32, 0.25f32, 1.0f32),
-          -rotation,
-          camera_height,
-          enable_colors,
+          false,
           ar,
         )
         .unwrap();
 
-        for _ in 0..100 {
-          renderer.draw(&rect3).unwrap();
-        }
-
-        renderer.draw(&rect2).unwrap();
-        renderer.draw(&rect).unwrap();
+        renderer.draw(&drawable_object).unwrap();
 
         // At the end of work request redraw.
         window.request_redraw();
@@ -234,16 +196,16 @@ fn main_loop() -> Result<(), Box<dyn Error>> {
       _ => (),
     }
   });
-
-  Ok(())
 }
 
 fn update_uniforms(
-  renderer: &VulkanRenderer, rect: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
+  renderer: &VulkanRenderer, object: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
   position: uv::Vec3, rotation: f32, camera_height: f32, enable_colors: bool, ar: f32,
 ) -> SarektResult<()> {
   // Pi radians per second around the z axis.
-  let model_matrix = uv::Mat4::from_translation(position) * uv::Mat4::from_rotation_y(rotation);
+  let model_matrix = uv::Mat4::from_translation(position)
+    * uv::Mat4::from_rotation_y(rotation)
+    * uv::Mat4::from_scale(0.01f32);
   let view_matrix = uv::Mat4::look_at(
     /* eye= */ uv::Vec3::new(0.0f32, camera_height, 0.0f32),
     /* at= */ uv::Vec3::new(0f32, 0f32, 1f32),
@@ -258,7 +220,7 @@ fn update_uniforms(
     enable_colors,
     /* enable_texture_mixing= */ true,
   );
-  rect.set_uniform(renderer, &uniform)
+  object.set_uniform(renderer, &uniform)
 }
 
 /// Handles all winit window specific events.
@@ -301,4 +263,52 @@ fn main_loop_window_event(
   }
 
   Ok(())
+}
+
+// TODO return already loaded model in system.
+// TODO NOW make MODEL param
+// TODO NOW push down into DefaultForwardShaderVertex
+/// For now only use the first object in the obj file.
+/// Returns (vertices, vertex_indicies, texture_coordinate indices)
+fn load_model() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
+  let mut model_file = File::open(MODEL_FILE_NAME).unwrap();
+  let mut model_file_text = String::new();
+  model_file.read_to_string(&mut model_file_text);
+
+  let obj_set = obj::obj::parse(&model_file_text).unwrap();
+  info!("Loaded model {}", MODEL_FILE_NAME);
+  let mut vertices: Vec<DefaultForwardShaderVertex> =
+    Vec::with_capacity(obj_set.objects[0].vertices.len());
+  let mut indices = Vec::with_capacity(obj_set.objects[0].geometry[0].shapes.len());
+
+  for shape in obj_set.objects[0].geometry[0].shapes.iter() {
+    match shape.primitive {
+      obj::obj::Primitive::Triangle(x, y, z) => {
+        for &vert in [x, y, z].iter() {
+          let model_vertices = &obj_set.objects[0].vertices;
+          let current_vertex = model_vertices[vert.0];
+          let vertex_as_float = [
+            current_vertex.x as f32,
+            current_vertex.y as f32,
+            current_vertex.z as f32,
+          ];
+
+          let texture_vertices = &obj_set.objects[0].tex_vertices;
+          let tex_vertex = texture_vertices[vert.1.unwrap()];
+          let texture_vertex_as_float = [tex_vertex.u as f32, tex_vertex.v as f32];
+
+          // Ignoring normals.
+
+          vertices.push(DefaultForwardShaderVertex::new_with_texture(
+            &vertex_as_float,
+            &texture_vertex_as_float,
+          ));
+          indices.push(vert.0 as u32)
+        }
+      }
+      _ => warn!("Unsupported primitive!"),
+    }
+  }
+
+  (vertices, indices)
 }

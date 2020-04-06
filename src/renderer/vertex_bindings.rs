@@ -42,6 +42,14 @@ impl DefaultForwardShaderVertex {
     Self::new(pos, color, &[0.0f32, 0.0f32])
   }
 
+  pub fn new_with_texture(pos: &[f32; 3], texture_coordinates: &[f32; 2]) -> Self {
+    Self {
+      position: uv::Vec3::from(pos),
+      color: uv::Vec3::new(1f32, 1f32, 1f32),
+      texture_coordinates: uv::Vec2::from(texture_coordinates),
+    }
+  }
+
   pub fn new(pos: &[f32; 3], color: &[f32; 3], texture_coordinates: &[f32; 2]) -> Self {
     Self {
       position: uv::Vec3::from(pos),

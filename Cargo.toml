@@ -42,6 +42,10 @@ path = "examples/06_textures.rs"
 name = "07_depth_buffer_test"
 path = "examples/07_depth_buffer_test.rs"
 
+[[example]]
+name = "08_model_loading_vtx_duplication"
+path = "examples/08_model_loading_vtx_duplication.rs"
+
 [dependencies]
 ash = "0.30.0"
 ash-window = "0.3.0"

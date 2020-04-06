@@ -555,7 +555,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&staging_allocation)? as *mut BufElem;
     unsafe {
-      data.copy_from_nonoverlapping(buffer.as_ptr(), buffer_size as usize);
+      data.copy_from_nonoverlapping(buffer.as_ptr(), buffer.len());
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
@@ -603,7 +603,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     // Copy over all the bytes from host memory to mapped device memory
     let data = self.allocator.map_memory(&allocation)? as *mut BufElem;
     unsafe {
-      data.copy_from_nonoverlapping(buffer.as_ptr(), buffer_size as usize);
+      data.copy_from_nonoverlapping(buffer.as_ptr(), buffer.len());
     }
     self.allocator.unmap_memory(&allocation)?;
 
@@ -634,6 +634,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     address_v: TextureAddressMode, address_w: TextureAddressMode,
   ) -> SarektResult<ResourceWithMemory> {
     let dimens = pixels.dimensions();
+    // TODO NOW query supported formats and change to rgba8 if not supported.
     let format: vk::Format = pixels.format()?.into();
     let pixel_bytes = pixels.into_bytes();
 
