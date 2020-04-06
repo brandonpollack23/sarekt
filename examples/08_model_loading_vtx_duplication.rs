@@ -105,7 +105,7 @@ fn main_loop() {
   let mut frame_number = 0;
   let mut fps_average = 0f32;
 
-  let mut camera_height = 0.5f32;
+  let mut camera_height = -0.5f32;
 
   // Run the loop.
   event_loop.run_return(move |event, _, control_flow| {
@@ -138,22 +138,22 @@ fn main_loop() {
         }
 
         // Rise to max height then gently go back down.
-        // let camera_rate = 0.5f32;
-        // let min_camera_height = 0.5f32;
-        // let camera_range = 1.5f32;
-        // camera_height =
-        //   (camera_rate * time_since_start_secs) % (2.0f32 * camera_range) +
-        // min_camera_height; if camera_height >= (camera_range +
-        // min_camera_height) {   camera_height = (2.0f32 * (camera_range +
-        // min_camera_height)) - camera_height; }
+        let camera_rate = 0.25f32;
+        let min_camera_height = -0.5f32;
+        let camera_range = 2f32;
+        camera_height =
+          (camera_rate * time_since_start_secs) % (2.0f32 * camera_range) + min_camera_height;
+        if camera_height >= (camera_range + min_camera_height) {
+          camera_height = (2.0f32 * (camera_range + min_camera_height)) - camera_height;
+        }
 
-        camera_height = 0f32;
-
+        let rotation = (std::f32::consts::PI + std::f32::consts::PI * time_since_start_secs / 8f32)
+          % (2f32 * std::f32::consts::PI);
         update_uniforms(
           &renderer,
           &drawable_object,
-          uv::Vec3::new(0f32, 0f32, -5f32),
-          0f32,
+          uv::Vec3::new(0f32, -1f32, -1.5f32),
+          rotation,
           camera_height,
           false,
           ar,
@@ -202,13 +202,14 @@ fn update_uniforms(
   renderer: &VulkanRenderer, object: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
   position: uv::Vec3, rotation: f32, camera_height: f32, enable_colors: bool, ar: f32,
 ) -> SarektResult<()> {
-  // Pi radians per second around the z axis.
-  let model_matrix = uv::Mat4::from_translation(position)
-    * uv::Mat4::from_rotation_y(rotation)
-    * uv::Mat4::from_scale(0.01f32);
+  // Pi radians per second around the y axis.
+  let total_rotation =
+    uv::Mat4::from_rotation_y(rotation) * uv::Mat4::from_rotation_x(-std::f32::consts::PI / 2f32);
+  let model_matrix = uv::Mat4::from_translation(position) * total_rotation;
+
   let view_matrix = uv::Mat4::look_at(
     /* eye= */ uv::Vec3::new(0.0f32, camera_height, 0.0f32),
-    /* at= */ uv::Vec3::new(0f32, 0f32, 1f32),
+    /* at= */ position,
     /* up= */ uv::Vec3::unit_y(),
   );
   // TODO BACKENDS this proj should be conditional on backend.
@@ -295,7 +296,8 @@ fn load_model() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
 
           let texture_vertices = &obj_set.objects[0].tex_vertices;
           let tex_vertex = texture_vertices[vert.1.unwrap()];
-          let texture_vertex_as_float = [tex_vertex.u as f32, tex_vertex.v as f32];
+          // TODO BACKENDS only flip on coordinate systems that should.
+          let texture_vertex_as_float = [tex_vertex.u as f32, 1f32 - tex_vertex.v as f32];
 
           // Ignoring normals.
 
@@ -303,7 +305,7 @@ fn load_model() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
             &vertex_as_float,
             &texture_vertex_as_float,
           ));
-          indices.push(vert.0 as u32)
+          indices.push(indices.len() as u32)
         }
       }
       _ => warn!("Unsupported primitive!"),

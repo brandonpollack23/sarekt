@@ -35,7 +35,7 @@ static ref RECT_VERTICES: Vec<DefaultForwardShaderVertex> = vec![
   DefaultForwardShaderVertex::new(&[-0.5f32, 0.0f32, 0.5f32], &[1.0f32, 1.0f32, 1.0f32], &[1.0f32, 1.0f32]), // Bottom Left, White
 ];
 }
-const RECT_INDICES: [u16; 6] = [0u16, 1u16, 2u16, 2u16, 3u16, 0u16]; // two triangles, upper right and lower left
+const RECT_INDICES: [u16; 6] = [0u16, 2u16, 1u16, 2u16, 0u16, 3u16]; // two triangles, upper right and lower left
 
 fn main() -> Result<(), Box<dyn Error>> {
   simple_logger::init_with_level(Level::Info)?;
