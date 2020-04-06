@@ -14,7 +14,6 @@ layout(location = 1)in vec2 fragTexCoord;
 layout(location = 0)out vec4 outColor;
 
 void main() {
-  // TODO CRITICAL SHADERS enable/disable fragColor mixing.
   vec3 colorFromFragColor = fragColor;
 
   vec4 colorFromTexture;
