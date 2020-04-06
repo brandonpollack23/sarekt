@@ -46,6 +46,8 @@ path = "examples/07_depth_buffer_test.rs"
 name = "08_model_loading_vtx_duplication"
 path = "examples/08_model_loading_vtx_duplication.rs"
 
+# TODO NOW MOVE THINGS TO DEV DEPS THAT CAN BE
+
 [dependencies]
 ash = "0.30.0"
 ash-window = "0.3.0"

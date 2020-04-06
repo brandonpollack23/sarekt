@@ -24,6 +24,19 @@ use winit::{
   window::{WindowBuilder, WindowId},
 };
 
+// TODO NOW readme updates for all the examples and cloning/building
+// TODO NOW crate level docs update as well as a one pass of all docs in the
+// whole project.
+// TODO NOW update TODO.md and then convert everything to issues and remove it.
+// TODO NOW make all TODOs issues with links to the issue (tag issues too).
+// TODO NOW update crates.io
+
+// TODO NOW make a git project for scene creator, a git binary project for gfx
+// workspace, set up gfx workspace to patch local version of sarekt, submodule
+// both projects into there.
+
+// TODO NOW test pass/another crates io update.
+
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
@@ -53,11 +66,8 @@ fn main_loop() {
   // Build Renderer.
   let mut renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 
-  // TODO NOW update readme to include everything up to this
-  // TODO NOW update readme for lfs cloning stuff.
-
   // Create Vertex Resources.
-  let (model_vertices, model_indices) = load_model();
+  let (model_vertices, model_indices) = load_obj_models();
   info!("Model file loaded");
   let model_index_buffer = renderer
     .load_buffer(
@@ -266,12 +276,13 @@ fn main_loop_window_event(
   Ok(())
 }
 
-// TODO return already loaded model in system.
-// TODO NOW make MODEL param
-// TODO NOW push down into DefaultForwardShaderVertex
+// TODO NOW FIRST finish vertex deduplication.
+// TODO NOW load all models from OBJ file.  (are they positioned or raw?)
+// TODO NOW make obj_file param
+// TODO NOW do this but for gltf
 /// For now only use the first object in the obj file.
 /// Returns (vertices, vertex_indicies, texture_coordinate indices)
-fn load_model() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
+fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
   let mut model_file = File::open(MODEL_FILE_NAME).unwrap();
   let mut model_file_text = String::new();
   model_file.read_to_string(&mut model_file_text);
