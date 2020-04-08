@@ -44,9 +44,9 @@ use ash::{
 };
 use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
-use static_assertions::_core::mem::ManuallyDrop;
 use std::{
   cell::Cell,
+  mem::ManuallyDrop,
   pin::Pin,
   sync::{Arc, RwLock},
 };
