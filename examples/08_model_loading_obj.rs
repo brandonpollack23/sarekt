@@ -13,7 +13,7 @@ use sarekt::{
     Drawer, Renderer, VulkanRenderer,
   },
 };
-use std::{error::Error, f32, fs::File, io::Read, sync::Arc, time::Instant};
+use std::{collections::HashMap, error::Error, f32, fs::File, io::Read, sync::Arc, time::Instant};
 use ultraviolet as uv;
 use wavefront_obj as obj;
 use winit::{
@@ -276,8 +276,7 @@ fn main_loop_window_event(
   Ok(())
 }
 
-// TODO NOW FIRST finish vertex deduplication.
-// TODO NOW load all models from OBJ file.  (are they positioned or raw?)
+// TODO NOW FIRST load all models from OBJ file.  (are they positioned or raw?)
 // TODO NOW make obj_file param
 // TODO NOW do this but for gltf
 /// For now only use the first object in the obj file.
@@ -291,37 +290,57 @@ fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
   info!("Loaded model {}", MODEL_FILE_NAME);
   let mut vertices: Vec<DefaultForwardShaderVertex> =
     Vec::with_capacity(obj_set.objects[0].vertices.len());
-  let mut indices = Vec::with_capacity(obj_set.objects[0].geometry[0].shapes.len());
+  let mut indices: Vec<u32> = Vec::with_capacity(obj_set.objects[0].geometry[0].shapes.len());
 
+  // Map of inserted (obj_vertex_index, obj_texture_index) to index in the
+  // vertices array im building.
+  let mut inserted_indices: HashMap<(usize, usize), usize> = HashMap::with_capacity(vertices.len());
+  let model_vertices = &obj_set.objects[0].vertices;
   for shape in obj_set.objects[0].geometry[0].shapes.iter() {
     match shape.primitive {
       obj::obj::Primitive::Triangle(x, y, z) => {
         for &vert in [x, y, z].iter() {
-          let model_vertices = &obj_set.objects[0].vertices;
+          // We're only building a buffer of indices and vertices which contain position
+          // and tex coord.
+          let index_key = (vert.0, vert.1.unwrap());
+          if let Some(&vtx_index) = inserted_indices.get(&index_key) {
+            // Already loaded this (vertex index, texture index) combo, just add it to the
+            // index buffer.
+            indices.push(vtx_index as _);
+            continue;
+          }
+
+          // This is a new unique vertex (where a vertex is both a position and it's
+          // texture coordinate) so add it to the vertex buffer and the index buffer.
           let current_vertex = model_vertices[vert.0];
           let vertex_as_float = [
             current_vertex.x as f32,
             current_vertex.y as f32,
             current_vertex.z as f32,
           ];
-
           let texture_vertices = &obj_set.objects[0].tex_vertices;
           let tex_vertex = texture_vertices[vert.1.unwrap()];
           // TODO BACKENDS only flip on coordinate systems that should.
           let texture_vertex_as_float = [tex_vertex.u as f32, 1f32 - tex_vertex.v as f32];
 
-          // Ignoring normals.
+          // Ignoring normals, there is no shading in this example.
 
+          // Keep track of which keys were inserted and add this vertex to the index
+          // buffer.
+          inserted_indices.insert(index_key, vertices.len());
+          indices.push(vertices.len() as _);
+
+          // Add to the vertex buffer.
           vertices.push(DefaultForwardShaderVertex::new_with_texture(
             &vertex_as_float,
             &texture_vertex_as_float,
           ));
-          indices.push(indices.len() as u32)
         }
       }
       _ => warn!("Unsupported primitive!"),
     }
   }
 
+  info!("Vertices in model: {}", vertices.len());
   (vertices, indices)
 }

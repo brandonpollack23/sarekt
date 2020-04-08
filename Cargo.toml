@@ -43,8 +43,8 @@ name = "07_depth_buffer_test"
 path = "examples/07_depth_buffer_test.rs"
 
 [[example]]
-name = "08_model_loading_vtx_duplication"
-path = "examples/08_model_loading_vtx_duplication.rs"
+name = "08_model_loading_obj"
+path = "examples/08_model_loading_obj.rs"
 
 [dependencies]
 ash = "0.30.0"
