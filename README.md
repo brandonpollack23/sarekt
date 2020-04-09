@@ -1,6 +1,7 @@
 # Sarekt
 
 [![Crates.io](https://img.shields.io/crates/v/sarekt.svg)](https://crates.io/crates/sarekt)
+[![](https://tokei.rs/b1/github/brandonpollack23/sarekt)](https://github.com/brandonpollack23/sarekt)
 
 ## Overview
 
