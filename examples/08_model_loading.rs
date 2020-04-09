@@ -83,12 +83,11 @@ fn main_loop() {
     load_obj_models(OBJ_MODEL_FILE_NAME)
   };
   info!("Model file loaded");
-  let model_index_buffer = renderer
-    .load_buffer(
-      BufferType::Index(IndexBufferElemSize::UInt32),
-      &model_indices,
-    )
-    .unwrap();
+  let model_index_buffer = model_indices.map(|mi| {
+    renderer
+      .load_buffer(BufferType::Index(IndexBufferElemSize::UInt32), &mi)
+      .unwrap()
+  });
   let model_buffer = renderer
     .load_buffer(BufferType::Vertex, &model_vertices)
     .unwrap();
@@ -112,13 +111,15 @@ fn main_loop() {
     )
     .unwrap();
 
-  let drawable_object = DrawableObject::builder(&renderer)
+  let mut drawable_object_builder = DrawableObject::builder(&renderer)
     .uniform_buffer(&uniform_handle)
     .vertex_buffer(&model_buffer)
-    .index_buffer(&model_index_buffer)
-    .texture_image(&model_texture)
-    .build()
-    .unwrap();
+    .texture_image(&model_texture);
+  if model_index_buffer.is_some() {
+    drawable_object_builder =
+      drawable_object_builder.index_buffer(model_index_buffer.as_ref().unwrap());
+  }
+  let drawable_object = drawable_object_builder.build().unwrap();
 
   let start_time = Instant::now();
   let mut last_frame_time = start_time;
@@ -287,7 +288,7 @@ fn update_uniforms(
 
 /// For now only use the first object in the obj file.
 /// Returns (vertices, vertex_indicies, texture_coordinate indices)
-fn load_obj_models(obj_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
+fn load_obj_models(obj_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Option<Vec<u32>>) {
   let mut model_file = File::open(obj_file_path).unwrap();
   let mut model_file_text = String::new();
   model_file.read_to_string(&mut model_file_text).unwrap();
@@ -358,11 +359,16 @@ fn load_obj_models(obj_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec
     }
   }
 
-  info!("Vertices in model: {}", vertices.len());
-  (vertices, indices)
+  info!(
+    "Vertices/indices in model: {}, {}",
+    vertices.len(),
+    indices.len()
+  );
+  (vertices, Some(indices))
 }
 
-fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
+/// Returns (vertices, vertex_indicies, texture_coordinate indices)
+fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Option<Vec<u32>>) {
   let (document, buffers, _) = gltf::import(gltf_file_path).unwrap();
 
   if document.scenes().len() != 1 || document.scenes().next().unwrap().nodes().len() != 1 {
@@ -377,7 +383,7 @@ fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec
 
   info!("Loaded model {}", gltf_file_path);
   let mut vertices: Vec<DefaultForwardShaderVertex> = Vec::new();
-  let mut indices: Vec<u32> = Vec::new();
+  let mut indices: Option<Vec<u32>> = None;
 
   for primitive in mesh.primitives() {
     let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
@@ -389,17 +395,15 @@ fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec
       ));
     }
 
-    indices.extend(
-      reader
-        .read_indices()
-        .expect(
-          "Your model doesn't have indices, in this demo they are expected so just go ahead and \
-           export with them",
-        )
-        .into_u32(),
-    );
+    reader
+      .read_indices()
+      .map(|it| indices.get_or_insert(Vec::new()).extend(&mut it.into_u32()));
   }
 
-  info!("Vertices in model: {}", vertices.len());
+  info!(
+    "Vertices/indices in model: {}, {:?}",
+    vertices.len(),
+    indices.as_ref().map(|i| i.len())
+  );
   (vertices, indices)
 }
