@@ -6,11 +6,19 @@ use crate::{
       BackendHandleTrait, BufferAndImageLoader, BufferImageHandle, BufferType, IndexBufferElemSize,
       MagnificationMinificationFilter, TextureAddressMode,
     },
-    vulkan::images::ImageAndView,
+    vulkan::{
+      images::ImageAndView,
+      vulkan_renderer::vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
+    },
   },
 };
-use ash::{version::DeviceV1_0, vk, vk::Format, Device};
-use log::info;
+use ash::{
+  version::{DeviceV1_0, InstanceV1_0},
+  vk,
+  vk::Format,
+  Device, Instance,
+};
+use log::{info, warn};
 use std::{convert::TryFrom, sync::Arc};
 
 /// TODO PERFORMANCE MEMORY allow swapping memory with "lost" in VMA.
@@ -24,7 +32,10 @@ use std::{convert::TryFrom, sync::Arc};
 /// Vulkan implementation of [BufferLoader](trait.BufferLoader.html).
 #[derive(Clone)]
 pub struct VulkanBufferFunctions {
+  instance: Arc<Instance>,
   logical_device: Arc<Device>,
+  physical_device: vk::PhysicalDevice,
+
   allocator: Arc<vk_mem::Allocator>,
   transfer_command_buffer: vk::CommandBuffer,
   transfer_command_queue: vk::Queue,
@@ -37,18 +48,21 @@ pub struct VulkanBufferFunctions {
 }
 impl VulkanBufferFunctions {
   pub fn new(
-    logical_device: Arc<Device>, allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32,
-    transfer_queue_family: u32, transfer_command_pool: vk::CommandPool,
-    transfer_command_queue: vk::Queue, graphics_command_pool: vk::CommandPool,
-    graphics_command_queue: vk::Queue,
+    vulkan_core: &VulkanCoreStructures, device_bundle: &VulkanDeviceStructures,
+    allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32, transfer_queue_family: u32,
+    transfer_command_pool: vk::CommandPool, transfer_command_queue: vk::Queue,
+    graphics_command_pool: vk::CommandPool, graphics_command_queue: vk::Queue,
   ) -> SarektResult<Self> {
     let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
       .level(vk::CommandBufferLevel::PRIMARY)
       .command_pool(transfer_command_pool)
       .command_buffer_count(1)
       .build();
-    let transfer_command_buffer =
-      unsafe { logical_device.allocate_command_buffers(&command_buffer_alloc_info)?[0] };
+    let transfer_command_buffer = unsafe {
+      device_bundle
+        .logical_device
+        .allocate_command_buffers(&command_buffer_alloc_info)?[0]
+    };
 
     let graphics_command_buffer = if graphics_command_pool != transfer_command_pool {
       let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
@@ -56,20 +70,31 @@ impl VulkanBufferFunctions {
         .command_pool(graphics_command_pool)
         .command_buffer_count(1)
         .build();
-      unsafe { logical_device.allocate_command_buffers(&command_buffer_alloc_info)?[0] }
+      unsafe {
+        device_bundle
+          .logical_device
+          .allocate_command_buffers(&command_buffer_alloc_info)?[0]
+      }
     } else {
       transfer_command_buffer
     };
 
     let ownership_semaphore = if graphics_command_pool != transfer_command_pool {
       let semaphore_ci = vk::SemaphoreCreateInfo::default();
-      unsafe { [logical_device.create_semaphore(&semaphore_ci, None)?] }
+      unsafe {
+        [device_bundle
+          .logical_device
+          .create_semaphore(&semaphore_ci, None)?]
+      }
     } else {
       [vk::Semaphore::null()]
     };
 
     Ok(Self {
-      logical_device,
+      instance: vulkan_core.instance.clone(),
+      logical_device: device_bundle.logical_device.clone(),
+      physical_device: device_bundle.physical_device,
+
       allocator,
       transfer_command_buffer,
       transfer_command_queue,
@@ -634,9 +659,31 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     address_v: TextureAddressMode, address_w: TextureAddressMode,
   ) -> SarektResult<ResourceWithMemory> {
     let dimens = pixels.dimensions();
-    // TODO NOW query supported formats and change to rgba8 if not supported.
-    let format: vk::Format = pixels.format()?.into();
-    let pixel_bytes = pixels.into_bytes();
+
+    let (pixel_bytes, format) = {
+      let format = pixels.format()?.into();
+      let format_suitable = unsafe {
+        self
+          .instance
+          .get_physical_device_format_properties(self.physical_device, format)
+          .buffer_features
+          .intersects(vk::FormatFeatureFlags::SAMPLED_IMAGE)
+      };
+
+      if !format_suitable {
+        // Format not usable for a sampled image, convert to one garunteed by vulkan
+        warn!(
+          "Using an image with unsupported format, converting to rgba, consider baking a new \
+           texture"
+        );
+        let pixels = pixels.into_rgba8();
+        let format = pixels.format()?.into();
+        (pixels.into_bytes(), format)
+      } else {
+        let format = pixels.format()?.into();
+        (pixels.into_bytes(), format)
+      }
+    };
 
     info!(
       "Loading image with dimensions {:?}, and {} bytes",

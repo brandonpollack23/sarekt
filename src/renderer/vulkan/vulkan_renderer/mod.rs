@@ -1,3 +1,5 @@
+pub mod vulkan_core;
+
 mod base_pipeline_bundle;
 mod debug_utils_ext;
 mod depth_buffer;
@@ -6,7 +8,6 @@ mod pipelines;
 mod render_targets;
 mod surface;
 mod swap_chain;
-mod vulkan_core;
 
 use crate::{
   error::{SarektError, SarektResult},
@@ -181,7 +182,8 @@ impl VulkanRenderer {
     // TODO MULTITHREADING all graphics command pools needed here to specify
     // concurrent access.
     let buffer_image_store = ManuallyDrop::new(Self::create_buffer_image_store(
-      logical_device.clone(),
+      &vulkan_core,
+      &vulkan_device_structures,
       allocator.clone(),
       queue_families.graphics_queue_family.unwrap(),
       queue_families.transfer_queue_family.unwrap(),
@@ -611,13 +613,14 @@ impl VulkanRenderer {
   }
 
   fn create_buffer_image_store(
-    logical_device: Arc<Device>, allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32,
-    transfer_queue_family: u32, transfer_command_pool: vk::CommandPool,
-    transfer_command_queue: vk::Queue, graphics_command_pool: vk::CommandPool,
-    graphics_command_queue: vk::Queue,
+    vulkan_core: &VulkanCoreStructures, vulkan_device_bundle: &VulkanDeviceStructures,
+    allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32, transfer_queue_family: u32,
+    transfer_command_pool: vk::CommandPool, transfer_command_queue: vk::Queue,
+    graphics_command_pool: vk::CommandPool, graphics_command_queue: vk::Queue,
   ) -> SarektResult<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>> {
     let functions = VulkanBufferFunctions::new(
-      logical_device,
+      vulkan_core,
+      vulkan_device_bundle,
       allocator,
       graphics_queue_family,
       transfer_queue_family,

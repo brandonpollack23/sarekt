@@ -98,8 +98,7 @@ fn main_loop() {
     .unwrap();
 
   // Load textures and create image.
-  let model_texture_file =
-    image::DynamicImage::ImageRgba8(image::open(MODEL_TEXTURE_FILE_NAME).unwrap().into_rgba());
+  let model_texture_file = image::open(MODEL_TEXTURE_FILE_NAME).unwrap();
   let model_texture = renderer
     .load_image_with_staging_initialization(
       model_texture_file,

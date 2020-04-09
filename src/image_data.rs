@@ -7,8 +7,12 @@ use safe_transmute::to_bytes::transmute_to_bytes_vec;
 /// The trait used for loading images into Sarekt.  An implementation is
 /// provided for the rust [image](https://crates.io/crates/image) crate.  Feel free to create one in your own project for other crates (by wrapping in a newtype to avoid the orphan problem).
 pub trait ImageData {
-  /// Returns r8g8b8a8 32 bit (4 byte) color array of pixels.
+  /// Returns byte color array of pixels.
   fn into_bytes(self) -> Vec<u8>;
+
+  /// Converts to rgba8, a format that must be supported by at least the Vulkan
+  /// backend
+  fn into_rgba8(self) -> Self;
 
   /// Returns (width, height) of the image.
   fn dimensions(&self) -> (u32, u32);
@@ -45,6 +49,10 @@ impl ImageData for image::DynamicImage {
       image::DynamicImage::ImageRgb16(img) => transmute_to_bytes_vec(img.into_raw()).unwrap(),
       image::DynamicImage::ImageRgba16(img) => transmute_to_bytes_vec(img.into_raw()).unwrap(),
     }
+  }
+
+  fn into_rgba8(self) -> Self {
+    image::DynamicImage::ImageRgba8(self.into_rgba())
   }
 
   fn dimensions(&self) -> (u32, u32) {
@@ -96,6 +104,10 @@ impl Monocolor {
 impl ImageData for Monocolor {
   fn into_bytes(self) -> Vec<u8> {
     self.inner.to_vec()
+  }
+
+  fn into_rgba8(self) -> Self {
+    self
   }
 
   fn dimensions(&self) -> (u32, u32) {
