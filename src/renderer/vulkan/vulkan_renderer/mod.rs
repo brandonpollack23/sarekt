@@ -81,8 +81,7 @@ pub struct VulkanRenderer {
   transfer_command_pool: vk::CommandPool,
   draw_synchronization: DrawSynchronization,
   // Frame count since swapchain creation, not beginning of rendering.
-  // TODO CRITICAL renderer function that returns this.
-  frame_count: Cell<usize>,
+  frame_count: Cell<u64>,
   // Frame in flight number 0..MAX_FRAMES_IN_FLIGHT
   current_frame_num: Cell<usize>,
   next_image_index: Cell<usize>,
@@ -390,7 +389,7 @@ impl VulkanRenderer {
 
     let gfx_pool_ci = vk::CommandPoolCreateInfo::builder()
       .queue_family_index(queue_family_indices.graphics_queue_family.unwrap())
-      .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER) // TODO PERFORMANCE create one command pool for each framebuffer to allow resetting individually at the pool level?
+      .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER) // TODO(issue#26) PERFORMANCE create one command pool for each framebuffer to allow resetting individually at the pool level?
       .build();
 
     let gfx_pool = unsafe { logical_device.create_command_pool(&gfx_pool_ci, None)? };
@@ -816,7 +815,7 @@ impl VulkanRenderer {
   //  Renderer Utility Methods
   // ================================================================================
   fn increment_frame_count(&self) {
-    self.frame_count.set(self.frame_count.get() + 1);
+    self.frame_count.set(self.frame_count.get() + 1u64);
     self
       .current_frame_num
       .set((self.current_frame_num.get() + 1) % MAX_FRAMES_IN_FLIGHT);
@@ -1047,6 +1046,10 @@ impl Renderer for VulkanRenderer {
     } else {
       Err(SarektError::IncorrectResourceType)
     }
+  }
+
+  fn get_frame_count(&self) -> u64 {
+    self.frame_count.get()
   }
 }
 impl Drawer for VulkanRenderer {

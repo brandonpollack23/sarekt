@@ -21,13 +21,12 @@ use ash::{
 use log::{info, warn};
 use std::{convert::TryFrom, sync::Arc};
 
-/// TODO PERFORMANCE MEMORY allow swapping memory with "lost" in VMA.
+/// TODO(issue#27) PERFORMANCE stage buffer allocations to be transfered in one
+/// staging buffer commit load operation instead of doing each one seperate and
+/// waiting. Be sure to only delete staging stuff after the commit operation.
 
-/// TODO PERFORMANCE stage buffer allocations to be transfered in one staging
-/// buffer commit load operation instead of doing each one seperate and waiting.
-/// Be sure to only delete staging stuff after the commit operation.
-
-/// TODO PERFORMANCE defragmentation of VMA
+/// TODO(issue#28) PERFORMANCE MEMORY allow swapping memory with "lost" in VMA.
+/// TODO(issue#28) PERFORMANCE MEMORY defragmentation of VMA
 
 /// Vulkan implementation of [BufferLoader](trait.BufferLoader.html).
 #[derive(Clone)]
@@ -156,7 +155,8 @@ impl VulkanBufferFunctions {
     info!("Creating GPU buffer and memory to use during drawing...");
     let buffer_usage =
       vk::BufferUsageFlags::TRANSFER_DST | usage_flags_from_buffer_type(buffer_type);
-    // TODO PERFORMANCE instead of concurrent do a transfer like for images.
+    // TODO(issue#28) PERFORMANCE instead of concurrent do a transfer like for
+    // images.
     let sharing_mode = if self.graphics_queue_family == self.transfer_queue_family {
       vk::SharingMode::EXCLUSIVE
     } else {
@@ -210,7 +210,7 @@ impl VulkanBufferFunctions {
     Ok(self.allocator.create_image(&image_ci, &alloc_ci)?)
   }
 
-  // TODO IMAGE MIPMAPPING
+  // TODO(issue#18) IMAGE MIPMAPPING
   fn transfer_staging_to_gpu_buffer_or_image(
     &self, buffer_size: u64, staging_buffer: vk::Buffer, gpu_buffer_or_image: ImageOrBuffer,
   ) -> SarektResult<()> {
@@ -419,9 +419,9 @@ impl VulkanBufferFunctions {
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
     address_v: TextureAddressMode, address_w: TextureAddressMode,
   ) -> SarektResult<vk::Sampler> {
-    // TODO CONFIG anisotropy
-    // TODO CONFIG border color (as part of TextureAddressMode enum)
-    // TODO CONFIG MIPMAPPING
+    // TODO(issue#18) CONFIG anisotropy
+    // TODO(issue#18) CONFIG border color (as part of TextureAddressMode enum)
+    // TODO(issue#18) CONFIG MIPMAPPING
     let mag_filter = match magnification_filter {
       MagnificationMinificationFilter::Linear => vk::Filter::LINEAR,
       MagnificationMinificationFilter::Nearest => vk::Filter::NEAREST,
@@ -468,7 +468,7 @@ impl VulkanBufferFunctions {
     unsafe { Ok(self.logical_device.create_sampler(&sampler_ci, None)?) }
   }
 
-  // TODO IMAGE MIPMAPPING levels as params
+  // TODO(issue#18) IMAGE MIPMAPPING levels as params
   /// Returns the source and destination queue family indices.
   fn insert_layout_transition_barrier(
     &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, _format: vk::Format,
@@ -649,10 +649,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
 
   /// The procedure for loading an image in vulkan could use a staging image,
   /// but its just as well we use a staging buffer, which is easier and [could even be faster](https://developer.nvidia.com/vulkan-memory-management)
-  /// TODO IMAGES MIPMAPPING
-  ///
-  /// TODO IMAGES DETECT IF THERE IS A MORE OPTIMAL RUNTIME FORMAT THAN
-  /// PROVIDED.
+  /// TODO(issue#18) IMAGES MIPMAPPING
   fn load_image_with_staging_initialization(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
@@ -723,8 +720,9 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       .allocator
       .destroy_buffer(staging_buffer, &staging_allocation)?;
 
-    // TODO IMAGES propogate up this parameter to allow users to create stencil etc,
-    // this will involve a Sarekt non vulkan enum in buffers_and_images.
+    // TODO(issue#29) IMAGES propogate up this parameter to allow users to create
+    // stencil etc, this will involve a Sarekt non vulkan enum in
+    // buffers_and_images.
     let image_view = self.create_image_view(image, format.into(), vk::ImageAspectFlags::COLOR)?;
     let sampler = self.create_sampler(
       magnification_filter,

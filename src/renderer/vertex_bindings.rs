@@ -57,10 +57,6 @@ impl DefaultForwardShaderVertex {
       texture_coordinates: uv::Vec2::from(texture_coordinates),
     }
   }
-
-  // TODO ASSETS asset based creation (OBJ)
-  // Do it in its own class that builds this and then loads it in without keeping
-  // it in memory, or optionally returns a handle and the in memory handle.
 }
 
 /// Returns the descriptor layouts for the specific backend.  These contain

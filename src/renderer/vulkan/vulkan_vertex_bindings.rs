@@ -7,7 +7,8 @@ use crate::{
 };
 use ash::vk;
 
-// TODO SHADERS use reflection to generate these at compile time (generically?).
+// TODO(issue#21) SHADERS use reflection to generate these at compile time
+// (generically?).
 
 unsafe impl VertexBindings for DefaultForwardShaderVertex {
   type BVA = vk::VertexInputAttributeDescription;
@@ -46,7 +47,7 @@ unsafe impl VertexBindings for DefaultForwardShaderVertex {
   }
 }
 
-// TODO SHADERS use reflection to generate descriptor set layouts.
+// TODO(issue#21) SHADERS use reflection to generate descriptor set layouts.
 
 unsafe impl DescriptorLayoutInfo for DefaultForwardShaderLayout {
   type BackendDescriptorSetLayoutBindings = [vk::DescriptorSetLayoutBinding; 2];
@@ -58,7 +59,6 @@ unsafe impl DescriptorLayoutInfo for DefaultForwardShaderLayout {
       .binding(0)
       .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
       .descriptor_count(1) // If this uniform contained an array (like of lights, or transforms for each bone for animation) this is how many.
-      // TODO PERFORMANCE measure forwarding enables from vertex shader as flat vs making accessible from fragment shader.
       .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT) // used in the vertex and fragment shader.
       // .immutable_samplers() no samplers since there's no textures. 
       .build(),

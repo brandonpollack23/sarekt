@@ -44,7 +44,7 @@ where
 /// D3D hlsl, etc.
 pub enum ShaderCode<'a> {
   Spirv(&'a [u32]),
-  Glsl(&'a str), // TODO COMPAT support GLSL
+  Glsl(&'a str), // TODO(issue#22) support GLSL
 }
 
 /// The type of shader (vertex, fragment, etc).

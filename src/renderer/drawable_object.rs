@@ -11,9 +11,6 @@ use crate::{
   },
 };
 
-// TODO UNIFORMS MACRO multiple uniforms, use a macro_rules to define this class
-// for various tuples of uniforms.
-
 /// The object that is passed to Drawer's draw method.  Contains all the
 /// necessary information to perform a draw command.
 ///

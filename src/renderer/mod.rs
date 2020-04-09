@@ -190,6 +190,9 @@ pub trait Renderer {
 
   /// Handle swapchain out of date, such as window changes.
   fn recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()>;
+
+  /// Return the number of frames drawn.
+  fn get_frame_count(&self) -> u64;
 }
 
 /// Trait that each renderer as well as its secondary drawers (if supported)
