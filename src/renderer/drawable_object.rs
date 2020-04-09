@@ -95,10 +95,11 @@ where
     })
   }
 
-  // TODO BUFFERS BACKLOG for UniformBufferHandle/DataHandle can specify
+  // TODO(issue#6) BUFFERS BACKLOG for UniformBufferHandle/DataHandle can specify
   // push_constant type and switch on that in update uniform.
-  // TODO PERFORMANCE allow setting at offsets/fields in uniform so you don't have
-  // to copy over the whole thing.
+  // TODO(issue#7) PERFORMANCE allow setting at offsets/fields in uniform so you
+  // don't have to copy over the whole thing.
+  /// Set the value of a uniform in the renderer.
   pub fn set_uniform(&self, renderer: &R, data: &DescriptorLayoutStruct) -> SarektResult<()> {
     renderer.set_uniform(&self.uniform_buffer, data)
   }
