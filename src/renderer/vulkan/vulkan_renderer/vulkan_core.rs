@@ -38,7 +38,7 @@ lazy_static! {
 pub struct VulkanCoreStructures {
   _entry: Entry,
   pub instance: Arc<Instance>,
-  pub surface_and_extension: SurfaceAndExtension, // TODO OFFSCREEN option
+  pub surface_and_extension: SurfaceAndExtension, // TODO(issue#9) OFFSCREEN option
   debug_utils_and_messenger: Option<DebugUtilsAndMessenger>,
 }
 impl VulkanCoreStructures {
@@ -71,7 +71,7 @@ impl VulkanCoreStructures {
       None
     };
 
-    // TODO OFFSCREEN only create surface and swapchain if window was
+    // TODO(issue#9) OFFSCREEN only create surface and swapchain if window was
     // passed, otherwise make images directly.
     // vkCreateXcbSurfaceKHR/VkCreateWin32SurfaceKHR/
     // vkCreateStreamDescriptorSurfaceGGP(Stadia)/etc
@@ -106,7 +106,6 @@ impl VulkanCoreStructures {
     entry: &Entry, window: &W, application_name: &str, application_version: u32, engine_name: &str,
     engine_version: u32,
   ) -> SarektResult<Arc<Instance>> {
-    // TODO Detect vulkan versions available?
     let app_info = vk::ApplicationInfo::builder()
       .application_name(CString::new(application_name)?.as_c_str())
       .application_version(application_version)
@@ -231,7 +230,7 @@ impl VulkanCoreStructures {
 impl Drop for VulkanCoreStructures {
   fn drop(&mut self) {
     unsafe {
-      // TODO OFFSCREEN if there is one
+      // TODO(issue#9) OFFSCREEN if there is one
       info!("Destrying surface...");
       let surface_functions = &self.surface_and_extension.surface_functions;
       let surface = self.surface_and_extension.surface;
@@ -281,7 +280,7 @@ impl VulkanDeviceStructures {
   /// Evaluates all the available physical devices in the system and picks the
   /// best one based on a heuristic.
   ///
-  /// TODO CONFIG have this be overridable somehow with config etc.
+  /// TODO(issue#18) CONFIG have this be overridable somehow with config etc.
   fn pick_physical_device(
     instance: &Instance, surface_and_extension: &SurfaceAndExtension,
   ) -> SarektResult<vk::PhysicalDevice> {
@@ -313,13 +312,13 @@ impl VulkanDeviceStructures {
   /// Rank the devices based on an internal scoring mechanism.
   /// A score of -1 means the device is not supported.
   ///
-  /// TODO CONFIG add ways to configure device selection later.
+  /// TODO(issue#18) CONFIG add ways to configure device selection later.
   fn rank_device(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
   ) -> (vk::PhysicalDevice, i32) {
     let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
-    // TODO CONFIG utilize physicsl_device_features
+    // TODO(issue#18) CONFIG utilize physicsl_device_features
 
     if !Self::is_device_suitable(instance, physical_device, surface_and_extension).unwrap_or(false)
     {
@@ -374,11 +373,11 @@ impl VulkanDeviceStructures {
     let sc_support_details =
       Self::query_swap_chain_support(surface_and_extension, physical_device)?;
 
-    // TODO OFFSCREEN only if drawing to a window.
+    // TODO(issue#9) OFFSCREEN only if drawing to a window.
     let swap_chain_adequate =
       !sc_support_details.formats.is_empty() && !sc_support_details.present_modes.is_empty();
 
-    // TODO OFFSCREEN only if drawing window need swap chain adequete.
+    // TODO(issue#9) OFFSCREEN only if drawing window need swap chain adequete.
     Ok(
       has_needed_features
         && has_queues
@@ -399,7 +398,7 @@ impl VulkanDeviceStructures {
       .iter()
       .map(|ext_props| ext_props.extension_name)
       .any(|ext_name| unsafe {
-        // TODO OFFSCREEN only if drawing to a window.
+        // TODO(issue#9) OFFSCREEN only if drawing to a window.
         CStr::from_ptr(ext_name.as_ptr() as *const c_char)
           .eq(ash::extensions::khr::Swapchain::name())
       });
@@ -475,7 +474,7 @@ impl VulkanDeviceStructures {
   /// needed are present, and returns the logical device, and a
   /// [Queues](struct.Queues.html) containing all the command queues. otherwise
   /// returns the [SarektError](enum.SarektError.html) that occurred.
-  /// TODO CONFIG ANISOTROPY
+  /// TODO(issue#18) CONFIG ANISOTROPY
   fn create_logical_device_and_queues(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     surface_and_extension: &SurfaceAndExtension,
@@ -504,17 +503,15 @@ impl VulkanDeviceStructures {
     let device_ci = vk::DeviceCreateInfo::builder()
       .queue_create_infos(&queue_cis)
       .enabled_features(&device_features)
-      // TODO OFFSCREEN only if drawing to a window
+      // TODO(issue#9) OFFSCREEN only if drawing to a window
       .enabled_extension_names(&enabled_extension_names)
       .build();
 
     unsafe {
-      // TODO VULKAN_INQUIRY when would i have seperate queues even if in the same
-      // family for presentation and graphics?
-      // TODO OFFSCREEN no presentation queue needed when not presenting to a
-      // swapchain, right?
+      // TODO(issue#9) OFFSCREEN no presentation queue needed when not presenting to
+      // swapchain.
       //
-      // TODO MULTITHREADING I would create one queue for each
+      // TODO(issue#1) MULTITHREADING I would create one queue for each
       // thread, right now I'm only using one.
       let graphics_queue_family = queue_family_indices.graphics_queue_family.unwrap();
       let presentation_queue_family = queue_family_indices.presentation_queue_family.unwrap();
