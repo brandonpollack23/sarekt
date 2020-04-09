@@ -1,6 +1,6 @@
 [package]
 name = "sarekt"
-version = "0.0.1-alpha"
+version = "0.0.1"
 authors = ["Brandon Pollack <brandonpollack23@gmail.com>"]
 description = "An rendering engine based on Vulkan, but capable of being expanded to other graphics API backends such as Metal or D3D12"
 license = "MIT"
