@@ -1,3 +1,6 @@
+//! This is the vulkan renderer module for Sarekt.
+//!  It is organized into submodules of bundles of structs that make sense
+//! together, mainly just for organization.
 pub mod vulkan_core;
 
 mod base_pipeline_bundle;
@@ -53,8 +56,9 @@ use std::{
 };
 use vk_shader_macros::include_glsl;
 
-// TODO PERFORMANCE can i make things like descriptor set count and uniform
-// buffers allocate number of frames in flight, not render target image count?
+// TODO(issue#8) PERFORMANCE can i make things like descriptor set count and
+// uniform buffers allocate number of frames in flight, not render target image
+// count?
 
 /// Default vertex shader that contain their own vertices, will be removed in
 /// the future.
@@ -63,7 +67,8 @@ pub const DEFAULT_VERTEX_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.
 /// the future.
 pub const DEFAULT_FRAGMENT_SHADER: &[u32] = include_glsl!("shaders/sarekt_forward.frag");
 
-/// The Sarekt Vulkan Renderer, see module level documentation for details.
+/// The Sarekt Vulkan Renderer, see module and crate level documentations for
+/// details.
 pub struct VulkanRenderer {
   vulkan_core: ManuallyDrop<VulkanCoreStructures>,
   vulkan_device_structures: ManuallyDrop<VulkanDeviceStructures>,
@@ -85,9 +90,6 @@ pub struct VulkanRenderer {
   // Descriptor pools.
   main_descriptor_pools: Vec<vk::DescriptorPool>,
 
-  // Application controllable fields
-  rendering_enabled: bool,
-
   // Utilities
   allocator: Arc<vk_mem::Allocator>,
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
@@ -99,6 +101,9 @@ pub struct VulkanRenderer {
     BufferImageHandle<VulkanBufferFunctions>,
     BufferOrImage<ResourceWithMemory>,
   )>,
+
+  // Application controllable fields
+  rendering_enabled: bool,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -131,7 +136,8 @@ impl VulkanRenderer {
     )
   }
 
-  /// Like new_detailed but allows injection of user data, for unit testing.
+  /// Like new_detailed but allows injection of user data, for unit testing or
+  /// metric gathering.
   fn new_detailed_with_debug_user_data<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
     window: OW, requested_width: u32, requested_height: u32,
     application_details: ApplicationDetails, engine_details: EngineDetails,
@@ -141,8 +147,8 @@ impl VulkanRenderer {
       .into()
       .expect("Sarekt only supports rendering to a window right now :(");
 
-    // TODO OFFSCREEN Support rendering to a non window surface if window is None
-    // (change it to an Enum of WindowHandle or OtherSurface).
+    // TODO(issue#9) OFFSCREEN Support rendering to a non window surface if window
+    // is None (change it to an Enum of WindowHandle or OtherSurface).
     info!("Creating Sarekt Renderer with Vulkan Backend...");
 
     let vulkan_core = ManuallyDrop::new(VulkanCoreStructures::new(
@@ -158,8 +164,8 @@ impl VulkanRenderer {
     let queue_families = &vulkan_device_structures.queue_families;
     let queues = &vulkan_device_structures.queues;
 
-    // TODO OFFSCREEN only create if drawing to window, get format and extent
-    // elsewhere.
+    // TODO(issue#9) OFFSCREEN only create if drawing to window, get format and
+    // extent elsewhere.
     let render_target_bundle = RenderTargetBundle::new(
       &vulkan_core,
       &vulkan_device_structures,
@@ -179,8 +185,8 @@ impl VulkanRenderer {
 
     let shader_store = Self::create_shader_store(&logical_device);
 
-    // TODO MULTITHREADING all graphics command pools needed here to specify
-    // concurrent access.
+    // TODO(issue#1) MULTITHREADING all graphics command pools needed here to
+    // specify concurrent access.
     let buffer_image_store = ManuallyDrop::new(Self::create_buffer_image_store(
       &vulkan_core,
       &vulkan_device_structures,
@@ -231,13 +237,14 @@ impl VulkanRenderer {
 
       main_descriptor_pools,
 
-      rendering_enabled: true,
-
       allocator,
       shader_store,
       buffer_image_store,
 
+      // To be initialized.
       default_texture: None,
+
+      rendering_enabled: true,
     };
 
     renderer.create_default_texture();
@@ -249,12 +256,10 @@ impl VulkanRenderer {
     Ok(renderer)
   }
 }
-/// Private implementation details.
 impl VulkanRenderer {
-  /// When the target dimensions or requirments change, we must recreate a bunch
-  /// of stuff to remain compabible and continue rendering to the new surface.
-  ///
-  /// TODO MAYBE put everything that may need to be recreated in a cell?
+  /// When the target dimensions or requirements change, we must recreate a
+  /// bunch of stuff to remain compatible and continue rendering to the new
+  /// surface.
   unsafe fn do_recreate_swapchain(&mut self, width: u32, height: u32) -> SarektResult<()> {
     let instance = &self.vulkan_core.instance;
     let logical_device = &self.vulkan_device_structures.logical_device;
@@ -406,7 +411,7 @@ impl VulkanRenderer {
 
   /// Creates command buffer for main thread to make draw calls on.
   ///
-  /// TODO MULTITHREADING one secondary per thread.
+  /// TODO(issue#1) MULTITHREADING one secondary per thread.
   fn create_main_gfx_command_buffers(
     logical_device: &Device, primary_gfx_command_pool: vk::CommandPool,
     framebuffers: &[vk::Framebuffer],
@@ -447,14 +452,14 @@ impl VulkanRenderer {
       warn!("Swapchain is suboptimal!");
     }
 
-    // TODO MULTITHREADING all things that were only main thread, do for all
-    // renderers, too.
+    // TODO(issue#1) MULTITHREADING all things that were only main thread, do for
+    // all renderers, too.
     let logical_device = &self.vulkan_device_structures.logical_device;
     let descriptor_pool = self.main_descriptor_pools[image_index as usize];
     let command_buffer = self.primary_gfx_command_buffers[image_index as usize];
     let framebuffer = self.pipelines.get_framebuffer(image_index as usize);
     let extent = self.render_target_bundle.extent;
-    // TODO PIPELINES when multiple render pass types are supported use the
+    // TODO(issue#2) PIPELINES when multiple render pass types are supported use the
     // *selected* one.
     let render_pass = self.pipelines.forward_render_pass;
     let pipeline = self.pipelines.get_current_pipeline();
@@ -471,7 +476,7 @@ impl VulkanRenderer {
     }
 
     unsafe {
-      // TODO PERFORMANCE cache descriptor sets: https://github.com/KhronosGroup/Vulkan-Samples/blob/master/samples/performance/descriptor_management/descriptor_management_tutorial.md
+      // TODO(issue#10) PERFORMANCE cache descriptor sets: https://github.com/KhronosGroup/Vulkan-Samples/blob/master/samples/performance/descriptor_management/descriptor_management_tutorial.md
       logical_device
         .reset_descriptor_pool(descriptor_pool, vk::DescriptorPoolResetFlags::empty())?;
     }
@@ -516,7 +521,7 @@ impl VulkanRenderer {
       );
 
       // Bind the pipeline. Can be overridden in secondary buffer by the user.
-      // TODO RENDERING_CAPABILITIES MULTITHREADING we can keep track in each thread's
+      // TODO(issue#1) MULTITHREADING we can keep track in each thread's
       // command buffer waht pipeline is bound so we don't insert extra rebind
       // commands.
       logical_device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline)
@@ -534,8 +539,7 @@ impl VulkanRenderer {
     instance: &Instance, physical_device: vk::PhysicalDevice, logical_device: &Device,
     render_targets: &[ImageAndView],
   ) -> SarektResult<Vec<vk::DescriptorPool>> {
-    // TODO MULTITHREADING one per per frame per thread.
-    // TODO TEXTURE add texture descriptor set pool.
+    // TODO(issue#1) MULTITHREADING one per per frame per thread.
 
     let physical_device_properties =
       unsafe { instance.get_physical_device_properties(physical_device) };
@@ -691,7 +695,8 @@ impl VulkanRenderer {
     let logical_device = &self.vulkan_device_structures.logical_device;
 
     // First allocate descriptor sets.
-    // TODO PIPELINES pass in current pipeline layout.
+    // TODO(issue#2) PIPELINES pass pipeline layout of the pipeline that is running
+    // now.
     let layouts = self.pipelines.get_pipeline_descriptor_layouts();
     let alloc_info = vk::DescriptorSetAllocateInfo::builder()
       .descriptor_pool(descriptor_pool)
@@ -708,9 +713,10 @@ impl VulkanRenderer {
       .range(bind_uniform_info.range as vk::DeviceSize)
       .build()];
 
-    // TODO TEXTURES SHADERS when there is more than one texture allowed fill a vec
-    // with null textures for all unused textures in drawable objects, which will
-    // now be a option vec.
+    // TODO(issue#11) LIGHTING TEXTURES SHADERS when there is more than one texture
+    // allowed fill a vec with null textures for all unused textures in drawable
+    // objects, which will now be a option vec.
+
     // Either load the texture in the drawable object or use a transparent null
     // texture.
     let bind_texture_info = DescriptorLayoutStruct::get_bind_texture_info()?;
@@ -737,7 +743,6 @@ impl VulkanRenderer {
       }
     }];
 
-    // TODO SHADERS array elements.
     // Create descriptor writes for uniforms.
     let uniform_descriptor_writes = bind_uniform_info.bindings.iter().map(|&binding| {
       vk::WriteDescriptorSet::builder()
@@ -770,7 +775,7 @@ impl VulkanRenderer {
       logical_device.update_descriptor_sets(&descriptor_writes, &[]); // No descriptor copies.
 
       // Bind them to the pipeline layout.
-      // TODO PIPELINES select correct pipeline layout.
+      // TODO(issue#2) PIPELINES select current pipeline layout. Same as above.
       logical_device.cmd_bind_descriptor_sets(
         command_buffer,
         vk::PipelineBindPoint::GRAPHICS,
@@ -787,6 +792,11 @@ impl VulkanRenderer {
   // ================================================================================
   //  Null object setup methods
   // ================================================================================
+  /// A default texture to use when there isn't one selected for the drawable
+  /// object slot.
+  ///
+  /// This will be used in place of all shaders in a Drawable Object that are
+  /// set to None.
   fn create_default_texture(&mut self) {
     let image_and_handle = BufferImageStore::load_image_with_staging_initialization(
       &self.buffer_image_store,
@@ -820,7 +830,7 @@ impl Renderer for VulkanRenderer {
     self.rendering_enabled = enabled;
   }
 
-  // TODO OFFSCREEN handle off screen rendering.
+  // TODO(issue#9) OFFSCREEN handle off screen rendering.
   fn frame(&self) -> SarektResult<()> {
     let logical_device = &self.vulkan_device_structures.logical_device;
     let queues = &self.vulkan_device_structures.queues;
@@ -844,7 +854,7 @@ impl Renderer for VulkanRenderer {
       logical_device.cmd_end_render_pass(current_command_buffer);
 
       // Finish recording on all command buffers.
-      // TODO MULTITHREADING all of them not just main.
+      // TODO(issue#1) MULTITHREADING all of them not just main.
       logical_device.end_command_buffer(current_command_buffer)?;
     }
 
@@ -869,7 +879,7 @@ impl Renderer for VulkanRenderer {
       .build();
     unsafe { logical_device.queue_submit(queues.graphics_queue, &[submit_info], frame_fence)? };
 
-    // TODO OFFSCREEN only if presenting to swapchain.
+    // TODO(issue#1) OFFSCREEN only if presenting to swapchain.
     // Present to swapchain and display completed frame.
     let wait_semaphores = [render_finished_sem];
     self.render_target_bundle.queue_present(
@@ -893,9 +903,6 @@ impl Renderer for VulkanRenderer {
     ShaderStore::load_shader(&self.shader_store, &code, shader_type)
   }
 
-  // TODO CRITICAL investigate the ability to allow all these to propogate up the
-  // backend handle as well to avoid having to load in drawable object, will this
-  // break the lifetime stuff?
   fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
@@ -949,8 +956,8 @@ impl Renderer for VulkanRenderer {
     // images.
     let mut uniform_buffers = Vec::with_capacity(self.pipelines.framebuffers.len());
     for _ in 0..self.pipelines.framebuffers.len() {
-      // TODO PERFORMANCE EASY create a "locked" version of the loading function
-      // so I don't have to keep reacquiring it.
+      // TODO(issue#13) PERFORMANCE EASY create a "locked" version of the loading
+      // function so I don't have to keep reacquiring it.
       let (uniform_buffer_handle, _) = BufferImageStore::load_buffer_without_staging(
         &self.buffer_image_store,
         BufferType::Uniform,
@@ -1045,7 +1052,10 @@ impl Renderer for VulkanRenderer {
 impl Drawer for VulkanRenderer {
   type R = VulkanRenderer;
 
-  // TODO BUFFERS BACKLOG do push_constant uniform buffers and example.
+  /// TODO(issue#1) MULTITHREADING maybe need put everything that may need to be
+  /// recreated in a cell?
+
+  // TODO(issue#6) UNIFORMS do push_constant uniform buffers and example.
   fn draw<DescriptorLayoutStruct>(
     &self, object: &DrawableObject<Self, DescriptorLayoutStruct>,
   ) -> SarektResult<()>
@@ -1100,7 +1110,7 @@ impl Drop for VulkanRenderer {
       info!("Destroying VMA...");
       Arc::get_mut(&mut self.allocator).unwrap().destroy();
 
-      // TODO MULTITHREADING do I need to free others?
+      // TODO(issue#1) MULTITHREADING do I need to free others?
       info!("Freeing main command buffer...");
       logical_device.free_command_buffers(
         self.main_gfx_command_pool,
@@ -1209,9 +1219,9 @@ mod tests {
     assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
   }
 
-  // TODO CRITICAL TESTING write triangle sanity check that can dump buffer and
+  // TODO(issue#14) TESTING write triangle sanity check that can dump buffer and
   // compare to golden image.
 
-  // TODO CRITICAL TESTING write tests for public api using this.  rust doesn't
+  // TODO(issue#14) TESTING write tests for public api using this.  rust doesn't
   // run in test harness so in some platforms calls to frame don't present correctly. also consider [this](https://stackoverflow.com/questions/43458194/is-there-any-way-to-tell-cargo-to-run-its-tests-on-the-main-thread)
 }
