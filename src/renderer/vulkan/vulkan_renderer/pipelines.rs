@@ -42,7 +42,7 @@ impl Pipelines {
     shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>,
   ) -> SarektResult<Pipelines> {
-    // TODO RENDERING_CAPABILITIES support other render pass types.
+    // TODO(issue#2) RENDERING_CAPABILITIES support other render pass types.
     let depth_buffer = DepthResources::new(
       &vulkan_core.instance,
       device_bundle.physical_device,
@@ -59,8 +59,8 @@ impl Pipelines {
       &depth_buffer,
     )?;
 
-    // TODO RENDERING_CAPABILITIES when I can have multiple render pass types I need
-    // new framebuffers.
+    // TODO(issue#2) RENDERING_CAPABILITIES when I can have multiple render pass
+    // types I need new framebuffers for each.
     let framebuffers = Self::create_framebuffers(
       &device_bundle.logical_device,
       forward_render_pass,
@@ -165,8 +165,7 @@ impl Pipelines {
     Ok(())
   }
 
-  // TODO PIPELINES when there is more than one return a vec of tuples of all
-  // shader types (including Option of optional ones).
+  // TODO(issue#2) PIPELINES handle when there is more than one pipeline.
   /// Save the handles to the base shaders so they don't have to be recreated
   /// for no reason during swapchain recreation.
   /// Returns vertex shader handle, fragment shader handle, and a the descriptor
@@ -244,7 +243,7 @@ impl Pipelines {
       .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // Not using stencil.
       .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // Not using stencil.
       .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
-      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO OFFSCREEN only do this if going to present. Otherwise TransferDST optimal would be good.
+      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO(issue#9) OFFSCREEN only do this if going to present. Otherwise TransferDST optimal would be good.
       .build();
     // Used to reference attachments in subpasses.
     let color_attachment_ref = vk::AttachmentReference::builder()
@@ -303,11 +302,11 @@ impl Pipelines {
   /// etc, to create custom pipelines (passed back as opaque handles) based off
   /// this one that they can pass when requesting a draw.
   ///
-  /// TODO RENDERING_CAPABILITIES allow for creating custom pipelines via
-  /// LoadShaders etc.  When that is done, allow for disabling default pipeline
-  /// creation via config if it wont be used to save resources.
+  /// TODO(issue#2) RENDERING_CAPABILITIES allow for creating custom pipelines
+  /// via LoadShaders etc.  When that is done, allow for disabling default
+  /// pipeline creation via config if it wont be used to save resources.
   ///
-  /// TODO RENDERING_CAPABILITIES enable pipeline cache.
+  /// TODO(issue#17) RENDERING_CAPABILITIES enable pipeline cache.
   fn create_base_graphics_pipeline_and_shaders(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: vk::Extent2D, render_pass: vk::RenderPass, depth_buffer: DepthResources,
@@ -441,7 +440,7 @@ impl Pipelines {
       .build();
 
     // Pretty much totall disable this.
-    // TODO CONFIG make configurable
+    // TODO(issue#18) CONFIG make configurable
     let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
       .sample_shading_enable(false)
       .rasterization_samples(vk::SampleCountFlags::TYPE_1)
@@ -450,10 +449,7 @@ impl Pipelines {
       .alpha_to_one_enable(false)
       .build();
 
-    // TODO CONFIG enable stencil.
-    // TODO TRANSPARENCY a transparent pipeline (would be a seperate, similar
-    // pipeline) would set depth_write to false (test depth but use existing opaque
-    // object for buffer).
+    // TODO(issue#18) CONFIG enable stencil.
     let depth_stencil_ci = vk::PipelineDepthStencilStateCreateInfo::builder()
       .depth_test_enable(true)
       .depth_write_enable(true)
@@ -501,7 +497,7 @@ impl Pipelines {
       // .base_pipeline_index(-1)
       .build();
 
-    // TODO CRITICAL RENDERING_CAPABILITIES use pipeline cache.
+    // TODO(issue#17) RENDERING_CAPABILITIES use pipeline cache.
     let pipeline_create_infos = [base_graphics_pipeline_ci];
     let pipeline = unsafe {
       logical_device.create_graphics_pipelines(

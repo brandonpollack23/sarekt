@@ -187,7 +187,7 @@ impl DrawSynchronization {
       self.logical_device.destroy_fence(fence, None);
     }
 
-    // TODO OFFSCREEN this fence won't be the same.
+    // TODO(issue#9) OFFSCREEN this fence won't be the same.
     self
       .logical_device
       .wait_for_fences(&[self.acquire_fence], true, u64::max_value())
