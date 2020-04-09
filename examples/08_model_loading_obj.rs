@@ -1,5 +1,3 @@
-use image::GenericImageView;
-use lazy_static::lazy_static;
 use log::{info, warn, Level};
 use sarekt::{
   self,
@@ -8,12 +6,12 @@ use sarekt::{
     buffers_and_images::{
       BufferType, IndexBufferElemSize, MagnificationMinificationFilter, TextureAddressMode,
     },
-    drawable_object::{DrawableObject, DrawableObjectBuilder},
+    drawable_object::DrawableObject,
     vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
   },
 };
-use std::{collections::HashMap, error::Error, f32, fs::File, io::Read, sync::Arc, time::Instant};
+use std::{collections::HashMap, f32, fs::File, io::Read, sync::Arc, time::Instant};
 use ultraviolet as uv;
 use wavefront_obj as obj;
 use winit::{
@@ -208,32 +206,6 @@ fn main_loop() {
   });
 }
 
-fn update_uniforms(
-  renderer: &VulkanRenderer, object: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
-  position: uv::Vec3, rotation: f32, camera_height: f32, enable_colors: bool, ar: f32,
-) -> SarektResult<()> {
-  // Pi radians per second around the y axis.
-  let total_rotation =
-    uv::Mat4::from_rotation_y(rotation) * uv::Mat4::from_rotation_x(-std::f32::consts::PI / 2f32);
-  let model_matrix = uv::Mat4::from_translation(position) * total_rotation;
-
-  let view_matrix = uv::Mat4::look_at(
-    /* eye= */ uv::Vec3::new(0.0f32, camera_height, 0.0f32),
-    /* at= */ position,
-    /* up= */ uv::Vec3::unit_y(),
-  );
-  // TODO BACKENDS this proj should be conditional on backend.
-  let perspective_matrix =
-    uv::projection::rh_yup::perspective_vk(std::f32::consts::PI / 2f32, ar, 0.1f32, 10f32);
-
-  let uniform = DefaultForwardShaderLayout::new(
-    perspective_matrix * view_matrix * model_matrix,
-    enable_colors,
-    /* enable_texture_mixing= */ true,
-  );
-  object.set_uniform(renderer, &uniform)
-}
-
 /// Handles all winit window specific events.
 fn main_loop_window_event(
   event: &WindowEvent, _id: &WindowId, control_flow: &mut winit::event_loop::ControlFlow,
@@ -269,11 +241,36 @@ fn main_loop_window_event(
       renderer.set_rendering_enabled(enabled);
       return renderer.recreate_swapchain(size.width, size.height);
     }
-
     _ => (),
   }
 
   Ok(())
+}
+
+fn update_uniforms(
+  renderer: &VulkanRenderer, object: &DrawableObject<VulkanRenderer, DefaultForwardShaderLayout>,
+  position: uv::Vec3, rotation: f32, camera_height: f32, enable_colors: bool, ar: f32,
+) -> SarektResult<()> {
+  // Pi radians per second around the y axis.
+  let total_rotation =
+    uv::Mat4::from_rotation_y(rotation) * uv::Mat4::from_rotation_x(-std::f32::consts::PI / 2f32);
+  let model_matrix = uv::Mat4::from_translation(position) * total_rotation;
+
+  let view_matrix = uv::Mat4::look_at(
+    /* eye= */ uv::Vec3::new(0.0f32, camera_height, 0.0f32),
+    /* at= */ position,
+    /* up= */ uv::Vec3::unit_y(),
+  );
+  // TODO BACKENDS this proj should be conditional on backend.
+  let perspective_matrix =
+    uv::projection::rh_yup::perspective_vk(std::f32::consts::PI / 2f32, ar, 0.1f32, 10f32);
+
+  let uniform = DefaultForwardShaderLayout::new(
+    perspective_matrix * view_matrix * model_matrix,
+    enable_colors,
+    /* enable_texture_mixing= */ true,
+  );
+  object.set_uniform(renderer, &uniform)
 }
 
 // TODO NOW FIRST load all models from OBJ file.  (are they positioned or raw?)
@@ -284,9 +281,17 @@ fn main_loop_window_event(
 fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
   let mut model_file = File::open(MODEL_FILE_NAME).unwrap();
   let mut model_file_text = String::new();
-  model_file.read_to_string(&mut model_file_text);
+  model_file.read_to_string(&mut model_file_text).unwrap();
 
   let obj_set = obj::obj::parse(&model_file_text).unwrap();
+  if obj_set.objects.len() != 1 {
+    panic!(
+      "The model you attempted to load has more than one object in it, implying it is a scene, if \
+       you wish to use it as a single model, modify the application code to ignore that or join \
+       your meshes into a single model"
+    )
+  }
+
   info!("Loaded model {}", MODEL_FILE_NAME);
   let mut vertices: Vec<DefaultForwardShaderVertex> =
     Vec::with_capacity(obj_set.objects[0].vertices.len());
@@ -296,48 +301,52 @@ fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
   // vertices array im building.
   let mut inserted_indices: HashMap<(usize, usize), usize> = HashMap::with_capacity(vertices.len());
   let model_vertices = &obj_set.objects[0].vertices;
-  for shape in obj_set.objects[0].geometry[0].shapes.iter() {
-    match shape.primitive {
-      obj::obj::Primitive::Triangle(x, y, z) => {
-        for &vert in [x, y, z].iter() {
-          // We're only building a buffer of indices and vertices which contain position
-          // and tex coord.
-          let index_key = (vert.0, vert.1.unwrap());
-          if let Some(&vtx_index) = inserted_indices.get(&index_key) {
-            // Already loaded this (vertex index, texture index) combo, just add it to the
-            // index buffer.
-            indices.push(vtx_index as _);
-            continue;
+  for geo in obj_set.objects[0].geometry.iter() {
+    // For every set of geometry (regardless of material for now).
+    for shape in geo.shapes.iter() {
+      // For every face/shape in the set of geometry.
+      match shape.primitive {
+        obj::obj::Primitive::Triangle(x, y, z) => {
+          for &vert in [x, y, z].iter() {
+            // We're only building a buffer of indices and vertices which contain position
+            // and tex coord.
+            let index_key = (vert.0, vert.1.unwrap());
+            if let Some(&vtx_index) = inserted_indices.get(&index_key) {
+              // Already loaded this (vertex index, texture index) combo, just add it to the
+              // index buffer.
+              indices.push(vtx_index as _);
+              continue;
+            }
+
+            // This is a new unique vertex (where a vertex is both a position and it's
+            // texture coordinate) so add it to the vertex buffer and the index buffer.
+            let current_vertex = model_vertices[vert.0];
+            let vertex_as_float = [
+              current_vertex.x as f32,
+              current_vertex.y as f32,
+              current_vertex.z as f32,
+            ];
+            let texture_vertices = &obj_set.objects[0].tex_vertices;
+            let tex_vertex = texture_vertices[vert.1.unwrap()];
+            // TODO BACKENDS only flip on coordinate systems that should.
+            let texture_vertex_as_float = [tex_vertex.u as f32, 1f32 - tex_vertex.v as f32];
+
+            // Ignoring normals, there is no shading in this example.
+
+            // Keep track of which keys were inserted and add this vertex to the index
+            // buffer.
+            inserted_indices.insert(index_key, vertices.len());
+            indices.push(vertices.len() as _);
+
+            // Add to the vertex buffer.
+            vertices.push(DefaultForwardShaderVertex::new_with_texture(
+              &vertex_as_float,
+              &texture_vertex_as_float,
+            ));
           }
-
-          // This is a new unique vertex (where a vertex is both a position and it's
-          // texture coordinate) so add it to the vertex buffer and the index buffer.
-          let current_vertex = model_vertices[vert.0];
-          let vertex_as_float = [
-            current_vertex.x as f32,
-            current_vertex.y as f32,
-            current_vertex.z as f32,
-          ];
-          let texture_vertices = &obj_set.objects[0].tex_vertices;
-          let tex_vertex = texture_vertices[vert.1.unwrap()];
-          // TODO BACKENDS only flip on coordinate systems that should.
-          let texture_vertex_as_float = [tex_vertex.u as f32, 1f32 - tex_vertex.v as f32];
-
-          // Ignoring normals, there is no shading in this example.
-
-          // Keep track of which keys were inserted and add this vertex to the index
-          // buffer.
-          inserted_indices.insert(index_key, vertices.len());
-          indices.push(vertices.len() as _);
-
-          // Add to the vertex buffer.
-          vertices.push(DefaultForwardShaderVertex::new_with_texture(
-            &vertex_as_float,
-            &texture_vertex_as_float,
-          ));
         }
+        _ => warn!("Unsupported primitive!"),
       }
-      _ => warn!("Unsupported primitive!"),
     }
   }
 
