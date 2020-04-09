@@ -24,7 +24,6 @@ use winit::{
   window::{WindowBuilder, WindowId},
 };
 
-// TODO NOW readme updates for all the examples and cloning/building
 // TODO NOW crate level docs update as well as a one pass of all docs in the
 // whole project.
 // TODO NOW update TODO.md and then convert everything to issues and remove it.
