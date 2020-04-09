@@ -20,16 +20,34 @@
 //! let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 //! ```
 //!
+//! You may also wish to write something abstracted from which renderer backend
+//! you choose, so you can put the renderer in a `Box<dyn Renderer>`
+//!
 //! 3) That's all you can do.
 //!
+//! Please take a look at examples for how to use Sarekt, they're the best
+//! resource.  They are generally built off one another so going in order might
+//! be helpful.
+//!
+//! In terms of loading models, I want to keep that application specific so that
+//! nothing is limited by deciscions of the renderer, but example 08 should help
+//! get you started.  It is also conceivable to implement your own vertex type
+//! and shader that does support model loading functions within its members.
+//!
 //! I hope to support some stuff like:
-//! - [ ] Actually Rendering something
-//! - [ ] Actually rendering something of your choosing
-//! - [ ] Loading spirv shaders and generating internal information needed for
-//!   them (for Vulkan that's descriptor sets/layouts)
+//! - [x] Actually Rendering something
+//! - [x] Actually rendering something of your choosing
+//! - [ ] Dynamic lighting using a Phong shader.
+//! - [ ] Dynamic lighting using PBR.
+//! - [ ] Advanced lighting and shadows.
+//! - [ ] Multiple pipeline creation.
+//! - [ ] Multiple uniform buffers/descriptors for drawable objects.
+//! - [ ] Multiple uniform buffers for drawable objects.
+//! - [ ] Multithreading.
+//! - [ ] Loading spirv shaders and generating internal type information needed
+//!   for their layout.
 //! - [ ] Support Other backends
 //! - [ ] Moar.
-//! Also see the file in project root.
 pub mod buffers_and_images;
 pub mod drawable_object;
 pub mod shaders;
@@ -84,8 +102,8 @@ pub trait Renderer {
   type BL;
   type SL;
 
-  // TODO MULTITHREADING should load/get/update functions be part of drawer so
-  // anyone can do it (within their own pools/queues)
+  // TODO(issue#1) MULTITHREADING should load/get/update functions be part of
+  // drawer so anyone can do it (within their own pools/queues)
 
   /// Enables or disables rendering.
   fn set_rendering_enabled(&mut self, enabled: bool);
@@ -94,11 +112,12 @@ pub trait Renderer {
   /// when ready.
   fn frame(&self) -> SarektResult<()>;
 
-  // TODO PIPELINE create a new pipeline type out of shaders, render pass, etc.
+  // TODO(issue#2) PIPELINES create a new pipeline type out of shaders, render
+  // pass, etc.
 
-  // TODO SHADER get_shader with handle
-  // TODO SHADER when loading a shader, use spirv-reflect to make sure you don't
-  // exceed max bound descriptors to use it.
+  // TODO(issue#3) SHADER get_shader with handle
+  // TODO(issue#4) SHADER when loading a shader, use spirv-reflect to make sure
+  // you don't exceed max bound descriptors to use it.
   /// Loads a shader and returns a RAII handle to be used for retrieval or
   /// pipeline creation.
   fn load_shader(
@@ -188,9 +207,9 @@ pub trait Drawer {
     <<Self::R as Renderer>::BL as BufferAndImageLoader>::BackendHandle:
       BackendHandleTrait + Copy + Debug;
 
-  // TODO PIPELINE select render pass (predefined set?) log when pipeline not
-  // compatible and dont draw? End previous render pass and keep track of last
-  // render pass to end it as well.
+  // TODO(issue#2) PIPELINE use method select render pass (predefined set?) log
+  // when pipeline not compatible and dont draw? End previous render pass and
+  // keep track of last render pass to end it as well.
 }
 
 // ================================================================================
