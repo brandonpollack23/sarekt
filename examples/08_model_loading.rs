@@ -38,7 +38,8 @@ use winit::{
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
-const MODEL_FILE_NAME: &str = "models/chalet.obj";
+const GLB_MODEL_FILE_NAME: &str = "models/chalet.glb";
+const OBJ_MODEL_FILE_NAME: &str = "models/chalet.obj";
 const MODEL_TEXTURE_FILE_NAME: &str = "textures/chalet.jpg";
 
 fn main() {
@@ -48,6 +49,16 @@ fn main() {
 
 /// Takes full control of the executing thread and runs the event loop for it.
 fn main_loop() {
+  let args: Vec<String> = std::env::args().collect();
+  let show_fps = args.contains(&"fps".to_owned());
+  let use_glb = if args.contains(&"glb".to_owned()) {
+    true
+  } else {
+    false
+  };
+  info!("Show FPS: {}", show_fps);
+  info!("Use GLTF Model Type: {}", use_glb);
+
   info!("Running main loop...");
 
   let mut ar = WIDTH as f32 / HEIGHT as f32;
@@ -65,7 +76,11 @@ fn main_loop() {
   let mut renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
 
   // Create Vertex Resources.
-  let (model_vertices, model_indices) = load_obj_models();
+  let (model_vertices, model_indices) = if use_glb {
+    load_glb_model(GLB_MODEL_FILE_NAME)
+  } else {
+    load_obj_models(OBJ_MODEL_FILE_NAME)
+  };
   info!("Model file loaded");
   let model_index_buffer = renderer
     .load_buffer(
@@ -103,10 +118,6 @@ fn main_loop() {
     .texture_image(&model_texture)
     .build()
     .unwrap();
-
-  let args: Vec<String> = std::env::args().collect();
-  let show_fps = args.contains(&"fps".to_owned());
-  info!("Show FPS: {}", show_fps);
 
   let start_time = Instant::now();
   let mut last_frame_time = start_time;
@@ -273,13 +284,10 @@ fn update_uniforms(
   object.set_uniform(renderer, &uniform)
 }
 
-// TODO NOW FIRST load all models from OBJ file.  (are they positioned or raw?)
-// TODO NOW make obj_file param
-// TODO NOW do this but for gltf
 /// For now only use the first object in the obj file.
 /// Returns (vertices, vertex_indicies, texture_coordinate indices)
-fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
-  let mut model_file = File::open(MODEL_FILE_NAME).unwrap();
+fn load_obj_models(obj_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
+  let mut model_file = File::open(obj_file_path).unwrap();
   let mut model_file_text = String::new();
   model_file.read_to_string(&mut model_file_text).unwrap();
 
@@ -292,7 +300,7 @@ fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
     )
   }
 
-  info!("Loaded model {}", MODEL_FILE_NAME);
+  info!("Loaded model {}", OBJ_MODEL_FILE_NAME);
   let mut vertices: Vec<DefaultForwardShaderVertex> =
     Vec::with_capacity(obj_set.objects[0].vertices.len());
   let mut indices: Vec<u32> = Vec::with_capacity(obj_set.objects[0].geometry[0].shapes.len());
@@ -352,4 +360,9 @@ fn load_obj_models() -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
 
   info!("Vertices in model: {}", vertices.len());
   (vertices, indices)
+}
+
+// TODO NOW do this but for gltf
+fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
+  (Vec::new(), Vec::new())
 }
