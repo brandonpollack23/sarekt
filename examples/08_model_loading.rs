@@ -1,3 +1,5 @@
+use gltf::{mesh::Reader, Semantic};
+use itertools::izip;
 use log::{info, warn, Level};
 use sarekt::{
   self,
@@ -51,11 +53,10 @@ fn main() {
 fn main_loop() {
   let args: Vec<String> = std::env::args().collect();
   let show_fps = args.contains(&"fps".to_owned());
-  let use_glb = if args.contains(&"glb".to_owned()) {
-    true
-  } else {
-    false
-  };
+  let use_glb = args.contains(&"glb".to_owned());
+  if args.len() > 1 && !show_fps && !use_glb {
+    panic!("Illegal arguments provided: {:#?}", args);
+  }
   info!("Show FPS: {}", show_fps);
   info!("Use GLTF Model Type: {}", use_glb);
 
@@ -297,17 +298,16 @@ fn load_obj_models(obj_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec
       "The model you attempted to load has more than one object in it, implying it is a scene, if \
        you wish to use it as a single model, modify the application code to ignore that or join \
        your meshes into a single model"
-    )
+    );
   }
 
   info!("Loaded model {}", OBJ_MODEL_FILE_NAME);
-  let mut vertices: Vec<DefaultForwardShaderVertex> =
-    Vec::with_capacity(obj_set.objects[0].vertices.len());
-  let mut indices: Vec<u32> = Vec::with_capacity(obj_set.objects[0].geometry[0].shapes.len());
+  let mut vertices: Vec<DefaultForwardShaderVertex> = Vec::new();
+  let mut indices: Vec<u32> = Vec::new();
 
   // Map of inserted (obj_vertex_index, obj_texture_index) to index in the
   // vertices array im building.
-  let mut inserted_indices: HashMap<(usize, usize), usize> = HashMap::with_capacity(vertices.len());
+  let mut inserted_indices: HashMap<(usize, usize), usize> = HashMap::new();
   let model_vertices = &obj_set.objects[0].vertices;
   for geo in obj_set.objects[0].geometry.iter() {
     // For every set of geometry (regardless of material for now).
@@ -362,7 +362,44 @@ fn load_obj_models(obj_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec
   (vertices, indices)
 }
 
-// TODO NOW do this but for gltf
 fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Vec<u32>) {
-  (Vec::new(), Vec::new())
+  let (document, buffers, _) = gltf::import(gltf_file_path).unwrap();
+
+  if document.scenes().len() != 1 || document.scenes().next().unwrap().nodes().len() != 1 {
+    panic!(
+      "The model you attempted to load has more than one scene or node in it, if you wish to use \
+       it as a single model, modify the application code to ignore that or join your meshes into \
+       a single model"
+    );
+  }
+
+  let mesh = document.meshes().nth(0).unwrap();
+
+  info!("Loaded model {}", gltf_file_path);
+  let mut vertices: Vec<DefaultForwardShaderVertex> = Vec::new();
+  let mut indices: Vec<u32> = Vec::new();
+
+  for primitive in mesh.primitives() {
+    let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+    let positions = reader.read_positions().unwrap();
+    let tex_coords = reader.read_tex_coords(0).unwrap().into_f32();
+    for (position, tex_coord) in izip!(positions, tex_coords) {
+      vertices.push(DefaultForwardShaderVertex::new_with_texture(
+        &position, &tex_coord,
+      ));
+    }
+
+    indices.extend(
+      reader
+        .read_indices()
+        .expect(
+          "Your model doesn't have indices, in this demo they are expected so just go ahead and \
+           export with them",
+        )
+        .into_u32(),
+    );
+  }
+
+  info!("Vertices in model: {}", vertices.len());
+  (vertices, indices)
 }
