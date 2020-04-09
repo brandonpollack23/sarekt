@@ -42,6 +42,10 @@ path = "examples/06_textures.rs"
 name = "07_depth_buffer_test"
 path = "examples/07_depth_buffer_test.rs"
 
+[[example]]
+name = "08_model_loading"
+path = "examples/08_model_loading.rs"
+
 [dependencies]
 ash = "0.30.0"
 ash-window = "0.3.0"
@@ -56,8 +60,10 @@ static_assertions = "1.1.0"
 ultraviolet = "0.4.5"
 vk-mem = "0.2.2"
 vk-shader-macros = "0.2.2"
-winit = "0.21.0"
 
 [dev-dependencies]
+gltf = "0.15.2"
 simple_logger = "1.5.0"
-
+wavefront_obj = "7.0.0"
+winit = "0.21.0"
+itertools = "0.9.0"

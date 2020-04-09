@@ -435,7 +435,7 @@ impl Pipelines {
       .polygon_mode(vk::PolygonMode::FILL) // Fill stuff in. Could also be point or line.
       .line_width(1.0f32)
       .cull_mode(vk::CullModeFlags::BACK) // Back face culling.
-      .front_face(vk::FrontFace::CLOCKWISE)
+      .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
       // Dont turn on depth bias, not adding constants to depth, same with depth_bias_clamp, bias_constant_factor, bias_slope_factor.
       .depth_bias_enable(false)
       .build();

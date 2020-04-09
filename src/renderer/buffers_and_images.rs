@@ -59,13 +59,13 @@ where
 
 /// Which kind of buffer or image is this.  The Renderer and DrawableObject wil
 /// use this information to utilize it correctly.
-/// TODO TEXTURES, check vk::BufferUsageFlags for other types.
 #[derive(Copy, Clone, Debug)]
 pub enum ResourceType {
   Image,
   Buffer(BufferType),
 }
 
+/// Which type of buffer the resource is.
 #[derive(Copy, Clone, Debug)]
 pub enum BufferType {
   Vertex,
@@ -73,6 +73,8 @@ pub enum BufferType {
   Index(IndexBufferElemSize),
 }
 
+/// Different backends support different index buffer sizes, select which one
+/// when you load it.
 #[derive(Copy, Clone, Debug)]
 pub enum IndexBufferElemSize {
   UInt16,
@@ -128,8 +130,8 @@ pub unsafe trait BufferAndImageLoader {
   type UniformBufferDataHandle: Debug;
   type UniformBufferHandle;
 
-  /// TODO PERFORMANCE some platforms might not actually ever benefit from
-  /// staging.  Detect?
+  /// TODO(issue#5) PERFORMANCE some platforms might not actually ever benefit
+  /// from staging.  Detect this and elide the staging.
 
   /// # Safety
   /// Must call before exiting.
@@ -230,6 +232,8 @@ where
     ))
   }
 
+  /// Same as above but keeps the buffer in cpu accessible memory.  Useful for
+  /// things updated frequently like MVP uniforms.
   pub(crate) fn load_buffer_without_staging<BufElem: Sized + Copy>(
     this: &Arc<RwLock<Self>>, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
@@ -307,7 +311,6 @@ where
     ))
   }
 
-  // TODO put lifetime in BufferOrImage
   /// Returns the handle to buffer or image and the backend buffer or image and
   /// memory.
   pub(crate) fn create_uninitialized_image(
@@ -421,7 +424,6 @@ pub enum MagnificationMinificationFilter {
 }
 
 /// What to do when u/v are greater than extent.
-/// TODO IMAGES clamp to border/border color?
 pub enum TextureAddressMode {
   Repeat,
   MirroredRepeat,
