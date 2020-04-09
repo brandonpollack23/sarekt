@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// Render target related structures, such as the swapchain extension, the
 /// extent, and the images themselves.
 pub struct RenderTargetBundle {
-  pub swapchain_and_extension: SwapchainAndExtension, // TODO OFFSCREEN option
+  pub swapchain_and_extension: SwapchainAndExtension, // TODO(issue#9) OFFSCREEN option
   pub render_targets: Vec<ImageAndView>,              // aka SwapChainImages if presenting.
   pub extent: vk::Extent2D,
 }
@@ -42,7 +42,7 @@ impl RenderTargetBundle {
     let swapchain_and_extension =
       SwapchainAndExtension::new(swapchain, format, swapchain_extension);
 
-    // TODO OFFSCREEN if not swapchain create images that im rendering to.
+    // TODO(issue#9) OFFSCREEN if not swapchain create images that im rendering to.
     let render_target_images = unsafe {
       swapchain_and_extension
         .swapchain_functions
@@ -66,7 +66,7 @@ impl RenderTargetBundle {
   pub fn acquire_next_image(
     &self, timeout: u64, image_available_semaphore: vk::Semaphore, image_available_fence: vk::Fence,
   ) -> SarektResult<(u32, bool)> {
-    // TODO OFFSCREEN handle drawing without swapchain.
+    // TODO(issue#9) OFFSCREEN handle drawing without swapchain.
     unsafe {
       Ok(
         self
@@ -136,7 +136,7 @@ impl RenderTargetBundle {
     self.swapchain_and_extension.format = new_format;
     self.extent = new_extent;
 
-    // TODO OFFSCREEN if not swapchain create images that im rendering to.
+    // TODO(issue#9) OFFSCREEN if not swapchain create images that im rendering to.
     let render_target_images = self
       .swapchain_and_extension
       .swapchain_functions
@@ -165,9 +165,10 @@ impl RenderTargetBundle {
         .logical_device
         .destroy_image_view(view.view, None);
     }
-    // TODO OFFSCREEN if images and not swapchain destroy images.
+    // TODO(issue#9) OFFSCREEN if images and not swapchain destroy images.
 
-    // TODO OFFSCREEN if there is one, if not destroy images (as above todo states).
+    // TODO(issue#9) OFFSCREEN if there is one, if not destroy images (as above todo
+    // states).
     info!("Destrying swapchain...");
     let swapchain_functions = &self.swapchain_and_extension.swapchain_functions;
     swapchain_functions.destroy_swapchain(swapchain, None);
@@ -262,8 +263,8 @@ impl RenderTargetBundle {
 
   /// Selects Mailbox if available, but if not tries to fallback to FIFO. See the [spec](https://renderdoc.org/vkspec_chunked/chap32.html#VkPresentModeKHR) for details on modes.
   ///
-  /// TODO CONFIG support immediate mode if possible and allow the user to have
-  /// tearing if they wish.
+  /// TODO(issue#18) CONFIG support immediate mode if possible and allow the
+  /// user to have tearing if they wish.
   fn choose_presentation_mode(
     available_presentation_modes: &[vk::PresentModeKHR],
   ) -> vk::PresentModeKHR {
