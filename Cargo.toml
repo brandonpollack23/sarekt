@@ -2,13 +2,14 @@
 name = "sarekt"
 version = "0.0.1"
 authors = ["Brandon Pollack <brandonpollack23@gmail.com>"]
-description = "An rendering engine based on Vulkan, but capable of being expanded to other graphics API backends such as Metal or D3D12"
-license = "MIT"
+description = "A rendering engine based on Vulkan, but capable of being expanded to other graphics API backends such as Metal or D3D12"
+license = "Apache-2.0"
 repository = "https://github.com/brandonpollack23/sarekt"
 readme = "README.md"
 keywords = ["vulkan", "graphics", "ash", "rendering"]
 documentation = "https://docs.rs/sarekt"
 edition = "2018"
+exclude = ["models", "textures"]
 
 [[example]]
 name = "00_base_code"
