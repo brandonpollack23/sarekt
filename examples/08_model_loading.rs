@@ -23,18 +23,6 @@ use winit::{
   window::{WindowBuilder, WindowId},
 };
 
-// TODO NOW crate level docs update as well as a one pass of all docs in the
-// whole project.
-// TODO NOW update TODO.md and then convert everything to issues and remove it.
-// TODO NOW make all TODOs issues with links to the issue (tag issues too).
-// TODO NOW update crates.io
-
-// TODO NOW make a git project for scene creator, a git binary project for gfx
-// workspace, set up gfx workspace to patch local version of sarekt, submodule
-// both projects into there.
-
-// TODO NOW test pass/another crates io update.
-
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
