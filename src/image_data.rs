@@ -98,7 +98,7 @@ impl Monocolor {
   }
 
   pub fn clear() -> Self {
-    Self::new(0, 0, 0, 0)
+    Self::new(1, 1, 1, 0)
   }
 }
 impl ImageData for Monocolor {

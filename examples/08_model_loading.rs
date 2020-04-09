@@ -1,4 +1,3 @@
-use gltf::{mesh::Reader, Semantic};
 use itertools::izip;
 use log::{info, warn, Level};
 use sarekt::{

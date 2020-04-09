@@ -666,15 +666,16 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
         self
           .instance
           .get_physical_device_format_properties(self.physical_device, format)
-          .buffer_features
-          .intersects(vk::FormatFeatureFlags::SAMPLED_IMAGE)
+          .optimal_tiling_features
+          .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE)
       };
 
       if !format_suitable {
         // Format not usable for a sampled image, convert to one garunteed by vulkan
         warn!(
-          "Using an image with unsupported format, converting to rgba, consider baking a new \
-           texture"
+          "Using an image with unsupported format: {:?}, converting to rgba, consider baking a \
+           new texture",
+          format
         );
         let pixels = pixels.into_rgba8();
         let format = pixels.format()?.into();
