@@ -593,6 +593,7 @@ impl VulkanRenderer {
   fn create_memory_allocator(
     instance: Instance, physical_device: vk::PhysicalDevice, logical_device: Device,
   ) -> SarektResult<Arc<vk_mem::Allocator>> {
+    // TODO(issue#1) MULTITHREADING configure for multithreading.
     let allocator_create_info = vk_mem::AllocatorCreateInfo {
       physical_device,
       device: logical_device,

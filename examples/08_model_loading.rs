@@ -23,6 +23,8 @@ use winit::{
   window::{WindowBuilder, WindowId},
 };
 
+// TODO NOW LAST finish Vulkan Tutorial with MipMapping and AA
+
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
