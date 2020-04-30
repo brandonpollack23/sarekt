@@ -154,7 +154,7 @@ pub unsafe trait BufferAndImageLoader {
   fn load_image_with_staging_initialization(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
-    address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u8,
+    address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u32,
   ) -> SarektResult<Self::BackendHandle>;
 
   /// Loads an image, much like `load_image_with_staging_initialization`, but
@@ -279,7 +279,7 @@ where
     this: &Arc<RwLock<Self>>, pixels: impl ImageData,
     magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
-    address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u8,
+    address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u32,
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()

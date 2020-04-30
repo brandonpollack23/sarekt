@@ -184,7 +184,7 @@ impl VulkanBufferFunctions {
   /// Creates a buffer with TRANSFER_DST and appropriate image type flags
   /// flipped.
   fn create_gpu_image(
-    &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags,
+    &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags, mip_levels: u32,
   ) -> SarektResult<(vk::Image, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     let image_ci = vk::ImageCreateInfo::builder()
       .image_type(vk::ImageType::TYPE_2D)
@@ -194,7 +194,7 @@ impl VulkanBufferFunctions {
         height: dimens.1,
         depth: 1,
       })
-      .mip_levels(1) // Not mipmapping.
+      .mip_levels(mip_levels)
       .array_layers(1) // Not an array.
       .format(format)
       .tiling(vk::ImageTiling::OPTIMAL) // Texels are laid out in hardware optimal format, not necessarily linearly.
@@ -213,6 +213,7 @@ impl VulkanBufferFunctions {
   // TODO(issue#18) IMAGE MIPMAPPING
   fn transfer_staging_to_gpu_buffer_or_image(
     &self, buffer_size: u64, staging_buffer: vk::Buffer, gpu_buffer_or_image: ImageOrBuffer,
+    mip_levels: Option<u32>,
   ) -> SarektResult<()> {
     info!("Initiating transfer command to transfer from staging buffer to device only memory...");
     let transfer_command_buffer = self.transfer_command_buffer;
@@ -250,6 +251,7 @@ impl VulkanBufferFunctions {
             format,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            mip_levels.unwrap_or(1),
           )?;
 
           // Do the copy
@@ -282,6 +284,7 @@ impl VulkanBufferFunctions {
             format,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            mip_levels.unwrap_or(1),
           )?
         }
       };
@@ -390,12 +393,12 @@ impl VulkanBufferFunctions {
   /// vk::ImageAspectFlags specify what kind of attachment this image can be
   /// used for (COLOR, DEPTH, etc).
   fn create_image_view(
-    &self, image: vk::Image, format: vk::Format, aspect: vk::ImageAspectFlags,
+    &self, image: vk::Image, format: vk::Format, aspect: vk::ImageAspectFlags, mip_levels: u32,
   ) -> SarektResult<vk::ImageView> {
     let subresource_range = vk::ImageSubresourceRange::builder()
       .base_mip_level(0)
+      .level_count(mip_levels)
       .aspect_mask(aspect)
-      .level_count(1)
       .base_array_layer(0)
       .layer_count(1)
       .build();
@@ -472,12 +475,12 @@ impl VulkanBufferFunctions {
   /// Returns the source and destination queue family indices.
   fn insert_layout_transition_barrier(
     &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, _format: vk::Format,
-    old_layout: vk::ImageLayout, new_layout: vk::ImageLayout,
+    old_layout: vk::ImageLayout, new_layout: vk::ImageLayout, mip_levels: u32,
   ) -> SarektResult<(u32, u32)> {
     let subresource_range = vk::ImageSubresourceRange::builder()
       .aspect_mask(vk::ImageAspectFlags::COLOR)
       .base_mip_level(0)
-      .level_count(1)
+      .level_count(mip_levels)
       .base_array_layer(0)
       .layer_count(1)
       .build();
@@ -591,6 +594,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       buffer_size,
       staging_buffer,
       ImageOrBuffer::Buffer(gpu_buffer),
+      None,
     )?;
 
     // Staging buffer no longer needed, delete it.
@@ -653,7 +657,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
   fn load_image_with_staging_initialization(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
-    address_v: TextureAddressMode, address_w: TextureAddressMode, mip_levels: u8,
+    address_v: TextureAddressMode, address_w: TextureAddressMode, mip_levels: u32,
   ) -> SarektResult<ResourceWithMemory> {
     if mip_levels < 1 {
       return Err(SarektError::IllegalMipmapCount);
@@ -706,6 +710,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       dimens,
       format,
       vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+      mip_levels,
     )?;
 
     let extent = vk::Extent3D {
@@ -717,6 +722,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       pixel_bytes.len() as u64,
       staging_buffer,
       ImageOrBuffer::Image(image, format, extent),
+      Some(mip_levels),
     )?;
 
     info!("Destroying staging buffer and memory...");
@@ -727,7 +733,12 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     // TODO(issue#29) IMAGES propogate up this parameter to allow users to create
     // stencil etc, this will involve a Sarekt non vulkan enum in
     // buffers_and_images.
-    let image_view = self.create_image_view(image, format.into(), vk::ImageAspectFlags::COLOR)?;
+    let image_view = self.create_image_view(
+      image,
+      format.into(),
+      vk::ImageAspectFlags::COLOR,
+      mip_levels,
+    )?;
     let sampler = self.create_sampler(
       magnification_filter,
       minification_filter,
@@ -752,8 +763,10 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       dimensions,
       format.into(),
       vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+      1,
     )?;
-    let image_view = self.create_image_view(image, format.into(), vk::ImageAspectFlags::DEPTH)?;
+    let image_view =
+      self.create_image_view(image, format.into(), vk::ImageAspectFlags::DEPTH, 1)?;
     Ok(ResourceWithMemory::Image(ImageAndMemory {
       allocation: image_allocation,
       image_and_view: unsafe { ImageAndView::new(image, image_view) },

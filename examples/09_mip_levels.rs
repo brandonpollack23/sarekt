@@ -398,8 +398,8 @@ fn load_glb_model(gltf_file_path: &str) -> (Vec<DefaultForwardShaderVertex>, Opt
   (vertices, indices)
 }
 
-fn get_mip_levels(dimensions: (u32, u32)) -> u8 {
+fn get_mip_levels(dimensions: (u32, u32)) -> u32 {
   let w = dimensions.0;
   let h = dimensions.1;
-  (w.max(h) as f32).log2().floor() as u8 + 1u8
+  (w.max(h) as f32).log2().floor() as u32 + 1
 }
