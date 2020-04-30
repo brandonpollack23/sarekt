@@ -1,10 +1,7 @@
 #version 450
-// #extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_separate_shader_objects : enable
 
-#ifdef VULKAN
-layout(binding = 0)
-#endif
-uniform DefaultForwardShaderUniform {
+layout(binding = 0) uniform DefaultForwardShaderUniform {
   mat4 mvp;
   int enableColorMixing;
   int enableTextureMixing;
