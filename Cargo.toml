@@ -47,6 +47,10 @@ path = "examples/07_depth_buffer_test.rs"
 name = "08_model_loading"
 path = "examples/08_model_loading.rs"
 
+[[example]]
+name = "09_mip_levels"
+path = "examples/09_mip_levels.rs"
+
 [dependencies]
 ash = "0.30.0"
 ash-window = "0.3.0"

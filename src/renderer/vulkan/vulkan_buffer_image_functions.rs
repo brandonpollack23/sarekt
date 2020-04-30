@@ -653,8 +653,12 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
   fn load_image_with_staging_initialization(
     &self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
-    address_v: TextureAddressMode, address_w: TextureAddressMode,
+    address_v: TextureAddressMode, address_w: TextureAddressMode, mip_levels: u8,
   ) -> SarektResult<ResourceWithMemory> {
+    if mip_levels < 1 {
+      return Err(SarektError::IllegalMipmapCount);
+    }
+
     let dimens = pixels.dimensions();
 
     let (pixel_bytes, format) = {

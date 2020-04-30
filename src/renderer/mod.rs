@@ -173,7 +173,7 @@ pub trait Renderer {
   fn load_image_with_staging_initialization(
     &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
-    address_y: TextureAddressMode, address_z: TextureAddressMode,
+    address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u8,
   ) -> SarektResult<BufferImageHandle<Self::BL>>
   where
     Self::BL: BufferAndImageLoader,
