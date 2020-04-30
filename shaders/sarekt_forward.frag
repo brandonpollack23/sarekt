@@ -9,8 +9,8 @@ uniform DefaultForwardShaderUniform {
   int enableColorMixing;
   int enableTextureMixing;
 } ubo;
-#ifdef VULKAN
 
+#ifdef VULKAN
 layout(binding = 1)
 #endif
 uniform sampler2D texSampler;
