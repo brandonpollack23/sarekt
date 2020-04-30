@@ -1,9 +1,10 @@
 #version 450
 // #extension GL_ARB_separate_shader_objects : enable
 
-// TODO NOW change these shaders to work in WebGL with #ifdef VULKAN
-
-layout(binding = 0) uniform DefaultForwardShaderUniform {
+#ifdef VULKAN
+layout(binding = 0)
+#endif
+uniform DefaultForwardShaderUniform {
   mat4 mvp;
   int enableColorMixing;
   int enableTextureMixing;
