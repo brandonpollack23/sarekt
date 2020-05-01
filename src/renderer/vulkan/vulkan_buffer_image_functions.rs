@@ -251,7 +251,6 @@ impl VulkanBufferFunctions {
             format,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            mip_levels.unwrap_or(1),
           )?;
 
           // Do the copy
@@ -277,13 +276,12 @@ impl VulkanBufferFunctions {
             &regions,
           );
 
-          // Transition layout to shader read only.
-          self.insert_layout_transition_barrier(
-            transfer_command_buffer,
+          // Transition layout to shader read only is handled when mipmaps are
+          // generated.
+          self.generate_mipmaps_shader_ro_optimal(
             gpu_image,
-            format,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            extent.width,
+            extent.height,
             mip_levels.unwrap_or(1),
           )?
         }
@@ -475,12 +473,12 @@ impl VulkanBufferFunctions {
   /// Returns the source and destination queue family indices.
   fn insert_layout_transition_barrier(
     &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, _format: vk::Format,
-    old_layout: vk::ImageLayout, new_layout: vk::ImageLayout, mip_levels: u32,
+    old_layout: vk::ImageLayout, new_layout: vk::ImageLayout,
   ) -> SarektResult<(u32, u32)> {
     let subresource_range = vk::ImageSubresourceRange::builder()
       .aspect_mask(vk::ImageAspectFlags::COLOR)
       .base_mip_level(0)
-      .level_count(mip_levels)
+      .level_count(1)
       .base_array_layer(0)
       .layer_count(1)
       .build();
@@ -539,6 +537,177 @@ impl VulkanBufferFunctions {
     }
 
     Ok((src_queue_family, dst_queue_family))
+  }
+
+  /// Use blitting to create mipmap textures.
+  /// Returns the source and destination queue family indices.
+  fn generate_mipmaps_shader_ro_optimal(
+    &self, image: vk::Image, width: u32, height: u32, mip_levels: u32,
+  ) -> SarektResult<(u32, u32)> {
+    let command_buffer = self.transfer_command_buffer;
+    let command_begin_info = vk::CommandBufferBeginInfo::builder()
+      .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+      .build();
+    unsafe {
+      self
+        .logical_device
+        .begin_command_buffer(command_buffer, &command_begin_info)?;
+    }
+
+    let mut subresource_range_builder = vk::ImageSubresourceRange::builder()
+      .aspect_mask(vk::ImageAspectFlags::COLOR)
+      .base_array_layer(0)
+      .layer_count(1)
+      .level_count(1);
+
+    let mut mip_width = width;
+    let mut mip_height = height;
+    for i in 1..mip_levels {
+      // First transition previous image layout to transfer src optimal.
+      let mut subresource_range = subresource_range_builder.clone();
+      subresource_range.base_mip_level = i - 1;
+      let barrier = [vk::ImageMemoryBarrier::builder()
+        .image(image)
+        .src_queue_family_index(self.transfer_queue_family)
+        .dst_queue_family_index(self.graphics_queue_family)
+        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .subresource_range(subresource_range)
+        .build()];
+      unsafe {
+        self.logical_device.cmd_pipeline_barrier(
+          command_buffer,
+          vk::PipelineStageFlags::TRANSFER,
+          vk::PipelineStageFlags::TRANSFER,
+          vk::DependencyFlags::empty(),
+          &[],
+          &[],
+          &barrier,
+        );
+      }
+
+      // Then do the blit from one mip level to the next.
+      let src_offsets = [
+        vk::Offset3D::default(),
+        vk::Offset3D::builder()
+          .x(mip_width as i32)
+          .y(mip_height as i32)
+          .z(1)
+          .build(),
+      ];
+      let src_subresource = vk::ImageSubresourceLayers::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .mip_level(i - 1)
+        .base_array_layer(0)
+        .layer_count(1)
+        .build();
+      let dst_offsets = [
+        vk::Offset3D::default(),
+        vk::Offset3D::builder()
+          .x(if mip_width > 1 { mip_width / 2 } else { 1 } as i32)
+          .y(if mip_height > 1 { mip_height / 2 } else { 1 } as i32)
+          .z(1)
+          .build(),
+      ];
+      let dst_subresource = vk::ImageSubresourceLayers::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .mip_level(i)
+        .base_array_layer(0)
+        .layer_count(1)
+        .build();
+      let blit = [vk::ImageBlit::builder()
+        .src_offsets(src_offsets)
+        .src_subresource(src_subresource)
+        .dst_offsets(dst_offsets)
+        .dst_subresource(dst_subresource)
+        .build()];
+      unsafe {
+        self.logical_device.cmd_blit_image(
+          command_buffer,
+          image,
+          vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+          image,
+          vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+          &blit,
+          vk::Filter::LINEAR,
+        );
+      }
+
+      // Now transition to shader ro optimal.
+      let barrier = [vk::ImageMemoryBarrier::builder()
+        .image(image)
+        .src_queue_family_index(self.transfer_queue_family)
+        .dst_queue_family_index(self.graphics_queue_family)
+        .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .build()];
+      unsafe {
+        self.logical_device.cmd_pipeline_barrier(
+          command_buffer,
+          vk::PipelineStageFlags::TRANSFER,
+          vk::PipelineStageFlags::FRAGMENT_SHADER,
+          vk::DependencyFlags::empty(),
+          &[],
+          &[],
+          &barrier,
+        );
+      }
+
+      if mip_width > 1 {
+        mip_width /= 2;
+      }
+      if mip_height > 1 {
+        mip_height /= 2;
+      }
+    }
+
+    // Transition the final mip level to shader ro optimal (not handled by loop).
+    let barrier = [vk::ImageMemoryBarrier::builder()
+      .image(image)
+      .src_queue_family_index(self.transfer_queue_family)
+      .dst_queue_family_index(self.graphics_queue_family)
+      .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+      .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+      .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+      .dst_access_mask(vk::AccessFlags::SHADER_READ)
+      .build()];
+    unsafe {
+      self.logical_device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::DependencyFlags::empty(),
+        &[],
+        &[],
+        &barrier,
+      );
+    }
+
+    unsafe {
+      self.logical_device.end_command_buffer(command_buffer)?;
+
+      // TODO NOW semaphore? wait stages?
+      let command_buffers = [command_buffer];
+      let submit_info = [vk::SubmitInfo::builder()
+        .command_buffers(&command_buffers)
+        .build()];
+      self.logical_device.queue_submit(
+        self.transfer_command_queue,
+        &submit_info,
+        vk::Fence::null(),
+      )?;
+
+      self.logical_device.reset_command_buffer(
+        self.graphics_command_buffer,
+        vk::CommandBufferResetFlags::empty(),
+      )?;
+    }
+
+    Ok((self.transfer_queue_family, self.graphics_queue_family))
   }
 }
 unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
@@ -706,10 +875,17 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     }
     self.allocator.unmap_memory(&staging_allocation)?;
 
+    // Only need to be a transfer source if blitting to itself when creating
+    // mipmaps.
+    let transfer_src_flag = if mip_levels > 1 {
+      vk::ImageUsageFlags::TRANSFER_SRC
+    } else {
+      vk::ImageUsageFlags::empty()
+    };
     let (image, image_allocation, _) = self.create_gpu_image(
       dimens,
       format,
-      vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+      vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED | transfer_src_flag,
       mip_levels,
     )?;
 
