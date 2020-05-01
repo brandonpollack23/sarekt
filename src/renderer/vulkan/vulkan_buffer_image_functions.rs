@@ -210,6 +210,7 @@ impl VulkanBufferFunctions {
     Ok(self.allocator.create_image(&image_ci, &alloc_ci)?)
   }
 
+  // TODO NOW resolve issue.
   // TODO(issue#18) IMAGE MIPMAPPING
   fn transfer_staging_to_gpu_buffer_or_image(
     &self, buffer_size: u64, staging_buffer: vk::Buffer, gpu_buffer_or_image: ImageOrBuffer,
@@ -279,6 +280,7 @@ impl VulkanBufferFunctions {
           // Transition layout to shader read only is handled when mipmaps are
           // generated.
           self.generate_mipmaps_shader_ro_optimal(
+            self.transfer_command_buffer,
             gpu_image,
             extent.width,
             extent.height,
@@ -308,6 +310,7 @@ impl VulkanBufferFunctions {
         &gpu_buffer_or_image,
         src_queue_family,
         dst_queue_family,
+        mip_levels,
       )?;
 
       self.logical_device.device_wait_idle()?;
@@ -330,6 +333,7 @@ impl VulkanBufferFunctions {
   /// the queue taking ownership of the resource.
   unsafe fn transfer_queue_ownership_if_necessary(
     &self, gpu_buffer_or_image: &ImageOrBuffer, src_queue_family: u32, dst_queue_family: u32,
+    mip_levels: Option<u32>,
   ) -> SarektResult<()> {
     if src_queue_family == dst_queue_family {
       return Ok(());
@@ -346,7 +350,7 @@ impl VulkanBufferFunctions {
     let subresource_range = vk::ImageSubresourceRange::builder()
       .aspect_mask(vk::ImageAspectFlags::COLOR)
       .base_mip_level(0)
-      .level_count(1)
+      .level_count(mip_levels.unwrap_or(1))
       .base_array_layer(0)
       .layer_count(1)
       .build();
@@ -542,30 +546,20 @@ impl VulkanBufferFunctions {
   /// Use blitting to create mipmap textures.
   /// Returns the source and destination queue family indices.
   fn generate_mipmaps_shader_ro_optimal(
-    &self, image: vk::Image, width: u32, height: u32, mip_levels: u32,
+    &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, width: u32, height: u32,
+    mip_levels: u32,
   ) -> SarektResult<(u32, u32)> {
-    let command_buffer = self.transfer_command_buffer;
-    let command_begin_info = vk::CommandBufferBeginInfo::builder()
-      .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-      .build();
-    unsafe {
-      self
-        .logical_device
-        .begin_command_buffer(command_buffer, &command_begin_info)?;
-    }
-
-    let mut subresource_range_builder = vk::ImageSubresourceRange::builder()
-      .aspect_mask(vk::ImageAspectFlags::COLOR)
-      .base_array_layer(0)
-      .layer_count(1)
-      .level_count(1);
-
     let mut mip_width = width;
     let mut mip_height = height;
     for i in 1..mip_levels {
       // First transition previous image layout to transfer src optimal.
-      let mut subresource_range = subresource_range_builder.clone();
-      subresource_range.base_mip_level = i - 1;
+      let subresource_range = vk::ImageSubresourceRange::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .base_array_layer(0)
+        .layer_count(1)
+        .level_count(1)
+        .base_mip_level(i - 1)
+        .build();
       let barrier = [vk::ImageMemoryBarrier::builder()
         .image(image)
         .src_queue_family_index(self.transfer_queue_family)
@@ -578,7 +572,7 @@ impl VulkanBufferFunctions {
         .build()];
       unsafe {
         self.logical_device.cmd_pipeline_barrier(
-          command_buffer,
+          transfer_command_buffer,
           vk::PipelineStageFlags::TRANSFER,
           vk::PipelineStageFlags::TRANSFER,
           vk::DependencyFlags::empty(),
@@ -623,9 +617,13 @@ impl VulkanBufferFunctions {
         .dst_offsets(dst_offsets)
         .dst_subresource(dst_subresource)
         .build()];
+      info!(
+        "Generating mip level: {} {}x{}",
+        i, dst_offsets[1].x, dst_offsets[1].y
+      );
       unsafe {
         self.logical_device.cmd_blit_image(
-          command_buffer,
+          transfer_command_buffer,
           image,
           vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
           image,
@@ -647,7 +645,7 @@ impl VulkanBufferFunctions {
         .build()];
       unsafe {
         self.logical_device.cmd_pipeline_barrier(
-          command_buffer,
+          transfer_command_buffer,
           vk::PipelineStageFlags::TRANSFER,
           vk::PipelineStageFlags::FRAGMENT_SHADER,
           vk::DependencyFlags::empty(),
@@ -675,9 +673,10 @@ impl VulkanBufferFunctions {
       .src_access_mask(vk::AccessFlags::TRANSFER_READ)
       .dst_access_mask(vk::AccessFlags::SHADER_READ)
       .build()];
+    info!("Transitioning final mip level to shader ro format");
     unsafe {
       self.logical_device.cmd_pipeline_barrier(
-        command_buffer,
+        transfer_command_buffer,
         vk::PipelineStageFlags::TRANSFER,
         vk::PipelineStageFlags::FRAGMENT_SHADER,
         vk::DependencyFlags::empty(),
@@ -685,26 +684,6 @@ impl VulkanBufferFunctions {
         &[],
         &barrier,
       );
-    }
-
-    unsafe {
-      self.logical_device.end_command_buffer(command_buffer)?;
-
-      // TODO NOW semaphore? wait stages?
-      let command_buffers = [command_buffer];
-      let submit_info = [vk::SubmitInfo::builder()
-        .command_buffers(&command_buffers)
-        .build()];
-      self.logical_device.queue_submit(
-        self.transfer_command_queue,
-        &submit_info,
-        vk::Fence::null(),
-      )?;
-
-      self.logical_device.reset_command_buffer(
-        self.graphics_command_buffer,
-        vk::CommandBufferResetFlags::empty(),
-      )?;
     }
 
     Ok((self.transfer_queue_family, self.graphics_queue_family))
