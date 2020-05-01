@@ -356,7 +356,7 @@ impl VulkanBufferFunctions {
       .layer_count(1)
       .build();
     let barriers = [vk::ImageMemoryBarrier::builder()
-        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .src_queue_family_index(src_queue_family) // Transfer ownership to graphics queue if necessary.
         .dst_queue_family_index(dst_queue_family)
@@ -662,13 +662,13 @@ impl VulkanBufferFunctions {
         .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
         .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .dst_access_mask(vk::AccessFlags::SHADER_READ)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
         .build()];
       unsafe {
         self.logical_device.cmd_pipeline_barrier(
           transfer_command_buffer,
           vk::PipelineStageFlags::TRANSFER,
-          vk::PipelineStageFlags::FRAGMENT_SHADER,
+          vk::PipelineStageFlags::TRANSFER,
           vk::DependencyFlags::empty(),
           &[],
           &[],
@@ -688,16 +688,16 @@ impl VulkanBufferFunctions {
     // and transfer all queue ownership.
     let subresource_range = vk::ImageSubresourceRange::builder()
       .aspect_mask(vk::ImageAspectFlags::COLOR)
-      .base_mip_level(0)
-      .level_count(mip_levels)
+      .base_mip_level(mip_levels - 1)
+      .level_count(1)
       .base_array_layer(0)
       .layer_count(1)
       .build();
     let barrier = [vk::ImageMemoryBarrier::builder()
       .image(image)
       .subresource_range(subresource_range)
-      .src_queue_family_index(self.transfer_queue_family)
-      .dst_queue_family_index(self.graphics_queue_family)
+      .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+      .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
       .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
       .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
       .src_access_mask(vk::AccessFlags::TRANSFER_READ)
@@ -708,6 +708,37 @@ impl VulkanBufferFunctions {
       self.logical_device.cmd_pipeline_barrier(
         transfer_command_buffer,
         vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::DependencyFlags::empty(),
+        &[],
+        &[],
+        &barrier,
+      );
+    }
+
+    // Transition ownership to graphics queue.
+    let subresource_range = vk::ImageSubresourceRange::builder()
+      .aspect_mask(vk::ImageAspectFlags::COLOR)
+      .base_mip_level(0)
+      .level_count(mip_levels)
+      .base_array_layer(0)
+      .layer_count(1)
+      .build();
+    let barrier = [vk::ImageMemoryBarrier::builder()
+      .image(image)
+      .src_queue_family_index(self.transfer_queue_family)
+      .dst_queue_family_index(self.graphics_queue_family)
+      .subresource_range(subresource_range)
+      .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+      .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+      .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+      .dst_access_mask(vk::AccessFlags::SHADER_READ)
+      .build()];
+    info!("Transitioning ownership of image to graphics queue");
+    unsafe {
+      self.logical_device.cmd_pipeline_barrier(
+        transfer_command_buffer,
+        vk::PipelineStageFlags::TOP_OF_PIPE,
         vk::PipelineStageFlags::FRAGMENT_SHADER,
         vk::DependencyFlags::empty(),
         &[],
