@@ -86,7 +86,7 @@ pub enum IndexBufferElemSize {
 /// Unsafe because:
 /// This must specifically be the handle used to delete your
 /// image or buffer in the backend/GPU in
-/// [ShaderLoader](trait.BufferLoader.html).
+/// [ShaderLoader](trait.ShaderLoader.html).
 pub unsafe trait BackendHandleTrait: Copy {}
 
 /// A special handle for uniform buffers.  On some backends there are special
@@ -118,7 +118,7 @@ impl<BL: BufferAndImageLoader, BufElem: Sized + Copy> UniformBufferHandle<BL, Bu
 /// usually dynamically loaded) must outlive the Loader itself.
 ///
 /// * BackendHandle must be an implementer of
-///   [ShaderBackendHandle](trait.ShaderBackendHandle.html)
+///   [ShaderBackendHandle](trait.ShaderBackendHandleTrait.html)
 ///
 ///  * It is the responsibility of the implementor to drop anything loaded using
 ///    delete_buffer_or_image cleanly on all elements, if the ShaderHandle

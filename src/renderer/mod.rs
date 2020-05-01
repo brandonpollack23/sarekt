@@ -89,9 +89,6 @@ use crate::{
 };
 use std::fmt::Debug;
 
-// TODO NOW add AA enum with sample count param, check in backend if supported
-// or return error, implement in example program that uses cl param.
-
 // ================================================================================
 //  Compile Time Constants and Configurations
 // ================================================================================
