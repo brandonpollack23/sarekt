@@ -282,6 +282,7 @@ impl VulkanBufferFunctions {
           self.generate_mipmaps_shader_ro_optimal(
             self.transfer_command_buffer,
             gpu_image,
+            format,
             extent.width,
             extent.height,
             mip_levels.unwrap_or(1),
@@ -355,13 +356,13 @@ impl VulkanBufferFunctions {
       .layer_count(1)
       .build();
     let barriers = [vk::ImageMemoryBarrier::builder()
-        .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .src_queue_family_index(src_queue_family) // Transfer ownership to graphics queue if necessary.
         .dst_queue_family_index(dst_queue_family)
         .image(img.0)
         .subresource_range(subresource_range)
-        .src_access_mask(vk::AccessFlags::empty())
+        .src_access_mask(vk::AccessFlags::empty()) // ignored according to the spec.
         .dst_access_mask(vk::AccessFlags::SHADER_READ)
         .build()];
     self.logical_device.cmd_pipeline_barrier(
@@ -546,9 +547,28 @@ impl VulkanBufferFunctions {
   /// Use blitting to create mipmap textures.
   /// Returns the source and destination queue family indices.
   fn generate_mipmaps_shader_ro_optimal(
-    &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, width: u32, height: u32,
-    mip_levels: u32,
+    &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, format: vk::Format,
+    width: u32, height: u32, mip_levels: u32,
   ) -> SarektResult<(u32, u32)> {
+    if mip_levels > 1 {
+      // Check blitting supported.
+      let format_properties = unsafe {
+        self
+          .instance
+          .get_physical_device_format_properties(self.physical_device, format)
+      };
+
+      if !format_properties
+        .optimal_tiling_features
+        .intersects(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR)
+      {
+        return Err(SarektError::FormatDoesNotSupportMipmapping(format!(
+          "Linear filtering not supported on format {:?}",
+          format,
+        )));
+      }
+    }
+
     let mut mip_width = width;
     let mut mip_height = height;
     for i in 1..mip_levels {
@@ -557,8 +577,8 @@ impl VulkanBufferFunctions {
         .aspect_mask(vk::ImageAspectFlags::COLOR)
         .base_array_layer(0)
         .layer_count(1)
-        .level_count(1)
         .base_mip_level(i - 1)
+        .level_count(1)
         .build();
       let barrier = [vk::ImageMemoryBarrier::builder()
         .image(image)
@@ -636,6 +656,7 @@ impl VulkanBufferFunctions {
       // Now transition to shader ro optimal.
       let barrier = [vk::ImageMemoryBarrier::builder()
         .image(image)
+        .subresource_range(subresource_range)
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
@@ -663,12 +684,21 @@ impl VulkanBufferFunctions {
       }
     }
 
-    // Transition the final mip level to shader ro optimal (not handled by loop).
+    // Transition the final mip level to shader ro optimal (not handled by loop),
+    // and transfer all queue ownership.
+    let subresource_range = vk::ImageSubresourceRange::builder()
+      .aspect_mask(vk::ImageAspectFlags::COLOR)
+      .base_mip_level(0)
+      .level_count(mip_levels)
+      .base_array_layer(0)
+      .layer_count(1)
+      .build();
     let barrier = [vk::ImageMemoryBarrier::builder()
       .image(image)
+      .subresource_range(subresource_range)
       .src_queue_family_index(self.transfer_queue_family)
       .dst_queue_family_index(self.graphics_queue_family)
-      .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+      .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
       .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
       .src_access_mask(vk::AccessFlags::TRANSFER_READ)
       .dst_access_mask(vk::AccessFlags::SHADER_READ)

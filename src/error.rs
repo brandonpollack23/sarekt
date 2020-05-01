@@ -26,6 +26,7 @@ pub enum SarektError {
   NoSuitableDepthBufferFormat,
   VulkanMemoryAllocatorError(vk_mem::error::Error),
   IllegalMipmapCount,
+  FormatDoesNotSupportMipmapping(String),
 }
 
 impl From<vk::Result> for SarektError {
@@ -111,6 +112,9 @@ impl fmt::Display for SarektError {
         f,
         "Illegal mipmap count, specify a (resonable) number higher than 0)"
       ),
+      SarektError::FormatDoesNotSupportMipmapping(s) => {
+        write!(f, "Format not supported for mipmapping: {}", s)
+      }
     }
   }
 }
