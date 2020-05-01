@@ -170,6 +170,15 @@ pub trait Renderer {
   /// Loads a 32 bit r8b8g8a8 image (texture) into the renderer using a staging
   /// buffer. [ImageData](trait.ImageData.html) must be implemented for the
   /// type, see its documentation for details.
+  ///
+  /// Texture address modes are intents for the backend when uvs are greater
+  /// than image extent.
+  ///
+  /// MagnificationMinificationFilters are intents when
+  /// texture filtering are necessary (see Vulkan or D3D docs).
+  ///
+  /// Mip levels are the number of mipmap levels to generate (see Vulkan/D3D
+  /// docs).
   fn load_image_with_staging_initialization(
     &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,

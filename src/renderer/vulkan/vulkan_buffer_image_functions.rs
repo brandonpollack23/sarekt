@@ -155,6 +155,7 @@ impl VulkanBufferFunctions {
     info!("Creating GPU buffer and memory to use during drawing...");
     let buffer_usage =
       vk::BufferUsageFlags::TRANSFER_DST | usage_flags_from_buffer_type(buffer_type);
+    // TODO NOW will this just work?
     // TODO(issue#28) PERFORMANCE instead of concurrent do a transfer like for
     // images.
     let sharing_mode = if self.graphics_queue_family == self.transfer_queue_family {
@@ -212,8 +213,7 @@ impl VulkanBufferFunctions {
     Ok(self.allocator.create_image(&image_ci, &alloc_ci)?)
   }
 
-  // TODO NOW resolve issue.
-  // TODO(issue#18) IMAGE MIPMAPPING
+  // TODO(issue#30) IMAGES support pre-generated mip levels.
   fn transfer_staging_to_gpu_buffer_or_image(
     &self, buffer_size: u64, staging_buffer: vk::Buffer, gpu_buffer_or_image: ImageOrBuffer,
     mip_levels: Option<u32>,
@@ -245,7 +245,7 @@ impl VulkanBufferFunctions {
 
           (vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_IGNORED)
         }
-        ImageOrBuffer::Image(gpu_image, format, extent) => {
+        ImageOrBuffer::Image(gpu_image, _format, extent) => {
           // Transition layout to transfer destination.
           // This wont transfer ownership of queues, no need to check.
           self.insert_layout_transition_barrier(
@@ -302,9 +302,10 @@ impl VulkanBufferFunctions {
         .end_command_buffer(transfer_command_buffer)?;
 
       let command_buffers = [transfer_command_buffer];
-
       let mut submit_info_builder = vk::SubmitInfo::builder().command_buffers(&command_buffers);
       if src_queue_family != dst_queue_family {
+        // Signal semaphore for ownership transfer operation iff queue ownership will
+        // change.
         submit_info_builder = submit_info_builder.signal_semaphores(&self.ownership_semaphore)
       }
       let submit_info = submit_info_builder.build();
@@ -314,57 +315,12 @@ impl VulkanBufferFunctions {
         vk::Fence::null(),
       )?;
 
-      // TODO NOW cleanup entire file.
-      // TODO NOW add docs and issues to support application level provided mip
-      // levels, forgoing generation.  Then document that that must be done in
-      // software or pre baked.
-      // TODO NOW subfunction
-      let command_begin_info = vk::CommandBufferBeginInfo::builder()
-        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-        .build();
-      self
-        .logical_device
-        .begin_command_buffer(self.graphics_command_buffer, &command_begin_info)?;
-      self.transfer_queue_ownership_if_necessary(
+      self.accept_image_transfer_and_generate_mipmaps(
         &gpu_buffer_or_image,
+        mip_levels,
         src_queue_family,
         dst_queue_family,
-        mip_levels,
       )?;
-      match gpu_buffer_or_image {
-        ImageOrBuffer::Image(gpu_image, format, extent) => {
-          // This is an image with mipmaps, generate them now that image is owned by
-          // graphics command queue and can therefore do blit operations.
-          self.generate_mipmaps_shader_ro_optimal(
-            self.graphics_command_buffer,
-            gpu_image,
-            format,
-            extent.width,
-            extent.height,
-            mip_levels.unwrap_or(1),
-          )?;
-        }
-        _ => (),
-      }
-      self
-        .logical_device
-        .end_command_buffer(self.graphics_command_buffer)?;
-
-      let command_buffers = [self.graphics_command_buffer];
-      let mut submit_info = [vk::SubmitInfo::builder()
-        .command_buffers(&command_buffers)
-        .wait_semaphores(&self.ownership_semaphore)
-        .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
-        .build()];
-      if src_queue_family == dst_queue_family {
-        submit_info[0].wait_semaphore_count = 0;
-      }
-      self.logical_device.queue_submit(
-        self.graphics_command_queue,
-        &submit_info,
-        vk::Fence::null(),
-      )?;
-      // TODO NOW end subfunction.
 
       self.logical_device.device_wait_idle()?;
 
@@ -381,19 +337,79 @@ impl VulkanBufferFunctions {
     Ok(())
   }
 
+  /// Accepts ownership of the image and generates the requested number of mip
+  /// levels using a blit.
+  unsafe fn accept_image_transfer_and_generate_mipmaps(
+    &self, gpu_image: &ImageOrBuffer, mip_levels: Option<u32>, src_queue_family: u32,
+    dst_queue_family: u32,
+  ) -> SarektResult<()> {
+    match gpu_image {
+      ImageOrBuffer::Image(gpu_image, format, extent) => {
+        let command_begin_info = vk::CommandBufferBeginInfo::builder()
+          .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+          .build();
+        self
+          .logical_device
+          .begin_command_buffer(self.graphics_command_buffer, &command_begin_info)?;
+        self.transfer_image_queue_ownership_if_necessary(
+          *gpu_image,
+          src_queue_family,
+          dst_queue_family,
+          mip_levels,
+        )?;
+        // This is an image with mipmaps, generate them now that image is owned by
+        // graphics command queue and can therefore do blit operations.
+        self.generate_mipmaps_shader_ro_optimal(
+          self.graphics_command_buffer,
+          *gpu_image,
+          *format,
+          extent.width,
+          extent.height,
+          mip_levels.unwrap_or(1),
+        )?;
+      }
+      _ => (),
+    }
+
+    if src_queue_family == dst_queue_family {
+      // No transfer needed.
+      return Ok(());
+    }
+
+    self
+      .logical_device
+      .end_command_buffer(self.graphics_command_buffer)?;
+    let command_buffers = [self.graphics_command_buffer];
+    let mut submit_info = [vk::SubmitInfo::builder()
+      .command_buffers(&command_buffers)
+      .wait_semaphores(&self.ownership_semaphore)
+      .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
+      .build()];
+    if src_queue_family == dst_queue_family {
+      submit_info[0].wait_semaphore_count = 0;
+    }
+
+    self.logical_device.queue_submit(
+      self.graphics_command_queue,
+      &submit_info,
+      vk::Fence::null(),
+    )?;
+
+    Ok(())
+  }
+
   /// When a memory barrier is inserted that transfers queue ownership, the
   /// accept end of the memory barrier must also be run in a command buffer of
   /// the queue taking ownership of the resource.
-  unsafe fn transfer_queue_ownership_if_necessary(
-    &self, gpu_buffer_or_image: &ImageOrBuffer, src_queue_family: u32, dst_queue_family: u32,
+  unsafe fn transfer_image_queue_ownership_if_necessary(
+    &self, gpu_image: vk::Image, src_queue_family: u32, dst_queue_family: u32,
     mip_levels: Option<u32>,
   ) -> SarektResult<()> {
     if src_queue_family == dst_queue_family {
       return Ok(());
     }
-    // Do the wait in the dst queue.
 
-    let img = gpu_buffer_or_image.image().unwrap();
+    // Do the wait in the dst queue.
     let subresource_range = vk::ImageSubresourceRange::builder()
       .aspect_mask(vk::ImageAspectFlags::COLOR)
       .base_mip_level(0)
@@ -406,7 +422,7 @@ impl VulkanBufferFunctions {
         .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .src_queue_family_index(src_queue_family) // Transfer ownership to graphics queue if necessary.
         .dst_queue_family_index(dst_queue_family)
-        .image(img.0)
+        .image(gpu_image)
         .subresource_range(subresource_range)
         .src_access_mask(vk::AccessFlags::empty()) // ignored according to the spec.
         .dst_access_mask(vk::AccessFlags::SHADER_READ)
@@ -419,6 +435,171 @@ impl VulkanBufferFunctions {
       &[],
       &[],
       &barriers,
+    );
+
+    Ok(())
+  }
+
+  /// Use blitting to create mipmap textures.
+  /// Returns the source and destination queue family indices.
+  unsafe fn generate_mipmaps_shader_ro_optimal(
+    &self, graphics_command_buffer: vk::CommandBuffer, image: vk::Image, format: vk::Format,
+    width: u32, height: u32, mip_levels: u32,
+  ) -> SarektResult<()> {
+    if mip_levels > 1 {
+      // Check blitting supported.
+      let format_properties = self
+        .instance
+        .get_physical_device_format_properties(self.physical_device, format);
+
+      if !format_properties
+        .optimal_tiling_features
+        .intersects(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR)
+      {
+        return Err(SarektError::FormatDoesNotSupportMipmapping(format!(
+          "Linear filtering not supported on format {:?}",
+          format,
+        )));
+      }
+    }
+
+    let mut mip_width = width;
+    let mut mip_height = height;
+    for i in 1..mip_levels {
+      // First transition previous image layout to transfer src optimal.
+      let subresource_range = vk::ImageSubresourceRange::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .base_array_layer(0)
+        .layer_count(1)
+        .base_mip_level(i - 1)
+        .level_count(1)
+        .build();
+      let barrier = [vk::ImageMemoryBarrier::builder()
+        .image(image)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .subresource_range(subresource_range)
+        .build()];
+      self.logical_device.cmd_pipeline_barrier(
+        graphics_command_buffer,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::DependencyFlags::empty(),
+        &[],
+        &[],
+        &barrier,
+      );
+
+      // Then do the blit from one mip level to the next.
+      let src_offsets = [
+        vk::Offset3D::default(),
+        vk::Offset3D::builder()
+          .x(mip_width as i32)
+          .y(mip_height as i32)
+          .z(1)
+          .build(),
+      ];
+      let src_subresource = vk::ImageSubresourceLayers::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .mip_level(i - 1)
+        .base_array_layer(0)
+        .layer_count(1)
+        .build();
+      let dst_offsets = [
+        vk::Offset3D::default(),
+        vk::Offset3D::builder()
+          .x(if mip_width > 1 { mip_width / 2 } else { 1 } as i32)
+          .y(if mip_height > 1 { mip_height / 2 } else { 1 } as i32)
+          .z(1)
+          .build(),
+      ];
+      let dst_subresource = vk::ImageSubresourceLayers::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .mip_level(i)
+        .base_array_layer(0)
+        .layer_count(1)
+        .build();
+      let blit = [vk::ImageBlit::builder()
+        .src_offsets(src_offsets)
+        .src_subresource(src_subresource)
+        .dst_offsets(dst_offsets)
+        .dst_subresource(dst_subresource)
+        .build()];
+      info!(
+        "Generating mip level: {} {}x{}",
+        i, dst_offsets[1].x, dst_offsets[1].y
+      );
+      self.logical_device.cmd_blit_image(
+        graphics_command_buffer,
+        image,
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        image,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        &blit,
+        vk::Filter::LINEAR,
+      );
+
+      // Now transition to shader ro optimal.
+      let barrier = [vk::ImageMemoryBarrier::builder()
+        .image(image)
+        .subresource_range(subresource_range)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .dst_access_mask(vk::AccessFlags::SHADER_READ)
+        .build()];
+      self.logical_device.cmd_pipeline_barrier(
+        graphics_command_buffer,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::DependencyFlags::empty(),
+        &[],
+        &[],
+        &barrier,
+      );
+
+      if mip_width > 1 {
+        mip_width /= 2;
+      }
+      if mip_height > 1 {
+        mip_height /= 2;
+      }
+    }
+
+    // Transition the final mip level to shader ro optimal (not handled by loop),
+    // and transfer all queue ownership.
+    let subresource_range = vk::ImageSubresourceRange::builder()
+      .aspect_mask(vk::ImageAspectFlags::COLOR)
+      .base_mip_level(mip_levels - 1)
+      .level_count(1)
+      .base_array_layer(0)
+      .layer_count(1)
+      .build();
+    let barrier = [vk::ImageMemoryBarrier::builder()
+      .image(image)
+      .subresource_range(subresource_range)
+      .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+      .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+      .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+      .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+      .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+      .dst_access_mask(vk::AccessFlags::SHADER_READ)
+      .build()];
+    info!("Transitioning final mip level to shader ro format");
+    self.logical_device.cmd_pipeline_barrier(
+      graphics_command_buffer,
+      vk::PipelineStageFlags::TRANSFER,
+      vk::PipelineStageFlags::FRAGMENT_SHADER,
+      vk::DependencyFlags::empty(),
+      &[],
+      &[],
+      &barrier,
     );
 
     Ok(())
@@ -540,7 +721,6 @@ impl VulkanBufferFunctions {
       source_stage = vk::PipelineStageFlags::TRANSFER;
       destination_stage = vk::PipelineStageFlags::FRAGMENT_SHADER;
     } else {
-      // TODO NOW something better?
       source_access_mask = vk::AccessFlags::TRANSFER_WRITE;
       destination_access_mask = vk::AccessFlags::TRANSFER_WRITE;
 
@@ -572,181 +752,6 @@ impl VulkanBufferFunctions {
     }
 
     Ok((src_queue_family, dst_queue_family))
-  }
-
-  /// Use blitting to create mipmap textures.
-  /// Returns the source and destination queue family indices.
-  fn generate_mipmaps_shader_ro_optimal(
-    &self, graphics_command_buffer: vk::CommandBuffer, image: vk::Image, format: vk::Format,
-    width: u32, height: u32, mip_levels: u32,
-  ) -> SarektResult<()> {
-    if mip_levels > 1 {
-      // Check blitting supported.
-      let format_properties = unsafe {
-        self
-          .instance
-          .get_physical_device_format_properties(self.physical_device, format)
-      };
-
-      if !format_properties
-        .optimal_tiling_features
-        .intersects(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR)
-      {
-        return Err(SarektError::FormatDoesNotSupportMipmapping(format!(
-          "Linear filtering not supported on format {:?}",
-          format,
-        )));
-      }
-    }
-
-    let mut mip_width = width;
-    let mut mip_height = height;
-    for i in 1..mip_levels {
-      // First transition previous image layout to transfer src optimal.
-      let subresource_range = vk::ImageSubresourceRange::builder()
-        .aspect_mask(vk::ImageAspectFlags::COLOR)
-        .base_array_layer(0)
-        .layer_count(1)
-        .base_mip_level(i - 1)
-        .level_count(1)
-        .build();
-      let barrier = [vk::ImageMemoryBarrier::builder()
-        .image(image)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-        .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-        .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .subresource_range(subresource_range)
-        .build()];
-      unsafe {
-        self.logical_device.cmd_pipeline_barrier(
-          graphics_command_buffer,
-          vk::PipelineStageFlags::TRANSFER,
-          vk::PipelineStageFlags::TRANSFER,
-          vk::DependencyFlags::empty(),
-          &[],
-          &[],
-          &barrier,
-        );
-      }
-
-      // Then do the blit from one mip level to the next.
-      let src_offsets = [
-        vk::Offset3D::default(),
-        vk::Offset3D::builder()
-          .x(mip_width as i32)
-          .y(mip_height as i32)
-          .z(1)
-          .build(),
-      ];
-      let src_subresource = vk::ImageSubresourceLayers::builder()
-        .aspect_mask(vk::ImageAspectFlags::COLOR)
-        .mip_level(i - 1)
-        .base_array_layer(0)
-        .layer_count(1)
-        .build();
-      let dst_offsets = [
-        vk::Offset3D::default(),
-        vk::Offset3D::builder()
-          .x(if mip_width > 1 { mip_width / 2 } else { 1 } as i32)
-          .y(if mip_height > 1 { mip_height / 2 } else { 1 } as i32)
-          .z(1)
-          .build(),
-      ];
-      let dst_subresource = vk::ImageSubresourceLayers::builder()
-        .aspect_mask(vk::ImageAspectFlags::COLOR)
-        .mip_level(i)
-        .base_array_layer(0)
-        .layer_count(1)
-        .build();
-      let blit = [vk::ImageBlit::builder()
-        .src_offsets(src_offsets)
-        .src_subresource(src_subresource)
-        .dst_offsets(dst_offsets)
-        .dst_subresource(dst_subresource)
-        .build()];
-      info!(
-        "Generating mip level: {} {}x{}",
-        i, dst_offsets[1].x, dst_offsets[1].y
-      );
-      unsafe {
-        self.logical_device.cmd_blit_image(
-          graphics_command_buffer,
-          image,
-          vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-          image,
-          vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-          &blit,
-          vk::Filter::LINEAR,
-        );
-      }
-
-      // Now transition to shader ro optimal.
-      let barrier = [vk::ImageMemoryBarrier::builder()
-        .image(image)
-        .subresource_range(subresource_range)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .dst_access_mask(vk::AccessFlags::SHADER_READ)
-        .build()];
-      unsafe {
-        self.logical_device.cmd_pipeline_barrier(
-          graphics_command_buffer,
-          vk::PipelineStageFlags::TRANSFER,
-          vk::PipelineStageFlags::FRAGMENT_SHADER,
-          vk::DependencyFlags::empty(),
-          &[],
-          &[],
-          &barrier,
-        );
-      }
-
-      if mip_width > 1 {
-        mip_width /= 2;
-      }
-      if mip_height > 1 {
-        mip_height /= 2;
-      }
-    }
-
-    // Transition the final mip level to shader ro optimal (not handled by loop),
-    // and transfer all queue ownership.
-    let subresource_range = vk::ImageSubresourceRange::builder()
-      .aspect_mask(vk::ImageAspectFlags::COLOR)
-      .base_mip_level(mip_levels - 1)
-      .level_count(1)
-      .base_array_layer(0)
-      .layer_count(1)
-      .build();
-    let barrier = [vk::ImageMemoryBarrier::builder()
-      .image(image)
-      .subresource_range(subresource_range)
-      .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-      .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-      .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-      .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-      .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-      .dst_access_mask(vk::AccessFlags::SHADER_READ)
-      .build()];
-    info!("Transitioning final mip level to shader ro format");
-    unsafe {
-      self.logical_device.cmd_pipeline_barrier(
-        graphics_command_buffer,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        vk::DependencyFlags::empty(),
-        &[],
-        &[],
-        &barrier,
-      );
-    }
-
-    Ok(())
   }
 }
 unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
