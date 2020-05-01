@@ -314,6 +314,10 @@ impl VulkanBufferFunctions {
         vk::Fence::null(),
       )?;
 
+      // TODO NOW cleanup entire file.
+      // TODO NOW add docs and issues to support application level provided mip
+      // levels, forgoing generation.  Then document that that must be done in
+      // software or pre baked.
       // TODO NOW subfunction
       let command_begin_info = vk::CommandBufferBeginInfo::builder()
         .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
@@ -342,16 +346,19 @@ impl VulkanBufferFunctions {
         }
         _ => (),
       }
-      let command_buffers = [self.graphics_command_buffer];
-      let submit_info = [vk::SubmitInfo::builder()
-        .command_buffers(&command_buffers)
-        .wait_semaphores(&self.ownership_semaphore)
-        .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
-        .build()];
       self
         .logical_device
         .end_command_buffer(self.graphics_command_buffer)?;
 
+      let command_buffers = [self.graphics_command_buffer];
+      let mut submit_info = [vk::SubmitInfo::builder()
+        .command_buffers(&command_buffers)
+        .wait_semaphores(&self.ownership_semaphore)
+        .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
+        .build()];
+      if src_queue_family == dst_queue_family {
+        submit_info[0].wait_semaphore_count = 0;
+      }
       self.logical_device.queue_submit(
         self.graphics_command_queue,
         &submit_info,

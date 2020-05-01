@@ -24,8 +24,6 @@ use winit::{
   window::{WindowBuilder, WindowId},
 };
 
-// TODO NOW LAST finish Vulkan Tutorial with MipMapping and AA
-
 const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 1200;
 
@@ -89,7 +87,6 @@ fn main_loop() {
   // Load textures and create image.
   let model_texture_file = image::open(MODEL_TEXTURE_FILE_NAME).unwrap();
   let mip_levels = get_mip_levels(model_texture_file.dimensions());
-  // let mip_levels = 1;
   let model_texture = renderer
     .load_image_with_staging_initialization(
       model_texture_file,
