@@ -150,20 +150,13 @@ impl VulkanBufferFunctions {
   /// Create a buffer with TRANSFER_DST and appropriate buffer type flags
   /// flipped.
   fn create_gpu_buffer(
-    &self, buffer_type: BufferType, buffer_size: u64,
+    &self, buffer_type: BufferType, buffer_size: u64, queue_family_index: u32,
   ) -> SarektResult<(vk::Buffer, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     info!("Creating GPU buffer and memory to use during drawing...");
     let buffer_usage =
       vk::BufferUsageFlags::TRANSFER_DST | usage_flags_from_buffer_type(buffer_type);
-    // TODO NOW will this just work?
-    // TODO(issue#28) PERFORMANCE instead of concurrent do a transfer like for
-    // images.
-    let sharing_mode = if self.graphics_queue_family == self.transfer_queue_family {
-      vk::SharingMode::EXCLUSIVE
-    } else {
-      vk::SharingMode::CONCURRENT
-    };
-    let queue_family_indices = [self.graphics_queue_family, self.transfer_queue_family];
+    let sharing_mode = vk::SharingMode::EXCLUSIVE;
+    let queue_family_indices = [queue_family_index];
     let buffer_ci = vk::BufferCreateInfo::builder()
       .size(buffer_size)
       .usage(buffer_usage)
@@ -186,7 +179,7 @@ impl VulkanBufferFunctions {
   /// flipped.
   fn create_gpu_image(
     &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags,
-    queue_family_indices: &[u32], mip_levels: u32,
+    queue_family_index: u32, mip_levels: u32,
   ) -> SarektResult<(vk::Image, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     let image_ci = vk::ImageCreateInfo::builder()
       .image_type(vk::ImageType::TYPE_2D)
@@ -201,7 +194,7 @@ impl VulkanBufferFunctions {
       .format(format)
       .tiling(vk::ImageTiling::OPTIMAL) // Texels are laid out in hardware optimal format, not necessarily linearly.
       .initial_layout(vk::ImageLayout::UNDEFINED)
-      .queue_family_indices(&queue_family_indices)
+      .queue_family_indices(&[queue_family_index])
       .sharing_mode(vk::SharingMode::EXCLUSIVE) // Only used by the one queue family.
       .samples(vk::SampleCountFlags::TYPE_1) // Not multisampling, this isn't for an attachment.
       .build();
@@ -801,7 +794,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
     self.allocator.unmap_memory(&staging_allocation)?;
 
     let (gpu_buffer, gpu_allocation, _gpu_allocation_info) =
-      self.create_gpu_buffer(buffer_type, buffer_size)?;
+      self.create_gpu_buffer(buffer_type, buffer_size, self.transfer_queue_family)?;
 
     self.transfer_staging_to_gpu_buffer_or_image(
       buffer_size,
@@ -930,7 +923,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       dimens,
       format,
       vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED | transfer_src_flag,
-      &[self.transfer_queue_family],
+      self.transfer_queue_family,
       mip_levels,
     )?;
 
@@ -984,7 +977,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       dimensions,
       format.into(),
       vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-      &[self.graphics_queue_family],
+      self.graphics_queue_family,
       1,
     )?;
     let image_view =
