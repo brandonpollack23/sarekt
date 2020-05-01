@@ -628,7 +628,7 @@ impl VulkanBufferFunctions {
   fn create_sampler(
     &self, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_u: TextureAddressMode,
-    address_v: TextureAddressMode, address_w: TextureAddressMode,
+    address_v: TextureAddressMode, address_w: TextureAddressMode, mip_levels: u32,
   ) -> SarektResult<vk::Sampler> {
     // TODO(issue#18) CONFIG anisotropy
     // TODO(issue#18) CONFIG border color (as part of TextureAddressMode enum)
@@ -674,7 +674,7 @@ impl VulkanBufferFunctions {
       .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
       .mip_lod_bias(0.0f32)
       .min_lod(0.0f32)
-      .max_lod(0.0f32)
+      .max_lod(mip_levels as _)
       .build();
     unsafe { Ok(self.logical_device.create_sampler(&sampler_ci, None)?) }
   }
@@ -959,6 +959,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       address_u,
       address_v,
       address_w,
+      mip_levels,
     )?;
 
     Ok(ResourceWithMemory::Image(ImageAndMemory {

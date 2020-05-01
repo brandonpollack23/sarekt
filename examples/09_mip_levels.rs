@@ -28,8 +28,9 @@ const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 1200;
 
 const GLB_MODEL_FILE_NAME: &str = "models/chalet.glb";
-const OBJ_MODEL_FILE_NAME: &str = "models/chalet.obj";
-const MODEL_TEXTURE_FILE_NAME: &str = "textures/chalet.jpg";
+const OBJ_MODEL_FILE_NAME: &str = "models/viking_room.obj";
+const MODEL_TEXTURE_FILE_NAME_GLB: &str = "textures/chalet.jpg";
+const MODEL_TEXTURE_FILE_NAME_OBJ: &str = "textures/viking_room.png";
 
 fn main() {
   simple_logger::init_with_level(Level::Info).unwrap();
@@ -85,7 +86,11 @@ fn main_loop() {
     .unwrap();
 
   // Load textures and create image.
-  let model_texture_file = image::open(MODEL_TEXTURE_FILE_NAME).unwrap();
+  let model_texture_file = if use_glb {
+    image::open(MODEL_TEXTURE_FILE_NAME_GLB).unwrap()
+  } else {
+    image::open(MODEL_TEXTURE_FILE_NAME_OBJ).unwrap()
+  };
   let mip_levels = get_mip_levels(model_texture_file.dimensions());
   let model_texture = renderer
     .load_image_with_staging_initialization(
