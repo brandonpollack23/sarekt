@@ -806,6 +806,7 @@ impl VulkanRenderer {
       TextureAddressMode::ClampToEdge,
       TextureAddressMode::ClampToEdge,
       TextureAddressMode::ClampToEdge,
+      1,
     )
     .unwrap();
 
@@ -916,7 +917,7 @@ impl Renderer for VulkanRenderer {
   fn load_image_with_staging_initialization(
     &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
-    address_y: TextureAddressMode, address_z: TextureAddressMode,
+    address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u32,
   ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
     Ok(
       BufferImageStore::load_image_with_staging_initialization(
@@ -927,6 +928,7 @@ impl Renderer for VulkanRenderer {
         address_x,
         address_y,
         address_z,
+        mip_levels,
       )?
       .0,
     )

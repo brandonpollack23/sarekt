@@ -19,12 +19,13 @@ pub enum SarektError {
   IncorrectLoaderFunction,
   IncorrectBufferType,
   IncorrectResourceType,
-  UnsupportedLayoutTransition,
   UnsupportedImageFormat,
   UnknownResource,
   NoSuitableMemoryHeap,
   NoSuitableDepthBufferFormat,
   VulkanMemoryAllocatorError(vk_mem::error::Error),
+  IllegalMipmapCount,
+  FormatDoesNotSupportMipmapping(String),
 }
 
 impl From<vk::Result> for SarektError {
@@ -85,7 +86,6 @@ impl fmt::Display for SarektError {
         "Resource type did not match function call, did you try to get a buffer with an image \
          function or vice versa?"
       ),
-      SarektError::UnsupportedLayoutTransition => write!(f, "Unsupported Layout Transition"),
       SarektError::UnsupportedImageFormat => {
         write!(f, "Image format of ImageData is not supported")
       }
@@ -106,6 +106,13 @@ impl fmt::Display for SarektError {
         write!(f, "Sarekt could not find a suitable physical device")
       }
       SarektError::CStrError(e) => write!(f, "{}", e),
+      SarektError::IllegalMipmapCount => write!(
+        f,
+        "Illegal mipmap count, specify a (resonable) number higher than 0)"
+      ),
+      SarektError::FormatDoesNotSupportMipmapping(s) => {
+        write!(f, "Format not supported for mipmapping: {}", s)
+      }
     }
   }
 }
