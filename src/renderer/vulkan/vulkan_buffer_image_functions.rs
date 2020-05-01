@@ -355,7 +355,7 @@ impl VulkanBufferFunctions {
       .layer_count(1)
       .build();
     let barriers = [vk::ImageMemoryBarrier::builder()
-        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .src_queue_family_index(src_queue_family) // Transfer ownership to graphics queue if necessary.
         .dst_queue_family_index(dst_queue_family)
@@ -562,8 +562,8 @@ impl VulkanBufferFunctions {
         .build();
       let barrier = [vk::ImageMemoryBarrier::builder()
         .image(image)
-        .src_queue_family_index(self.transfer_queue_family)
-        .dst_queue_family_index(self.graphics_queue_family)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
         .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
@@ -636,12 +636,12 @@ impl VulkanBufferFunctions {
       // Now transition to shader ro optimal.
       let barrier = [vk::ImageMemoryBarrier::builder()
         .image(image)
-        .src_queue_family_index(self.transfer_queue_family)
-        .dst_queue_family_index(self.graphics_queue_family)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .dst_access_mask(vk::AccessFlags::SHADER_READ)
         .build()];
       unsafe {
         self.logical_device.cmd_pipeline_barrier(
