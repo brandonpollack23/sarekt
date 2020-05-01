@@ -184,7 +184,8 @@ impl VulkanBufferFunctions {
   /// Creates a buffer with TRANSFER_DST and appropriate image type flags
   /// flipped.
   fn create_gpu_image(
-    &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags, mip_levels: u32,
+    &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags,
+    queue_family_indices: &[u32], mip_levels: u32,
   ) -> SarektResult<(vk::Image, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     let image_ci = vk::ImageCreateInfo::builder()
       .image_type(vk::ImageType::TYPE_2D)
@@ -199,6 +200,7 @@ impl VulkanBufferFunctions {
       .format(format)
       .tiling(vk::ImageTiling::OPTIMAL) // Texels are laid out in hardware optimal format, not necessarily linearly.
       .initial_layout(vk::ImageLayout::UNDEFINED)
+      .queue_family_indices(&queue_family_indices)
       .sharing_mode(vk::SharingMode::EXCLUSIVE) // Only used by the one queue family.
       .samples(vk::SampleCountFlags::TYPE_1) // Not multisampling, this isn't for an attachment.
       .build();
@@ -926,6 +928,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       dimens,
       format,
       vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED | transfer_src_flag,
+      &[self.transfer_queue_family],
       mip_levels,
     )?;
 
@@ -979,6 +982,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       dimensions,
       format.into(),
       vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+      &[self.graphics_queue_family],
       1,
     )?;
     let image_view =
