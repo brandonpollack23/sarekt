@@ -19,7 +19,6 @@ pub enum SarektError {
   IncorrectLoaderFunction,
   IncorrectBufferType,
   IncorrectResourceType,
-  UnsupportedLayoutTransition,
   UnsupportedImageFormat,
   UnknownResource,
   NoSuitableMemoryHeap,
@@ -87,7 +86,6 @@ impl fmt::Display for SarektError {
         "Resource type did not match function call, did you try to get a buffer with an image \
          function or vice versa?"
       ),
-      SarektError::UnsupportedLayoutTransition => write!(f, "Unsupported Layout Transition"),
       SarektError::UnsupportedImageFormat => {
         write!(f, "Image format of ImageData is not supported")
       }

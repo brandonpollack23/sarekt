@@ -251,9 +251,11 @@ impl VulkanBufferFunctions {
           self.insert_layout_transition_barrier(
             transfer_command_buffer,
             gpu_image,
-            format,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::QUEUE_FAMILY_IGNORED,
+            vk::QUEUE_FAMILY_IGNORED,
+            mip_levels.unwrap_or(1),
           )?;
 
           // Do the copy
@@ -281,12 +283,15 @@ impl VulkanBufferFunctions {
 
           // Transition layout to shader read only is handled when mipmaps are
           // generated.
-          self.generate_mipmaps_shader_ro_optimal(
-            self.transfer_command_buffer,
+
+          // Transfer ownership if necessary.
+          self.insert_layout_transition_barrier(
+            transfer_command_buffer,
             gpu_image,
-            format,
-            extent.width,
-            extent.height,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            self.transfer_queue_family,
+            self.graphics_queue_family,
             mip_levels.unwrap_or(1),
           )?
         }
@@ -309,12 +314,50 @@ impl VulkanBufferFunctions {
         vk::Fence::null(),
       )?;
 
+      // TODO NOW subfunction
+      let command_begin_info = vk::CommandBufferBeginInfo::builder()
+        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+        .build();
+      self
+        .logical_device
+        .begin_command_buffer(self.graphics_command_buffer, &command_begin_info)?;
       self.transfer_queue_ownership_if_necessary(
         &gpu_buffer_or_image,
         src_queue_family,
         dst_queue_family,
         mip_levels,
       )?;
+      match gpu_buffer_or_image {
+        ImageOrBuffer::Image(gpu_image, format, extent) => {
+          // This is an image with mipmaps, generate them now that image is owned by
+          // graphics command queue and can therefore do blit operations.
+          self.generate_mipmaps_shader_ro_optimal(
+            self.graphics_command_buffer,
+            gpu_image,
+            format,
+            extent.width,
+            extent.height,
+            mip_levels.unwrap_or(1),
+          )?;
+        }
+        _ => (),
+      }
+      let command_buffers = [self.graphics_command_buffer];
+      let submit_info = [vk::SubmitInfo::builder()
+        .command_buffers(&command_buffers)
+        .wait_semaphores(&self.ownership_semaphore)
+        .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
+        .build()];
+      self
+        .logical_device
+        .end_command_buffer(self.graphics_command_buffer)?;
+
+      self.logical_device.queue_submit(
+        self.graphics_command_queue,
+        &submit_info,
+        vk::Fence::null(),
+      )?;
+      // TODO NOW end subfunction.
 
       self.logical_device.device_wait_idle()?;
 
@@ -342,12 +385,6 @@ impl VulkanBufferFunctions {
       return Ok(());
     }
     // Do the wait in the dst queue.
-    let command_begin_info = vk::CommandBufferBeginInfo::builder()
-      .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-      .build();
-    self
-      .logical_device
-      .begin_command_buffer(self.graphics_command_buffer, &command_begin_info)?;
 
     let img = gpu_buffer_or_image.image().unwrap();
     let subresource_range = vk::ImageSubresourceRange::builder()
@@ -358,8 +395,8 @@ impl VulkanBufferFunctions {
       .layer_count(1)
       .build();
     let barriers = [vk::ImageMemoryBarrier::builder()
-        .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .src_queue_family_index(src_queue_family) // Transfer ownership to graphics queue if necessary.
         .dst_queue_family_index(dst_queue_family)
         .image(img.0)
@@ -376,21 +413,6 @@ impl VulkanBufferFunctions {
       &[],
       &barriers,
     );
-    let command_buffers = [self.graphics_command_buffer];
-    let submit_info = [vk::SubmitInfo::builder()
-      .command_buffers(&command_buffers)
-      .wait_semaphores(&self.ownership_semaphore)
-      .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
-      .build()];
-    self
-      .logical_device
-      .end_command_buffer(self.graphics_command_buffer)?;
-
-    self.logical_device.queue_submit(
-      self.graphics_command_queue,
-      &submit_info,
-      vk::Fence::null(),
-    )?;
 
     Ok(())
   }
@@ -479,13 +501,13 @@ impl VulkanBufferFunctions {
   // TODO(issue#18) IMAGE MIPMAPPING levels as params
   /// Returns the source and destination queue family indices.
   fn insert_layout_transition_barrier(
-    &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, _format: vk::Format,
-    old_layout: vk::ImageLayout, new_layout: vk::ImageLayout,
+    &self, command_buffer: vk::CommandBuffer, image: vk::Image, old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout, src_queue_family: u32, dst_queue_family: u32, mip_levels: u32,
   ) -> SarektResult<(u32, u32)> {
     let subresource_range = vk::ImageSubresourceRange::builder()
       .aspect_mask(vk::ImageAspectFlags::COLOR)
       .base_mip_level(0)
-      .level_count(1)
+      .level_count(mip_levels)
       .base_array_layer(0)
       .layer_count(1)
       .build();
@@ -494,8 +516,6 @@ impl VulkanBufferFunctions {
     let source_access_mask: vk::AccessFlags;
     let destination_stage: vk::PipelineStageFlags;
     let destination_access_mask: vk::AccessFlags;
-    let mut src_queue_family = vk::QUEUE_FAMILY_IGNORED;
-    let mut dst_queue_family = vk::QUEUE_FAMILY_IGNORED;
     if old_layout == vk::ImageLayout::UNDEFINED
       && new_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL
     {
@@ -512,12 +532,13 @@ impl VulkanBufferFunctions {
 
       source_stage = vk::PipelineStageFlags::TRANSFER;
       destination_stage = vk::PipelineStageFlags::FRAGMENT_SHADER;
-
-      // This will initiate queue ownership transfer if necessary.
-      src_queue_family = self.transfer_queue_family;
-      dst_queue_family = self.graphics_queue_family;
     } else {
-      return Err(SarektError::UnsupportedLayoutTransition);
+      // TODO NOW something better?
+      source_access_mask = vk::AccessFlags::TRANSFER_WRITE;
+      destination_access_mask = vk::AccessFlags::TRANSFER_WRITE;
+
+      source_stage = vk::PipelineStageFlags::TRANSFER;
+      destination_stage = vk::PipelineStageFlags::TRANSFER;
     }
 
     let barriers = [vk::ImageMemoryBarrier::builder()
@@ -533,7 +554,7 @@ impl VulkanBufferFunctions {
 
     unsafe {
       self.logical_device.cmd_pipeline_barrier(
-        transfer_command_buffer,
+        command_buffer,
         source_stage,
         destination_stage,
         vk::DependencyFlags::empty(),
@@ -549,9 +570,9 @@ impl VulkanBufferFunctions {
   /// Use blitting to create mipmap textures.
   /// Returns the source and destination queue family indices.
   fn generate_mipmaps_shader_ro_optimal(
-    &self, transfer_command_buffer: vk::CommandBuffer, image: vk::Image, format: vk::Format,
+    &self, graphics_command_buffer: vk::CommandBuffer, image: vk::Image, format: vk::Format,
     width: u32, height: u32, mip_levels: u32,
-  ) -> SarektResult<(u32, u32)> {
+  ) -> SarektResult<()> {
     if mip_levels > 1 {
       // Check blitting supported.
       let format_properties = unsafe {
@@ -594,7 +615,7 @@ impl VulkanBufferFunctions {
         .build()];
       unsafe {
         self.logical_device.cmd_pipeline_barrier(
-          transfer_command_buffer,
+          graphics_command_buffer,
           vk::PipelineStageFlags::TRANSFER,
           vk::PipelineStageFlags::TRANSFER,
           vk::DependencyFlags::empty(),
@@ -645,7 +666,7 @@ impl VulkanBufferFunctions {
       );
       unsafe {
         self.logical_device.cmd_blit_image(
-          transfer_command_buffer,
+          graphics_command_buffer,
           image,
           vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
           image,
@@ -664,13 +685,13 @@ impl VulkanBufferFunctions {
         .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
         .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .dst_access_mask(vk::AccessFlags::SHADER_READ)
         .build()];
       unsafe {
         self.logical_device.cmd_pipeline_barrier(
-          transfer_command_buffer,
+          graphics_command_buffer,
           vk::PipelineStageFlags::TRANSFER,
-          vk::PipelineStageFlags::TRANSFER,
+          vk::PipelineStageFlags::FRAGMENT_SHADER,
           vk::DependencyFlags::empty(),
           &[],
           &[],
@@ -702,13 +723,13 @@ impl VulkanBufferFunctions {
       .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
       .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
       .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-      .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+      .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
       .dst_access_mask(vk::AccessFlags::SHADER_READ)
       .build()];
     info!("Transitioning final mip level to shader ro format");
     unsafe {
       self.logical_device.cmd_pipeline_barrier(
-        transfer_command_buffer,
+        graphics_command_buffer,
         vk::PipelineStageFlags::TRANSFER,
         vk::PipelineStageFlags::FRAGMENT_SHADER,
         vk::DependencyFlags::empty(),
@@ -718,38 +739,7 @@ impl VulkanBufferFunctions {
       );
     }
 
-    // Transition ownership to graphics queue.
-    let subresource_range = vk::ImageSubresourceRange::builder()
-      .aspect_mask(vk::ImageAspectFlags::COLOR)
-      .base_mip_level(0)
-      .level_count(mip_levels)
-      .base_array_layer(0)
-      .layer_count(1)
-      .build();
-    let barrier = [vk::ImageMemoryBarrier::builder()
-      .image(image)
-      .src_queue_family_index(self.transfer_queue_family)
-      .dst_queue_family_index(self.graphics_queue_family)
-      .subresource_range(subresource_range)
-      .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-      .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-      .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-      .dst_access_mask(vk::AccessFlags::SHADER_READ)
-      .build()];
-    info!("Transitioning ownership of image to graphics queue");
-    unsafe {
-      self.logical_device.cmd_pipeline_barrier(
-        transfer_command_buffer,
-        vk::PipelineStageFlags::TOP_OF_PIPE,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        vk::DependencyFlags::empty(),
-        &[],
-        &[],
-        &barrier,
-      );
-    }
-
-    Ok((self.transfer_queue_family, self.graphics_queue_family))
+    Ok(())
   }
 }
 unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
