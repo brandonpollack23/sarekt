@@ -7,6 +7,7 @@ use sarekt::{
     buffers_and_images::{
       BufferType, IndexBufferElemSize, MagnificationMinificationFilter, TextureAddressMode,
     },
+    config::Config,
     drawable_object::DrawableObject,
     vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
@@ -60,7 +61,12 @@ fn main_loop() {
   );
 
   // Build Renderer.
-  let mut renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
+  let config = Config::builder()
+    .requested_width(WIDTH)
+    .requested_height(HEIGHT)
+    .build()
+    .unwrap();
+  let mut renderer = VulkanRenderer::new(window.clone(), config).unwrap();
 
   // Create Vertex Resources.
   let (model_vertices, model_indices) = if use_glb {
@@ -93,6 +99,7 @@ fn main_loop() {
       TextureAddressMode::ClampToEdge,
       TextureAddressMode::ClampToEdge,
       TextureAddressMode::ClampToEdge,
+      /* mip_levels */ 1,
     )
     .unwrap();
 

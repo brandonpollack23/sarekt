@@ -1,5 +1,8 @@
 use log::{info, Level};
-use sarekt::{self, renderer::VulkanRenderer};
+use sarekt::{
+  self,
+  renderer::{config::Config, VulkanRenderer},
+};
 use std::{error::Error, sync::Arc};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 
@@ -12,6 +15,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   let event_loop = EventLoop::new();
   let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-  let _renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
+  let config = Config::builder()
+    .requested_width(WIDTH)
+    .requested_height(HEIGHT)
+    .build()
+    .unwrap();
+  let _renderer = VulkanRenderer::new(window.clone(), config).unwrap();
   Ok(())
 }

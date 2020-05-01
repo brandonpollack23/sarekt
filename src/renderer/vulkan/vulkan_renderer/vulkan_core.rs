@@ -1,6 +1,7 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
+    config::{ApplicationDetails, EngineDetails},
     vulkan::{
       queues::{QueueFamilyIndices, Queues},
       vulkan_renderer::{
@@ -9,7 +10,7 @@ use crate::{
         swap_chain::SwapchainSupportDetails,
       },
     },
-    ApplicationDetails, EngineDetails, ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
+    ENABLE_VALIDATION_LAYERS, IS_DEBUG_MODE,
   },
 };
 use ash::{

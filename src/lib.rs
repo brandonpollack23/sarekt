@@ -5,6 +5,8 @@
 //! See renderer crate for how to use.
 #[macro_use]
 extern crate memoffset;
+#[macro_use]
+extern crate derive_builder;
 
 pub mod error;
 pub mod image_data;

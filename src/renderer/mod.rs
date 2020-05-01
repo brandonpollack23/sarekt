@@ -10,14 +10,25 @@
 //! ```no_run
 //! use sarekt::renderer::VulkanRenderer;
 //! use sarekt::renderer::Renderer;
+//! use sarekt::renderer::config::{Config, ApplicationDetails, Version, EngineDetails};
 //! # use std::sync::Arc;
 //! # use winit::window::WindowBuilder;
 //! # use winit::event_loop::EventLoop;
 //! const WIDTH: u32 = 800;
 //! const HEIGHT: u32 = 600;
 //! let event_loop = EventLoop::new();
+//! let config = Config::builder()
+//! .requested_width(WIDTH)
+//! .requested_height(HEIGHT)
+//! .application_details(ApplicationDetails::new(
+//! "Testing App",
+//! Version::new(0, 1, 0),
+//! ))
+//! .engine_details(EngineDetails::new("Test Engine", Version::new(0, 1, 0)))
+//! .build()
+//! .unwrap();
 //! let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-//! let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
+//! let renderer = VulkanRenderer::new(window.clone(), config).unwrap();
 //! ```
 //!
 //! You may also wish to write something abstracted from which renderer backend
@@ -37,10 +48,10 @@
 //! I hope to support some stuff like:
 //! - [x] Actually Rendering something
 //! - [x] Actually rendering something of your choosing
+//! - [ ] Multiple pipeline creation.
 //! - [ ] Dynamic lighting using a Phong shader.
 //! - [ ] Dynamic lighting using PBR.
 //! - [ ] Advanced lighting and shadows.
-//! - [ ] Multiple pipeline creation.
 //! - [ ] Multiple uniform buffers/descriptors for drawable objects.
 //! - [ ] Multiple uniform buffers for drawable objects.
 //! - [ ] Multithreading.
@@ -49,6 +60,7 @@
 //! - [ ] Support Other backends
 //! - [ ] Moar.
 pub mod buffers_and_images;
+pub mod config;
 pub mod drawable_object;
 pub mod shaders;
 pub mod vertex_bindings;
@@ -76,6 +88,9 @@ use crate::{
   },
 };
 use std::fmt::Debug;
+
+// TODO NOW add AA enum with sample count param, check in backend if supported
+// or return error, implement in example program that uses cl param.
 
 // ================================================================================
 //  Compile Time Constants and Configurations
@@ -222,87 +237,4 @@ pub trait Drawer {
   // TODO(issue#2) PIPELINE use method select render pass (predefined set?) log
   // when pipeline not compatible and dont draw? End previous render pass and
   // keep track of last render pass to end it as well.
-}
-
-// ================================================================================
-//  Version struct
-// ================================================================================
-/// A simple version with major, minor and patch fields for specifying
-/// information about your application.
-pub struct Version {
-  major: u32,
-  minor: u32,
-  patch: u32,
-}
-impl Version {
-  pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-    Self {
-      major,
-      minor,
-      patch,
-    }
-  }
-}
-impl Default for Version {
-  fn default() -> Self {
-    Self {
-      major: 0,
-      minor: 1,
-      patch: 0,
-    }
-  }
-}
-
-// ================================================================================
-//  ApplicationDetails Struct
-// ================================================================================
-/// Application Details and version for your application.
-pub struct ApplicationDetails<'a> {
-  name: &'a str,
-  version: Version,
-}
-impl<'a> ApplicationDetails<'a> {
-  pub fn new(name: &'a str, version: Version) -> Self {
-    Self { name, version }
-  }
-
-  /// Get Major Minor Patch in a single u32.
-  fn get_u32_version(self) -> u32 {
-    ash::vk::make_version(self.version.major, self.version.minor, self.version.patch)
-  }
-}
-impl<'a> Default for ApplicationDetails<'a> {
-  fn default() -> Self {
-    Self {
-      name: "Nameless Application",
-      version: Version::new(0, 1, 0),
-    }
-  }
-}
-
-// ================================================================================
-//  EngineDetails Struct
-// ================================================================================
-/// Application Details and version for your engine.
-pub struct EngineDetails<'a> {
-  name: &'a str,
-  version: Version,
-}
-impl<'a> EngineDetails<'a> {
-  pub fn new(name: &'a str, version: Version) -> Self {
-    Self { name, version }
-  }
-
-  /// Get Major Minor Patch in a single u32.
-  fn get_u32_version(self) -> u32 {
-    ash::vk::make_version(self.version.major, self.version.minor, self.version.patch)
-  }
-}
-impl<'a> Default for EngineDetails<'a> {
-  fn default() -> Self {
-    Self {
-      name: "Nameless Engine",
-      version: Version::new(0, 1, 0),
-    }
-  }
 }

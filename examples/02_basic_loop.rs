@@ -2,7 +2,7 @@ use log::{info, warn, Level};
 use sarekt::{
   self,
   error::SarektError,
-  renderer::{Renderer, VulkanRenderer},
+  renderer::{config::Config, Renderer, VulkanRenderer},
 };
 use std::{error::Error, sync::Arc};
 use winit::{
@@ -31,7 +31,12 @@ impl SarektApp {
         .build(&event_loop)
         .unwrap(),
     );
-    let renderer = VulkanRenderer::new(window.clone(), WIDTH, HEIGHT).unwrap();
+    let config = Config::builder()
+      .requested_width(WIDTH)
+      .requested_height(HEIGHT)
+      .build()
+      .unwrap();
+    let renderer = VulkanRenderer::new(window.clone(), config).unwrap();
 
     Ok(Self {
       renderer,

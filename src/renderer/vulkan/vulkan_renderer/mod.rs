@@ -21,6 +21,7 @@ use crate::{
       IndexBufferElemSize, MagnificationMinificationFilter, ResourceType, TextureAddressMode,
       UniformBufferHandle,
     },
+    config::Config,
     drawable_object::DrawableObject,
     shaders::ShaderStore,
     vertex_bindings::DescriptorLayoutInfo,
@@ -38,8 +39,8 @@ use crate::{
       },
       vulkan_shader_functions::VulkanShaderFunctions,
     },
-    ApplicationDetails, Drawer, EngineDetails, Renderer, ShaderCode, ShaderHandle, ShaderType,
-    VulkanBufferFunctions, MAX_FRAMES_IN_FLIGHT,
+    Drawer, Renderer, ShaderCode, ShaderHandle, ShaderType, VulkanBufferFunctions,
+    MAX_FRAMES_IN_FLIGHT,
   },
 };
 use ash::{
@@ -108,39 +109,15 @@ impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
   /// engine, and base versions of 0.1.0.
   pub fn new<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW, requested_width: u32, requested_height: u32,
+    window: OW, config: Config,
   ) -> Result<Self, SarektError> {
-    Self::new_detailed(
-      window,
-      requested_width,
-      requested_height,
-      ApplicationDetails::default(),
-      EngineDetails::default(),
-    )
-  }
-
-  /// Creates a VulkanRenderer with a given name/version/engine name/engine
-  /// version.
-  pub fn new_detailed<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW, requested_width: u32, requested_height: u32,
-    application_details: ApplicationDetails, engine_details: EngineDetails,
-  ) -> Result<Self, SarektError> {
-    Self::new_detailed_with_debug_user_data(
-      window,
-      requested_width,
-      requested_height,
-      application_details,
-      engine_details,
-      None,
-    )
+    Self::new_with_debug_user_data(window, config, None)
   }
 
   /// Like new_detailed but allows injection of user data, for unit testing or
   /// metric gathering.
-  fn new_detailed_with_debug_user_data<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
-    window: OW, requested_width: u32, requested_height: u32,
-    application_details: ApplicationDetails, engine_details: EngineDetails,
-    debug_user_data: Option<Pin<Arc<DebugUserData>>>,
+  fn new_with_debug_user_data<W: HasRawWindowHandle, OW: Into<Option<Arc<W>>>>(
+    window: OW, config: Config, debug_user_data: Option<Pin<Arc<DebugUserData>>>,
   ) -> SarektResult<Self> {
     let window = window
       .into()
@@ -152,8 +129,8 @@ impl VulkanRenderer {
 
     let vulkan_core = ManuallyDrop::new(VulkanCoreStructures::new(
       window.as_ref(),
-      application_details,
-      engine_details,
+      config.application_details,
+      config.engine_details,
       debug_user_data,
     )?);
 
@@ -168,8 +145,8 @@ impl VulkanRenderer {
     let render_target_bundle = RenderTargetBundle::new(
       &vulkan_core,
       &vulkan_device_structures,
-      requested_width,
-      requested_height,
+      config.requested_width,
+      config.requested_height,
     )?;
     let render_targets = &render_target_bundle.render_targets;
 
@@ -1151,7 +1128,10 @@ impl Drop for VulkanRenderer {
 #[cfg(test)]
 mod tests {
   use super::{debug_utils_ext::DebugUserData, VulkanRenderer};
-  use crate::renderer::{ApplicationDetails, EngineDetails, Version, IS_DEBUG_MODE};
+  use crate::renderer::{
+    config::{ApplicationDetails, Config, EngineDetails, Version},
+    IS_DEBUG_MODE,
+  };
   use log::Level;
   use std::{pin::Pin, sync::Arc};
   #[cfg(unix)]
@@ -1179,7 +1159,12 @@ mod tests {
     let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = VulkanRenderer::new(window, WIDTH, HEIGHT).unwrap();
+    let config = Config::builder()
+      .requested_width(WIDTH)
+      .requested_height(HEIGHT)
+      .build()
+      .unwrap();
+    let renderer = VulkanRenderer::new(window, config).unwrap();
 
     assert_no_warnings_or_errors_in_debug_user_data(
       &renderer.vulkan_core.get_debug_user_data().unwrap(),
@@ -1187,39 +1172,24 @@ mod tests {
   }
 
   #[test]
-  fn can_construct_renderer_with_new_detailed() {
-    let _log = simple_logger::init_with_level(Level::Info);
-    let event_loop = EventLoop::<()>::new_any_thread();
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let renderer = VulkanRenderer::new_detailed(
-      window,
-      WIDTH,
-      HEIGHT,
-      ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
-      EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
-    )
-    .unwrap();
-
-    assert_no_warnings_or_errors_in_debug_user_data(
-      &renderer.vulkan_core.get_debug_user_data().unwrap(),
-    );
-  }
-
-  #[test]
-  fn can_construct_renderer_with_new_detailed_and_user_data() {
+  fn can_construct_renderer_with_new_and_user_data() {
     let _log = simple_logger::init_with_level(Level::Info);
     let event_loop = EventLoop::<()>::new_any_thread();
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let debug_user_data = Arc::pin(DebugUserData::new());
-    let renderer = VulkanRenderer::new_detailed_with_debug_user_data(
-      window,
-      WIDTH,
-      HEIGHT,
-      ApplicationDetails::new("Testing App", Version::new(0, 1, 0)),
-      EngineDetails::new("Test Engine", Version::new(0, 1, 0)),
-      Some(debug_user_data.clone()),
-    )
-    .unwrap();
+    let config = Config::builder()
+      .requested_width(WIDTH)
+      .requested_height(HEIGHT)
+      .application_details(ApplicationDetails::new(
+        "Testing App",
+        Version::new(0, 1, 0),
+      ))
+      .engine_details(EngineDetails::new("Test Engine", Version::new(0, 1, 0)))
+      .build()
+      .unwrap();
+    let renderer =
+      VulkanRenderer::new_with_debug_user_data(window, config, Some(debug_user_data.clone()))
+        .unwrap();
 
     std::mem::drop(renderer);
     assert_no_warnings_or_errors_in_debug_user_data(&debug_user_data);
