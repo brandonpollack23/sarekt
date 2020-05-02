@@ -1,6 +1,6 @@
 [package]
 name = "sarekt"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Brandon Pollack <brandonpollack23@gmail.com>"]
 description = "A rendering engine based on Vulkan, but capable of being expanded to other graphics API backends such as Metal or D3D12"
 license = "Apache-2.0"
@@ -62,7 +62,7 @@ raw-window-handle = "0.3.3"
 safe-transmute = "0.11.0-rc.2"
 slotmap = "0.4.0"
 static_assertions = "1.1.0"
-ultraviolet = "0.4.5"
+ultraviolet = "0.4.6"
 vk-mem = "0.2.2"
 vk-shader-macros = "0.2.2"
 
