@@ -51,6 +51,10 @@ path = "examples/08_model_loading.rs"
 name = "09_mip_levels"
 path = "examples/09_mip_levels.rs"
 
+[[example]]
+name = "10_msaa"
+path = "examples/10_msaa.rs"
+
 [dependencies]
 ash = "0.30.0"
 ash-window = "0.3.0"
