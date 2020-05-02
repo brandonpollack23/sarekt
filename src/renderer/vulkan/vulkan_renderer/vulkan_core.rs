@@ -1,7 +1,7 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    config::{ApplicationDetails, EngineDetails},
+    config::{AntiAliasingConfig, ApplicationDetails, Config, EngineDetails},
     vulkan::{
       queues::{QueueFamilyIndices, Queues},
       vulkan_renderer::{
@@ -25,6 +25,7 @@ use log::{info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
   ffi::{CStr, CString},
+  ops::BitAnd,
   os::raw::c_char,
   pin::Pin,
   sync::Arc,
@@ -257,9 +258,14 @@ pub struct VulkanDeviceStructures {
   pub queues: Queues,
 }
 impl VulkanDeviceStructures {
-  pub fn new(vulkan_core: &VulkanCoreStructures) -> SarektResult<VulkanDeviceStructures> {
-    let physical_device =
-      Self::pick_physical_device(&vulkan_core.instance, &vulkan_core.surface_and_extension)?;
+  pub fn new(
+    vulkan_core: &VulkanCoreStructures, config: &Config,
+  ) -> SarektResult<VulkanDeviceStructures> {
+    let physical_device = Self::pick_physical_device(
+      &vulkan_core.instance,
+      &vulkan_core.surface_and_extension,
+      config.aa_config,
+    )?;
 
     let (logical_device, queue_families, queues) = Self::create_logical_device_and_queues(
       &vulkan_core.instance,
@@ -283,7 +289,7 @@ impl VulkanDeviceStructures {
   ///
   /// TODO(issue#18) CONFIG have this be overridable somehow with config etc.
   fn pick_physical_device(
-    instance: &Instance, surface_and_extension: &SurfaceAndExtension,
+    instance: &Instance, surface_and_extension: &SurfaceAndExtension, aa_config: AntiAliasingConfig,
   ) -> SarektResult<vk::PhysicalDevice> {
     let available_physical_devices = unsafe {
       instance
@@ -304,10 +310,20 @@ impl VulkanDeviceStructures {
       suitable_devices_ranked
     );
 
-    suitable_devices_ranked
+    let physical_device = suitable_devices_ranked
       .first()
       .map(|&(device, _)| device)
-      .ok_or(SarektError::CouldNotSelectPhysicalDevice)
+      .ok_or(SarektError::CouldNotSelectPhysicalDevice(
+        "No compatible device",
+      ))?;
+
+    if !Self::aaconfig_compatible(instance, physical_device, aa_config)? {
+      return Err(SarektError::CouldNotSelectPhysicalDevice(
+        "AA mode not compatible",
+      ));
+    }
+
+    Ok(physical_device)
   }
 
   /// Rank the devices based on an internal scoring mechanism.
@@ -466,6 +482,34 @@ impl VulkanDeviceStructures {
     queue_family_indices.transfer_queue_family = queue_family_indices.graphics_queue_family;
 
     Ok(queue_family_indices)
+  }
+
+  fn aaconfig_compatible(
+    instance: &Instance, physical_device: vk::PhysicalDevice, aa_config: AntiAliasingConfig,
+  ) -> SarektResult<bool> {
+    if let AntiAliasingConfig::MSAA(aa_config) = aa_config {
+      if !aa_config.is_power_of_two() {
+        return Err(SarektError::CouldNotSelectPhysicalDevice(
+          "AA configuration is not a power of 2",
+        ));
+      }
+
+      let physical_device_properites =
+        unsafe { instance.get_physical_device_properties(physical_device) };
+
+      let counts = physical_device_properites
+        .limits
+        .framebuffer_color_sample_counts
+        .bitand(
+          physical_device_properites
+            .limits
+            .framebuffer_depth_sample_counts,
+        );
+
+      return Ok(counts.intersects(vk::SampleCountFlags::from_raw(aa_config)));
+    }
+
+    Ok(true)
   }
 
   // ================================================================================

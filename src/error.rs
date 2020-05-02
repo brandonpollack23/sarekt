@@ -8,7 +8,7 @@ pub type SarektResult<T> = Result<T, SarektError>;
 #[derive(Debug)]
 pub enum SarektError {
   Unknown,
-  CouldNotSelectPhysicalDevice,
+  CouldNotSelectPhysicalDevice(&'static str),
   SuboptimalSwapchain,
   SwapchainOutOfDate,
   CStrError(NulError),
@@ -102,8 +102,8 @@ impl fmt::Display for SarektError {
       SarektError::IncompatibleShaderCode => {
         write!(f, "Tried to load an incompatible shader type into backend")
       }
-      SarektError::CouldNotSelectPhysicalDevice => {
-        write!(f, "Sarekt could not find a suitable physical device")
+      SarektError::CouldNotSelectPhysicalDevice(s) => {
+        write!(f, "Sarekt could not find a suitable physical device: {}", s)
       }
       SarektError::CStrError(e) => write!(f, "{}", e),
       SarektError::IllegalMipmapCount => write!(

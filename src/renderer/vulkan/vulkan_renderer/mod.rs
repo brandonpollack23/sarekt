@@ -134,7 +134,8 @@ impl VulkanRenderer {
       debug_user_data,
     )?);
 
-    let vulkan_device_structures = ManuallyDrop::new(VulkanDeviceStructures::new(&vulkan_core)?);
+    let vulkan_device_structures =
+      ManuallyDrop::new(VulkanDeviceStructures::new(&vulkan_core, &config)?);
     let physical_device = vulkan_device_structures.physical_device;
     let logical_device = &vulkan_device_structures.logical_device;
     let queue_families = &vulkan_device_structures.queue_families;

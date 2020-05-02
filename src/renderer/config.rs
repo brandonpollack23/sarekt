@@ -115,9 +115,10 @@ impl<'a> Default for EngineDetails<'a> {
 //  AntiAliasingConfig Struct
 // ================================================================================
 /// Configuration for AA.  Must be a power of 2.
+/// TODO NOW make issue for SSAA, make issue for other AA (TXAA)
 #[derive(Copy, Clone)]
 pub enum AntiAliasingConfig {
-  MSAA(u8),
+  MSAA(u32),
 }
 impl Default for AntiAliasingConfig {
   fn default() -> AntiAliasingConfig {
