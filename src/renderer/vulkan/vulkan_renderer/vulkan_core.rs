@@ -484,6 +484,7 @@ impl VulkanDeviceStructures {
     Ok(queue_family_indices)
   }
 
+  // TODO NOW actually do it.
   fn aaconfig_compatible(
     instance: &Instance, physical_device: vk::PhysicalDevice, aa_config: AntiAliasingConfig,
   ) -> SarektResult<bool> {

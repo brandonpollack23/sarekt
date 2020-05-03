@@ -6,6 +6,7 @@ pub struct Config<'a> {
   pub requested_height: u32,
   pub application_details: ApplicationDetails<'a>,
   pub engine_details: EngineDetails<'a>,
+  pub present_mode: PresentMode,
   pub aa_config: AntiAliasingConfig,
 }
 impl<'a> Config<'a> {
@@ -20,6 +21,7 @@ impl<'a> Default for Config<'a> {
       requested_height: 600,
       application_details: ApplicationDetails::default(),
       engine_details: EngineDetails::default(),
+      present_mode: PresentMode::default(),
       aa_config: AntiAliasingConfig::default(),
     }
   }
@@ -111,9 +113,20 @@ impl<'a> Default for EngineDetails<'a> {
   }
 }
 
-// ================================================================================
-//  AntiAliasingConfig Struct
-// ================================================================================
+/// Determines Present mode, default is Mailbox if possible to allow for
+/// framerate equal to screen refresh while continuing to draw.
+#[derive(Copy, Clone)]
+pub enum PresentMode {
+  Immediate,
+  Mailbox,
+  Fifo,
+}
+impl Default for PresentMode {
+  fn default() -> PresentMode {
+    PresentMode::Mailbox
+  }
+}
+
 /// Configuration for AA.  Must be a power of 2.
 /// TODO NOW make issue for SSAA, make issue for other AA (TXAA)
 #[derive(Copy, Clone)]

@@ -149,6 +149,9 @@ pub unsafe trait BufferAndImageLoader {
     &self, buffer_type: BufferType, buffer: &[BufElem],
   ) -> SarektResult<Self::BackendHandle>;
 
+  // TODO NOW MAKE ISSUE AND make load_image_without_staging
+  // TODO NOW MAKE ISSUE and make images updatable.
+
   /// Same as `load_buffer_with_staging` but loads an r8g8b8a8 32 bit format
   /// image instead.
   fn load_image_with_staging_initialization(

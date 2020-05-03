@@ -1,12 +1,15 @@
 use crate::{
   error::SarektResult,
-  renderer::vulkan::{
-    images::ImageAndView,
-    queues::QueueFamilyIndices,
-    vulkan_renderer::{
-      surface::SurfaceAndExtension,
-      swap_chain::SwapchainAndExtension,
-      vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
+  renderer::{
+    config::PresentMode,
+    vulkan::{
+      images::ImageAndView,
+      queues::QueueFamilyIndices,
+      vulkan_renderer::{
+        surface::SurfaceAndExtension,
+        swap_chain::SwapchainAndExtension,
+        vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
+      },
     },
   },
 };
@@ -24,7 +27,7 @@ pub struct RenderTargetBundle {
 impl RenderTargetBundle {
   pub fn new(
     vulkan_core: &VulkanCoreStructures, device_bundle: &VulkanDeviceStructures,
-    requested_width: u32, requested_height: u32,
+    requested_width: u32, requested_height: u32, requested_present_mode: PresentMode,
   ) -> SarektResult<RenderTargetBundle> {
     let swapchain_extension = ash::extensions::khr::Swapchain::new(
       vulkan_core.instance.as_ref(),
@@ -37,6 +40,7 @@ impl RenderTargetBundle {
       &device_bundle.queue_families,
       requested_width,
       requested_height,
+      requested_present_mode,
       None,
     )?;
     let swapchain_and_extension =
@@ -118,7 +122,7 @@ impl RenderTargetBundle {
   /// Unsafe because of FFI use and the returned swapchain must be cleaned up.
   pub unsafe fn recreate_swapchain(
     &mut self, vulkan_core: &VulkanCoreStructures, device_bundle: &VulkanDeviceStructures,
-    requested_width: u32, requested_height: u32,
+    requested_width: u32, requested_height: u32, requested_present_mode: PresentMode,
   ) -> SarektResult<(vk::SwapchainKHR, Vec<ImageAndView>)> {
     let old_swapchain = self.swapchain_and_extension.swapchain;
 
@@ -129,6 +133,7 @@ impl RenderTargetBundle {
       &device_bundle.queue_families,
       requested_width,
       requested_height,
+      requested_present_mode,
       Some(old_swapchain),
     )?;
 
@@ -184,13 +189,14 @@ impl RenderTargetBundle {
     surface_and_extension: &SurfaceAndExtension,
     swapchain_extension: &ash::extensions::khr::Swapchain, physical_device: vk::PhysicalDevice,
     queue_family_indices: &QueueFamilyIndices, requested_width: u32, requested_height: u32,
-    old_swapchain: Option<vk::SwapchainKHR>,
+    requested_present_mode: PresentMode, old_swapchain: Option<vk::SwapchainKHR>,
   ) -> SarektResult<(vk::SwapchainKHR, vk::Format, vk::Extent2D)> {
     let swapchain_support =
       VulkanDeviceStructures::query_swap_chain_support(surface_and_extension, physical_device)?;
 
     let format = Self::choose_swap_surface_format(&swapchain_support.formats);
-    let present_mode = Self::choose_presentation_mode(&swapchain_support.present_modes);
+    let present_mode =
+      Self::choose_presentation_mode(&swapchain_support.present_modes, requested_present_mode);
     let extent = Self::choose_swap_extent(
       &swapchain_support.capabilities,
       requested_width,
@@ -266,12 +272,20 @@ impl RenderTargetBundle {
   /// TODO(issue#18) CONFIG support immediate mode if possible and allow the
   /// user to have tearing if they wish.
   fn choose_presentation_mode(
-    available_presentation_modes: &[vk::PresentModeKHR],
+    available_presentation_modes: &[vk::PresentModeKHR], requested_present_mode: PresentMode,
   ) -> vk::PresentModeKHR {
-    *available_presentation_modes
+    let present_mode = *available_presentation_modes
       .iter()
-      .find(|&pm| *pm == vk::PresentModeKHR::MAILBOX)
-      .unwrap_or(&vk::PresentModeKHR::FIFO)
+      .find(|&pm| match (requested_present_mode, pm) {
+        (PresentMode::Mailbox, &vk::PresentModeKHR::MAILBOX) => true,
+        (PresentMode::Immediate, &vk::PresentModeKHR::IMMEDIATE) => true,
+        (PresentMode::Fifo, &vk::PresentModeKHR::FIFO) => true,
+        _ => false,
+      })
+      .unwrap_or(&vk::PresentModeKHR::FIFO);
+
+    info!("Selecting present mode: {:?}", present_mode);
+    present_mode
   }
 
   /// Selects the resolution of the swap chain images.

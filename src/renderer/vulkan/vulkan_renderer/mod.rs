@@ -21,7 +21,7 @@ use crate::{
       IndexBufferElemSize, MagnificationMinificationFilter, ResourceType, TextureAddressMode,
       UniformBufferHandle,
     },
-    config::Config,
+    config::{Config, PresentMode},
     drawable_object::DrawableObject,
     shaders::ShaderStore,
     vertex_bindings::DescriptorLayoutInfo,
@@ -104,6 +104,7 @@ pub struct VulkanRenderer {
 
   // Application controllable fields
   rendering_enabled: bool,
+  present_mode: PresentMode,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -148,6 +149,7 @@ impl VulkanRenderer {
       &vulkan_device_structures,
       config.requested_width,
       config.requested_height,
+      config.present_mode,
     )?;
     let render_targets = &render_target_bundle.render_targets;
 
@@ -222,6 +224,7 @@ impl VulkanRenderer {
       default_texture: None,
 
       rendering_enabled: true,
+      present_mode: config.present_mode,
     };
 
     renderer.create_default_texture();
@@ -234,6 +237,8 @@ impl VulkanRenderer {
   }
 }
 impl VulkanRenderer {
+  // TODO NOW issue to set present mode which calls recreate_swapchain.
+
   /// When the target dimensions or requirements change, we must recreate a
   /// bunch of stuff to remain compatible and continue rendering to the new
   /// surface.
@@ -242,6 +247,7 @@ impl VulkanRenderer {
     let logical_device = &self.vulkan_device_structures.logical_device;
     let physical_device = self.vulkan_device_structures.physical_device;
     let shader_store = &self.shader_store;
+    let present_mode = self.present_mode;
 
     // Procedure: Wait for the device to be idle, make new Swapchain (recycling old
     // one), cleanup old resources and recreate them:
@@ -257,6 +263,7 @@ impl VulkanRenderer {
       &self.vulkan_device_structures,
       width,
       height,
+      present_mode,
     )?;
     self.cleanup_swapchain(Some((&old_images, old_swapchain)))?;
     let new_format = self.render_target_bundle.swapchain_and_extension.format;
