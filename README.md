@@ -83,3 +83,17 @@ Here we can see the depth buffer working in action.  Camera moves so you an
  Flags:
  * *glb*  -- load glb version of the model.
  * *fps*  -- show fps
+ 
+ ### Example 9 mip mapping
+ 
+ Enable mip mapping.
+ 
+ ### Example 10 MSAA
+ 
+ Enable MSAA.  Does 2 by default
+ 
+ Flags:
+ * *2x*  -- 2x MSAA
+ * *4x*  -- 4x MSAA
+ * *8x*  -- 8x MSAA
+ * *noaa*  -- turn off antialiasing.

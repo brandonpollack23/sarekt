@@ -48,6 +48,7 @@
 //! I hope to support some stuff like:
 //! - [x] Actually Rendering something
 //! - [x] Actually rendering something of your choosing
+//! - [x] Mipmapping, AA.
 //! - [ ] Multiple pipeline creation.
 //! - [ ] Dynamic lighting using a Phong shader.
 //! - [ ] Dynamic lighting using PBR.
