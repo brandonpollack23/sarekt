@@ -5,9 +5,9 @@ pub mod vulkan_core;
 
 mod base_pipeline_bundle;
 mod debug_utils_ext;
-mod depth_buffer;
 mod draw_synchronization;
 mod pipelines;
+mod render_attachments;
 mod render_targets;
 mod surface;
 mod swap_chain;
@@ -30,11 +30,10 @@ use crate::{
       queues::QueueFamilyIndices,
       vulkan_buffer_image_functions::{BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory},
       vulkan_renderer::{
-        base_pipeline_bundle::ResolveAttachment,
         debug_utils_ext::DebugUserData,
-        depth_buffer::DepthResources,
         draw_synchronization::DrawSynchronization,
         pipelines::Pipelines,
+        render_attachments::{DepthAttachment, ResolveAttachment},
         render_targets::RenderTargetBundle,
         vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
       },
@@ -290,7 +289,7 @@ impl VulkanRenderer {
       None
     };
 
-    let depth_buffer = DepthResources::new(
+    let depth_buffer = DepthAttachment::new(
       &instance,
       physical_device,
       &self.buffer_image_store,

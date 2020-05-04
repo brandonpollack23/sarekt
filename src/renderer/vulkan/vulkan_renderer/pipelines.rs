@@ -10,8 +10,8 @@ use crate::{
     vulkan::{
       images::ImageAndView,
       vulkan_renderer::{
-        base_pipeline_bundle::{BasePipelineBundle, ResolveAttachment},
-        depth_buffer::DepthResources,
+        base_pipeline_bundle::BasePipelineBundle,
+        render_attachments::{DepthAttachment, ResolveAttachment},
         render_targets::RenderTargetBundle,
         vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
         DEFAULT_FRAGMENT_SHADER, DEFAULT_VERTEX_SHADER,
@@ -59,7 +59,7 @@ impl Pipelines {
     );
 
     // TODO(issue#2) RENDERING_CAPABILITIES support other render pass types.
-    let depth_buffer = DepthResources::new(
+    let depth_buffer = DepthAttachment::new(
       &vulkan_core.instance,
       device_bundle.physical_device,
       buffer_image_store,
@@ -165,7 +165,7 @@ impl Pipelines {
   /// Same as above, recreates vulkan framebuffers
   pub fn recreate_framebuffers(
     &mut self, logical_device: &Device, resolve_attachment: Option<&ResolveAttachment>,
-    depth_buffer: &DepthResources, render_targets: &[ImageAndView], new_extent: vk::Extent2D,
+    depth_buffer: &DepthAttachment, render_targets: &[ImageAndView], new_extent: vk::Extent2D,
   ) -> SarektResult<()> {
     self.framebuffers = Self::create_framebuffers(
       logical_device,
@@ -183,7 +183,7 @@ impl Pipelines {
   pub fn recreate_base_pipeline_bundle(
     &mut self, logical_device: &Device,
     shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>, new_extent: vk::Extent2D,
-    resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthResources,
+    resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthAttachment,
     num_msaa_samples: NumSamples, descriptor_set_layouts: Vec<DescriptorSetLayout>,
     vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
     fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
@@ -270,7 +270,7 @@ impl Pipelines {
   // ================================================================================
   /// Creates a simple forward render pass with one subpass.
   fn create_forward_render_pass(
-    logical_device: &Device, format: vk::Format, depth_buffer: &DepthResources,
+    logical_device: &Device, format: vk::Format, depth_buffer: &DepthAttachment,
     num_msaa_samples: NumSamples,
   ) -> SarektResult<vk::RenderPass> {
     // TODO(issue#9) OFFSCREEN only make swapchain optimal if this is going to
@@ -382,7 +382,7 @@ impl Pipelines {
   fn create_base_graphics_pipeline_and_shaders(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: vk::Extent2D, render_pass: vk::RenderPass,
-    resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthResources,
+    resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthAttachment,
     num_msaa_samples: NumSamples,
   ) -> SarektResult<BasePipelineBundle> {
     let (vertex_shader_handle, fragment_shader_handle) =
@@ -444,7 +444,7 @@ impl Pipelines {
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: vk::Extent2D, render_pass: vk::RenderPass,
-    resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthResources,
+    resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthAttachment,
     num_msaa_samples: NumSamples, descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     vertex_shader_handle: VulkanShaderHandle, fragment_shader_handle: VulkanShaderHandle,
   ) -> SarektResult<BasePipelineBundle> {
@@ -601,7 +601,7 @@ impl Pipelines {
 
   fn create_framebuffers(
     logical_device: &Device, render_pass: vk::RenderPass,
-    resolve_attachment: Option<&ResolveAttachment>, depth_buffer: &DepthResources,
+    resolve_attachment: Option<&ResolveAttachment>, depth_buffer: &DepthAttachment,
     render_target_images: &[ImageAndView], extent: vk::Extent2D,
   ) -> SarektResult<Vec<vk::Framebuffer>> {
     let mut framebuffers = Vec::with_capacity(render_target_images.len());
@@ -618,7 +618,7 @@ impl Pipelines {
         vec![
           // Resolve attachment is swapchain itself if the resolve attachment is not present (AA
           // off).
-          resolve_attachment.msaa_color_image.image_and_view.view,
+          resolve_attachment.resolve_image.image_and_view.view,
           depth_buffer.image_and_memory.image_and_view.view,
           swapchain_image_and_view.view,
         ]

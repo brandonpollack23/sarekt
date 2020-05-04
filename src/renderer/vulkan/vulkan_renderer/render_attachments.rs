@@ -1,5 +1,6 @@
 use crate::{
   error::{SarektError, SarektResult},
+  image_data::ImageDataFormat,
   renderer::{
     buffers_and_images::{BufferImageHandle, BufferImageStore},
     config::NumSamples,
@@ -15,17 +16,17 @@ use std::{
 
 /// All resources relating to the Depth buffer (z buffer).
 /// This includes the image handle, the image that references, and the format.
-pub struct DepthResources {
+pub struct DepthAttachment {
   pub depth_buffer_image_handle: BufferImageHandle<VulkanBufferImageFunctions>,
   pub image_and_memory: ImageAndMemory,
   pub format: vk::Format,
 }
-impl DepthResources {
+impl DepthAttachment {
   pub fn new(
     instance: &Instance, physical_device: vk::PhysicalDevice,
     buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>,
     extent: (u32, u32), num_msaa_samples: NumSamples,
-  ) -> SarektResult<DepthResources> {
+  ) -> SarektResult<DepthAttachment> {
     let format = Self::find_depth_format(instance, physical_device)?;
     let (depth_buffer_image_handle, buffer_or_image) =
       BufferImageStore::create_uninitialized_image_msaa(
@@ -37,7 +38,7 @@ impl DepthResources {
 
     let image_and_memory = buffer_or_image.handle.image().unwrap();
 
-    Ok(DepthResources {
+    Ok(DepthAttachment {
       depth_buffer_image_handle,
       image_and_memory,
       format,
@@ -86,5 +87,33 @@ impl DepthResources {
 
   fn has_stencil_component(format: vk::Format) -> bool {
     format == vk::Format::D32_SFLOAT_S8_UINT || format == vk::Format::D24_UNORM_S8_UINT
+  }
+}
+
+/// Used for resolving MSAA, see https://www.khronos.org/registry/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkSubpassDescription
+pub struct ResolveAttachment {
+  pub resolve_image_handle: BufferImageHandle<VulkanBufferImageFunctions>,
+  pub resolve_image: ImageAndMemory,
+  pub format: vk::Format,
+}
+impl ResolveAttachment {
+  pub fn new(
+    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>,
+    dimensions: (u32, u32), format: ImageDataFormat, num_msaa_samples: NumSamples,
+  ) -> SarektResult<ResolveAttachment> {
+    let (resolve_image_handle, resolve_image) = BufferImageStore::create_uninitialized_image_msaa(
+      buffer_image_store,
+      dimensions,
+      format,
+      num_msaa_samples,
+    )?;
+
+    Ok(ResolveAttachment {
+      resolve_image_handle,
+      resolve_image: resolve_image.handle.image()?,
+      format: format
+        .try_into()
+        .expect("Format not supported by sarekt for msaa color buffer"),
+    })
   }
 }
