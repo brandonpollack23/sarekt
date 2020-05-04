@@ -240,7 +240,8 @@ impl VulkanRenderer {
   }
 }
 impl VulkanRenderer {
-  // TODO NOW issue to set present mode which calls recreate_swapchain.
+  // TODO(issue#34) be able to change swapchain config at runtime, present mode,
+  // resolution, etc.
 
   /// When the target dimensions or requirements change, we must recreate a
   /// bunch of stuff to remain compatible and continue rendering to the new
