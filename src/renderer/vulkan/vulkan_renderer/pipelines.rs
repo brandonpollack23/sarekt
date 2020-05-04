@@ -2,6 +2,7 @@ use crate::{
   error::SarektResult,
   renderer::{
     buffers_and_images::BufferImageStore,
+    config::{AntiAliasingConfig, Config, NumSamples},
     shaders::ShaderStore,
     vertex_bindings::{
       DefaultForwardShaderLayout, DefaultForwardShaderVertex, DescriptorLayoutInfo, VertexBindings,
@@ -9,7 +10,7 @@ use crate::{
     vulkan::{
       images::ImageAndView,
       vulkan_renderer::{
-        base_pipeline_bundle::BasePipelineBundle,
+        base_pipeline_bundle::{BasePipelineBundle, MsaaColorImage},
         depth_buffer::DepthResources,
         render_targets::RenderTargetBundle,
         vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
@@ -18,12 +19,13 @@ use crate::{
       vulkan_shader_functions::VulkanShaderFunctions,
       VulkanShaderHandle,
     },
-    ShaderCode, ShaderHandle, ShaderType, VulkanBufferFunctions,
+    ShaderCode, ShaderHandle, ShaderType, VulkanBufferImageFunctions,
   },
 };
 use ash::{version::DeviceV1_0, vk, vk::DescriptorSetLayout, Device};
 use log::info;
 use std::{
+  convert::TryInto,
   ffi::CStr,
   sync::{Arc, RwLock},
 };
@@ -37,20 +39,39 @@ pub struct Pipelines {
 }
 impl Pipelines {
   pub fn new(
-    vulkan_core: &VulkanCoreStructures, device_bundle: &VulkanDeviceStructures,
+    config: &Config, vulkan_core: &VulkanCoreStructures, device_bundle: &VulkanDeviceStructures,
     render_target_bundle: &RenderTargetBundle,
     shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>,
+    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>,
   ) -> SarektResult<Pipelines> {
+    let dimensions = (
+      render_target_bundle.extent.width,
+      render_target_bundle.extent.height,
+    );
+    let num_msaa_samples = if let AntiAliasingConfig::MSAA(ns) = config.aa_config {
+      ns
+    } else {
+      NumSamples::One
+    };
+
     // TODO(issue#2) RENDERING_CAPABILITIES support other render pass types.
     let depth_buffer = DepthResources::new(
       &vulkan_core.instance,
       device_bundle.physical_device,
       buffer_image_store,
-      (
-        render_target_bundle.extent.width,
-        render_target_bundle.extent.height,
-      ),
+      dimensions,
+      num_msaa_samples,
+    )?;
+
+    let msaa_color_image = MsaaColorImage::new(
+      buffer_image_store,
+      dimensions,
+      render_target_bundle
+        .swapchain_and_extension
+        .format
+        .try_into()
+        .expect("Format not supported by sarekt for msaa color buffer"),
+      num_msaa_samples,
     )?;
 
     let forward_render_pass = Self::create_forward_render_pass(
@@ -74,13 +95,14 @@ impl Pipelines {
       &shader_store, // Unlock and get a local mut ref to shaderstore.
       render_target_bundle.extent,
       forward_render_pass,
+      msaa_color_image,
       depth_buffer,
     )?;
 
     Ok(Pipelines {
+      framebuffers,
       forward_render_pass,
       base_graphics_pipeline_bundle,
-      framebuffers,
     })
   }
 
@@ -148,7 +170,8 @@ impl Pipelines {
   pub fn recreate_base_pipeline_bundle(
     &mut self, logical_device: &Device,
     shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>, new_extent: vk::Extent2D,
-    depth_buffer: DepthResources, descriptor_set_layouts: Vec<DescriptorSetLayout>,
+    msaa_color_image: MsaaColorImage, depth_buffer: DepthResources,
+    descriptor_set_layouts: Vec<DescriptorSetLayout>,
     vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
     fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   ) -> SarektResult<()> {
@@ -157,6 +180,7 @@ impl Pipelines {
       shader_store,
       new_extent,
       self.forward_render_pass,
+      msaa_color_image,
       depth_buffer,
       descriptor_set_layouts,
       vertex_shader_handle,
@@ -309,7 +333,8 @@ impl Pipelines {
   /// TODO(issue#17) RENDERING_CAPABILITIES enable pipeline cache.
   fn create_base_graphics_pipeline_and_shaders(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: vk::Extent2D, render_pass: vk::RenderPass, depth_buffer: DepthResources,
+    extent: vk::Extent2D, render_pass: vk::RenderPass, msaa_color_image: MsaaColorImage,
+    depth_buffer: DepthResources,
   ) -> SarektResult<BasePipelineBundle> {
     let (vertex_shader_handle, fragment_shader_handle) =
       Self::create_default_shaders(shader_store)?;
@@ -322,6 +347,7 @@ impl Pipelines {
       shader_store,
       extent,
       render_pass,
+      msaa_color_image,
       depth_buffer,
       default_descriptor_set_layouts,
       vertex_shader_handle,
@@ -367,9 +393,9 @@ impl Pipelines {
 
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: vk::Extent2D, render_pass: vk::RenderPass, depth_buffer: DepthResources,
-    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, vertex_shader_handle: VulkanShaderHandle,
-    fragment_shader_handle: VulkanShaderHandle,
+    extent: vk::Extent2D, render_pass: vk::RenderPass, msaa_color_image: MsaaColorImage,
+    depth_buffer: DepthResources, descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    vertex_shader_handle: VulkanShaderHandle, fragment_shader_handle: VulkanShaderHandle,
   ) -> SarektResult<BasePipelineBundle> {
     let shader_store = shader_store.read().unwrap();
 
@@ -515,6 +541,7 @@ impl Pipelines {
       pipeline_layout,
       base_graphics_pipeline_ci,
       descriptor_set_layouts,
+      msaa_color_image,
       depth_buffer,
       vertex_shader_handle,
       fragment_shader_handle,

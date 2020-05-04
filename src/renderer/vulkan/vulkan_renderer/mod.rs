@@ -21,7 +21,7 @@ use crate::{
       IndexBufferElemSize, MagnificationMinificationFilter, ResourceType, TextureAddressMode,
       UniformBufferHandle,
     },
-    config::{Config, PresentMode},
+    config::{AntiAliasingConfig, Config, NumSamples},
     drawable_object::DrawableObject,
     shaders::ShaderStore,
     vertex_bindings::DescriptorLayoutInfo,
@@ -30,6 +30,7 @@ use crate::{
       queues::QueueFamilyIndices,
       vulkan_buffer_image_functions::{BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory},
       vulkan_renderer::{
+        base_pipeline_bundle::MsaaColorImage,
         debug_utils_ext::DebugUserData,
         depth_buffer::DepthResources,
         draw_synchronization::DrawSynchronization,
@@ -39,7 +40,7 @@ use crate::{
       },
       vulkan_shader_functions::VulkanShaderFunctions,
     },
-    Drawer, Renderer, ShaderCode, ShaderHandle, ShaderType, VulkanBufferFunctions,
+    Drawer, Renderer, ShaderCode, ShaderHandle, ShaderType, VulkanBufferImageFunctions,
     MAX_FRAMES_IN_FLIGHT,
   },
 };
@@ -51,6 +52,7 @@ use log::{error, info, warn};
 use raw_window_handle::HasRawWindowHandle;
 use std::{
   cell::Cell,
+  convert::TryInto,
   mem::ManuallyDrop,
   pin::Pin,
   sync::{Arc, RwLock},
@@ -94,17 +96,17 @@ pub struct VulkanRenderer {
   allocator: Arc<vk_mem::Allocator>,
   shader_store: Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
   // Manually drop so that the underlying allocator can be dropped in this class.
-  buffer_image_store: ManuallyDrop<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>>,
+  buffer_image_store: ManuallyDrop<Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>>,
 
   // Null objects for default pipeline.
   default_texture: Option<(
-    BufferImageHandle<VulkanBufferFunctions>,
+    BufferImageHandle<VulkanBufferImageFunctions>,
     BufferOrImage<ResourceWithMemory>,
   )>,
 
   // Application controllable fields
   rendering_enabled: bool,
-  present_mode: PresentMode,
+  config: Config,
 }
 impl VulkanRenderer {
   /// Creates a VulkanRenderer for the window with no application name, no
@@ -179,6 +181,7 @@ impl VulkanRenderer {
     )?);
 
     let pipeline = Pipelines::new(
+      &config,
       &vulkan_core,
       &vulkan_device_structures,
       &render_target_bundle,
@@ -224,7 +227,8 @@ impl VulkanRenderer {
       default_texture: None,
 
       rendering_enabled: true,
-      present_mode: config.present_mode,
+
+      config,
     };
 
     renderer.create_default_texture();
@@ -247,7 +251,7 @@ impl VulkanRenderer {
     let logical_device = &self.vulkan_device_structures.logical_device;
     let physical_device = self.vulkan_device_structures.physical_device;
     let shader_store = &self.shader_store;
-    let present_mode = self.present_mode;
+    let present_mode = self.config.present_mode;
 
     // Procedure: Wait for the device to be idle, make new Swapchain (recycling old
     // one), cleanup old resources and recreate them:
@@ -268,6 +272,18 @@ impl VulkanRenderer {
     self.cleanup_swapchain(Some((&old_images, old_swapchain)))?;
     let new_format = self.render_target_bundle.swapchain_and_extension.format;
     let new_extent = self.render_target_bundle.extent;
+
+    let num_samples = if let AntiAliasingConfig::MSAA(ns) = self.config.aa_config {
+      ns
+    } else {
+      NumSamples::One
+    };
+    let msaa_color_iamge = MsaaColorImage::new(
+      &self.buffer_image_store,
+      (width, height),
+      new_format.try_into()?,
+      num_samples,
+    )?;
 
     let depth_buffer = DepthResources::new(
       &instance,
@@ -294,6 +310,7 @@ impl VulkanRenderer {
       logical_device,
       shader_store,
       new_extent,
+      msaa_color_iamge,
       depth_buffer,
       descriptor_set_layouts.unwrap(),
       vertex_shader_handle.unwrap(),
@@ -606,8 +623,8 @@ impl VulkanRenderer {
     allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32, transfer_queue_family: u32,
     transfer_command_pool: vk::CommandPool, transfer_command_queue: vk::Queue,
     graphics_command_pool: vk::CommandPool, graphics_command_queue: vk::Queue,
-  ) -> SarektResult<Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>> {
-    let functions = VulkanBufferFunctions::new(
+  ) -> SarektResult<Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>> {
+    let functions = VulkanBufferImageFunctions::new(
       vulkan_core,
       vulkan_device_bundle,
       allocator,
@@ -809,7 +826,7 @@ impl VulkanRenderer {
   }
 }
 impl Renderer for VulkanRenderer {
-  type BL = VulkanBufferFunctions;
+  type BL = VulkanBufferImageFunctions;
   type SL = VulkanShaderFunctions;
 
   fn set_rendering_enabled(&mut self, enabled: bool) {
@@ -891,7 +908,7 @@ impl Renderer for VulkanRenderer {
 
   fn load_buffer<BufElem: Sized + Copy>(
     &mut self, buffer_type: BufferType, buffer: &[BufElem],
-  ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
+  ) -> SarektResult<BufferImageHandle<VulkanBufferImageFunctions>> {
     if matches!(buffer_type, BufferType::Uniform) {
       return Err(SarektError::IncorrectLoaderFunction);
     }
@@ -903,7 +920,7 @@ impl Renderer for VulkanRenderer {
     &mut self, pixels: impl ImageData, magnification_filter: MagnificationMinificationFilter,
     minification_filter: MagnificationMinificationFilter, address_x: TextureAddressMode,
     address_y: TextureAddressMode, address_z: TextureAddressMode, mip_levels: u32,
-  ) -> SarektResult<BufferImageHandle<VulkanBufferFunctions>> {
+  ) -> SarektResult<BufferImageHandle<VulkanBufferImageFunctions>> {
     Ok(
       BufferImageStore::load_image_with_staging_initialization(
         &self.buffer_image_store,
@@ -920,7 +937,7 @@ impl Renderer for VulkanRenderer {
   }
 
   fn get_buffer(
-    &self, handle: &BufferImageHandle<VulkanBufferFunctions>,
+    &self, handle: &BufferImageHandle<VulkanBufferImageFunctions>,
   ) -> SarektResult<ResourceWithMemory> {
     let store = self
       .buffer_image_store
@@ -936,7 +953,7 @@ impl Renderer for VulkanRenderer {
 
   fn load_uniform_buffer<UniformBufElem: Sized + Copy>(
     &mut self, buffer: UniformBufElem,
-  ) -> SarektResult<UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>> {
+  ) -> SarektResult<UniformBufferHandle<VulkanBufferImageFunctions, UniformBufElem>> {
     info!("Loading a uniform buffer...");
     // Since each framebuffer may have different values for uniforms, they each need
     // their own UB.  These are stored in the same ordering as the render target
@@ -957,7 +974,7 @@ impl Renderer for VulkanRenderer {
   }
 
   fn get_uniform_buffer<UniformBufElem: Sized + Copy>(
-    &self, handle: &UniformBufferHandle<VulkanBufferFunctions, UniformBufElem>,
+    &self, handle: &UniformBufferHandle<VulkanBufferImageFunctions, UniformBufElem>,
   ) -> SarektResult<Vec<BufferAndMemoryMapped>>
   where
     Self::BL: BufferAndImageLoader,
@@ -1022,7 +1039,7 @@ impl Renderer for VulkanRenderer {
   }
 
   fn get_image(
-    &self, handle: &BufferImageHandle<VulkanBufferFunctions>,
+    &self, handle: &BufferImageHandle<VulkanBufferImageFunctions>,
   ) -> SarektResult<ResourceWithMemory> {
     let store = self
       .buffer_image_store

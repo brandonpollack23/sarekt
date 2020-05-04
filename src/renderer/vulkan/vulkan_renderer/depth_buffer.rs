@@ -2,8 +2,9 @@ use crate::{
   error::{SarektError, SarektResult},
   renderer::{
     buffers_and_images::{BufferImageHandle, BufferImageStore},
+    config::NumSamples,
     vulkan::vulkan_buffer_image_functions::ImageAndMemory,
-    VulkanBufferFunctions,
+    VulkanBufferImageFunctions,
   },
 };
 use ash::{version::InstanceV1_0, vk, Instance};
@@ -15,18 +16,24 @@ use std::{
 /// All resources relating to the Depth buffer (z buffer).
 /// This includes the image handle, the image that references, and the format.
 pub struct DepthResources {
-  pub depth_buffer_image_handle: BufferImageHandle<VulkanBufferFunctions>,
+  pub depth_buffer_image_handle: BufferImageHandle<VulkanBufferImageFunctions>,
   pub image_and_memory: ImageAndMemory,
   pub format: vk::Format,
 }
 impl DepthResources {
   pub fn new(
     instance: &Instance, physical_device: vk::PhysicalDevice,
-    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferFunctions>>>, extent: (u32, u32),
+    buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>,
+    extent: (u32, u32), num_msaa_samples: NumSamples,
   ) -> SarektResult<DepthResources> {
     let format = Self::find_depth_format(instance, physical_device)?;
     let (depth_buffer_image_handle, buffer_or_image) =
-      BufferImageStore::create_uninitialized_image(buffer_image_store, extent, format.try_into()?)?;
+      BufferImageStore::create_uninitialized_image_msaa(
+        buffer_image_store,
+        extent,
+        format.try_into()?,
+        num_msaa_samples,
+      )?;
 
     let image_and_memory = buffer_or_image.handle.image().unwrap();
 

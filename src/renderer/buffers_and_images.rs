@@ -1,6 +1,7 @@
 use crate::{
   error::{SarektError, SarektResult},
   image_data::{ImageData, ImageDataFormat},
+  renderer::config::NumSamples,
 };
 use log::warn;
 use slotmap::{DefaultKey, SlotMap};
@@ -163,7 +164,7 @@ pub unsafe trait BufferAndImageLoader {
   /// does not give it any initial value, only a size and format.  This is
   /// useful for initializing internally used attachments, depth buffers, etc.
   fn create_uninitialized_image(
-    &self, dimensions: (u32, u32), format: ImageDataFormat,
+    &self, dimensions: (u32, u32), format: ImageDataFormat, num_samples: NumSamples,
   ) -> SarektResult<Self::BackendHandle>;
 
   /// Deletes that resource, baby!
@@ -319,13 +320,22 @@ where
   pub(crate) fn create_uninitialized_image(
     this: &Arc<RwLock<Self>>, dimensions: (u32, u32), format: ImageDataFormat,
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
+    Self::create_uninitialized_image_msaa(this, dimensions, format, NumSamples::One)
+  }
+
+  /// Same as above but allows for MSAA to be used, useful when creating
+  /// internal render targets.
+  pub(crate) fn create_uninitialized_image_msaa(
+    this: &Arc<RwLock<Self>>, dimensions: (u32, u32), format: ImageDataFormat,
+    num_samples: NumSamples,
+  ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()
       .expect("Could not unlock BufferStore due to previous panic");
 
     let buffer_backend_handle = buffer_store
       .buffer_image_loader
-      .create_uninitialized_image(dimensions, format)?;
+      .create_uninitialized_image(dimensions, format, num_samples)?;
     let buffer_or_image = BufferOrImage::new(buffer_backend_handle, ResourceType::Image);
 
     let inner_key = buffer_store

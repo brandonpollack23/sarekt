@@ -73,7 +73,7 @@ pub use crate::{
 };
 pub use shaders::{ShaderHandle, ShaderType};
 pub use vulkan::{
-  vulkan_buffer_image_functions::VulkanBufferFunctions, vulkan_renderer::VulkanRenderer,
+  vulkan_buffer_image_functions::VulkanBufferImageFunctions, vulkan_renderer::VulkanRenderer,
 };
 
 use crate::{

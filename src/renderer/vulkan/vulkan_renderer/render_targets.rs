@@ -251,7 +251,7 @@ impl RenderTargetBundle {
   }
 
   /// If drawing to a surface, chooses the best format from the ones available
-  /// for the surface.  Tries to use B8G8R8A8_SRGB format with SRGB_NONLINEAR
+  /// for the surface.  Tries to use B8g8r8a8Srgb format with SRGB_NONLINEAR
   /// colorspace.
   ///
   /// If that isn't available, for now we just use the 0th SurfaceFormatKHR.

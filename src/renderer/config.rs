@@ -1,20 +1,20 @@
 /// Sarekt configuration.  Sane defaults provided (no AA, etc).
 #[derive(Builder)]
 #[builder(default)]
-pub struct Config<'a> {
+pub struct Config {
   pub requested_width: u32,
   pub requested_height: u32,
-  pub application_details: ApplicationDetails<'a>,
-  pub engine_details: EngineDetails<'a>,
+  pub application_details: ApplicationDetails<'static>,
+  pub engine_details: EngineDetails<'static>,
   pub present_mode: PresentMode,
   pub aa_config: AntiAliasingConfig,
 }
-impl<'a> Config<'a> {
-  pub fn builder() -> ConfigBuilder<'a> {
+impl Config {
+  pub fn builder() -> ConfigBuilder {
     ConfigBuilder::default()
   }
 }
-impl<'a> Default for Config<'a> {
+impl<'a> Default for Config {
   fn default() -> Self {
     Self {
       requested_width: 800,
@@ -132,10 +132,24 @@ impl Default for PresentMode {
 /// TODO(issue#33) other AA styles.
 #[derive(Copy, Clone)]
 pub enum AntiAliasingConfig {
-  MSAA(u32),
+  MSAA(NumSamples),
+  // TODO(issue#32) just here to get rid of lint errors, remove when there are more types.
+  Unreachable,
 }
 impl Default for AntiAliasingConfig {
   fn default() -> AntiAliasingConfig {
-    AntiAliasingConfig::MSAA(1)
+    AntiAliasingConfig::MSAA(NumSamples::default())
+  }
+}
+#[derive(Copy, Clone)]
+pub enum NumSamples {
+  One,
+  Two,
+  Four,
+  Eight,
+}
+impl Default for NumSamples {
+  fn default() -> NumSamples {
+    NumSamples::One
   }
 }

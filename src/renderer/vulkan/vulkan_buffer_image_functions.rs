@@ -6,6 +6,7 @@ use crate::{
       BackendHandleTrait, BufferAndImageLoader, BufferImageHandle, BufferType, IndexBufferElemSize,
       MagnificationMinificationFilter, TextureAddressMode,
     },
+    config::NumSamples,
     vulkan::{
       images::ImageAndView,
       vulkan_renderer::vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
@@ -14,12 +15,10 @@ use crate::{
 };
 use ash::{
   version::{DeviceV1_0, InstanceV1_0},
-  vk,
-  vk::Format,
-  Device, Instance,
+  vk, Device, Instance,
 };
 use log::{info, warn};
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 /// TODO(issue#27) PERFORMANCE stage buffer allocations to be transfered in one
 /// staging buffer commit load operation instead of doing each one seperate and
@@ -30,7 +29,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 /// Vulkan implementation of [BufferLoader](trait.BufferLoader.html).
 #[derive(Clone)]
-pub struct VulkanBufferFunctions {
+pub struct VulkanBufferImageFunctions {
   instance: Arc<Instance>,
   logical_device: Arc<Device>,
   physical_device: vk::PhysicalDevice,
@@ -45,7 +44,7 @@ pub struct VulkanBufferFunctions {
 
   ownership_semaphore: [vk::Semaphore; 1],
 }
-impl VulkanBufferFunctions {
+impl VulkanBufferImageFunctions {
   pub fn new(
     vulkan_core: &VulkanCoreStructures, device_bundle: &VulkanDeviceStructures,
     allocator: Arc<vk_mem::Allocator>, graphics_queue_family: u32, transfer_queue_family: u32,
@@ -177,9 +176,11 @@ impl VulkanBufferFunctions {
 
   /// Creates a buffer with TRANSFER_DST and appropriate image type flags
   /// flipped.
+  ///
+  /// num_samples referes to msaa samples.
   fn create_gpu_image(
     &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags,
-    queue_family_index: u32, mip_levels: u32,
+    queue_family_index: u32, mip_levels: u32, num_samples: NumSamples,
   ) -> SarektResult<(vk::Image, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     let image_ci = vk::ImageCreateInfo::builder()
       .image_type(vk::ImageType::TYPE_2D)
@@ -196,7 +197,7 @@ impl VulkanBufferFunctions {
       .initial_layout(vk::ImageLayout::UNDEFINED)
       .queue_family_indices(&[queue_family_index])
       .sharing_mode(vk::SharingMode::EXCLUSIVE) // Only used by the one queue family.
-      .samples(vk::SampleCountFlags::TYPE_1) // Not multisampling, this isn't for an attachment.
+      .samples(num_samples.into()) // Not multisampling, this isn't for an attachment.
       .build();
     let alloc_ci = vk_mem::AllocationCreateInfo {
       usage: vk_mem::MemoryUsage::GpuOnly,
@@ -747,10 +748,10 @@ impl VulkanBufferFunctions {
     Ok((src_queue_family, dst_queue_family))
   }
 }
-unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
+unsafe impl BufferAndImageLoader for VulkanBufferImageFunctions {
   type BackendHandle = ResourceWithMemory;
   type UniformBufferDataHandle = Vec<BufferAndMemoryMapped>;
-  type UniformBufferHandle = Vec<BufferImageHandle<VulkanBufferFunctions>>;
+  type UniformBufferHandle = Vec<BufferImageHandle<VulkanBufferImageFunctions>>;
 
   unsafe fn cleanup(&self) -> SarektResult<()> {
     if self.ownership_semaphore[0] != vk::Semaphore::null() {
@@ -925,6 +926,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED | transfer_src_flag,
       self.transfer_queue_family,
       mip_levels,
+      NumSamples::One,
     )?;
 
     let extent = vk::Extent3D {
@@ -970,7 +972,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
   }
 
   fn create_uninitialized_image(
-    &self, dimensions: (u32, u32), format: ImageDataFormat,
+    &self, dimensions: (u32, u32), format: ImageDataFormat, num_samples: NumSamples,
   ) -> SarektResult<ResourceWithMemory> {
     info!("Creating image with dimensions {:?}", dimensions);
 
@@ -980,6 +982,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferFunctions {
       vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
       self.graphics_queue_family,
       1,
+      num_samples,
     )?;
     let image_view =
       self.create_image_view(image, format.into(), vk::ImageAspectFlags::DEPTH, 1)?;
@@ -1100,44 +1103,6 @@ impl ImageOrBuffer {
     match *self {
       ImageOrBuffer::Image(image, format, extent) => Ok((image, format, extent)),
       _ => Err(SarektError::IncorrectResourceType),
-    }
-  }
-}
-
-impl From<ImageDataFormat> for vk::Format {
-  fn from(image_data_format: ImageDataFormat) -> vk::Format {
-    match image_data_format {
-      ImageDataFormat::R8G8B8 => vk::Format::R8G8B8_SRGB,
-      ImageDataFormat::B8G8R8 => vk::Format::B8G8R8_SRGB,
-      ImageDataFormat::B8G8R8A8 => vk::Format::B8G8R8A8_SRGB,
-      ImageDataFormat::R8G8B8A8 => vk::Format::R8G8B8A8_SRGB,
-      ImageDataFormat::RGB16 => vk::Format::R5G6B5_UNORM_PACK16,
-      ImageDataFormat::RGBA16 => vk::Format::R5G5B5A1_UNORM_PACK16,
-
-      ImageDataFormat::D32Float => vk::Format::D32_SFLOAT,
-      ImageDataFormat::D32FloatS8 => vk::Format::D32_SFLOAT_S8_UINT,
-      ImageDataFormat::D24NormS8 => vk::Format::D24_UNORM_S8_UINT,
-    }
-  }
-}
-
-impl TryFrom<vk::Format> for ImageDataFormat {
-  type Error = SarektError;
-
-  fn try_from(format: Format) -> SarektResult<ImageDataFormat> {
-    match format {
-      vk::Format::R8G8B8_SRGB => Ok(ImageDataFormat::R8G8B8),
-      vk::Format::B8G8R8_SRGB => Ok(ImageDataFormat::B8G8R8),
-      vk::Format::B8G8R8A8_SRGB => Ok(ImageDataFormat::B8G8R8A8),
-      vk::Format::R8G8B8A8_SRGB => Ok(ImageDataFormat::R8G8B8A8),
-      vk::Format::R5G6B5_UNORM_PACK16 => Ok(ImageDataFormat::RGB16),
-      vk::Format::R5G5B5A1_UNORM_PACK16 => Ok(ImageDataFormat::RGBA16),
-
-      vk::Format::D32_SFLOAT => Ok(ImageDataFormat::D32Float),
-      vk::Format::D32_SFLOAT_S8_UINT => Ok(ImageDataFormat::D32FloatS8),
-      vk::Format::D24_UNORM_S8_UINT => Ok(ImageDataFormat::D24NormS8),
-
-      _ => Err(SarektError::UnsupportedImageFormat),
     }
   }
 }

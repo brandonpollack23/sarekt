@@ -23,12 +23,17 @@ pub trait ImageData {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ImageDataFormat {
-  R8G8B8,
-  B8G8R8,
-  B8G8R8A8,
-  R8G8B8A8,
-  RGB16,
-  RGBA16,
+  R8G8B8Srgb,
+  B8G8R8Srgb,
+  B8G8R8A8Srgb,
+  R8G8B8A8Srgb,
+
+  R8G8B8Unorm,
+  B8G8R8Unorm,
+  B8G8R8A8Unorm,
+  R8G8B8A8Unorm,
+  RGB16Unorm,
+  RGBA16Unorm,
   // Depth Buffer Formats
   D32Float,
   D32FloatS8,
@@ -72,16 +77,16 @@ impl ImageData for image::DynamicImage {
 
   fn format(&self) -> SarektResult<ImageDataFormat> {
     match self {
-      image::DynamicImage::ImageBgr8(_) => Ok(B8G8R8A8),
+      image::DynamicImage::ImageBgr8(_) => Ok(B8G8R8A8Srgb),
       image::DynamicImage::ImageLuma8(_) => Err(SarektError::UnsupportedImageFormat),
       image::DynamicImage::ImageLumaA8(_) => Err(SarektError::UnsupportedImageFormat),
-      image::DynamicImage::ImageRgb8(_) => Ok(R8G8B8),
-      image::DynamicImage::ImageRgba8(_) => Ok(R8G8B8A8),
-      image::DynamicImage::ImageBgra8(_) => Ok(B8G8R8A8),
+      image::DynamicImage::ImageRgb8(_) => Ok(R8G8B8Srgb),
+      image::DynamicImage::ImageRgba8(_) => Ok(R8G8B8A8Srgb),
+      image::DynamicImage::ImageBgra8(_) => Ok(B8G8R8A8Srgb),
       image::DynamicImage::ImageLuma16(_) => Err(SarektError::UnsupportedImageFormat),
       image::DynamicImage::ImageLumaA16(_) => Err(SarektError::UnsupportedImageFormat),
-      image::DynamicImage::ImageRgb16(_) => Ok(RGB16),
-      image::DynamicImage::ImageRgba16(_) => Ok(RGBA16),
+      image::DynamicImage::ImageRgb16(_) => Ok(RGB16Unorm),
+      image::DynamicImage::ImageRgba16(_) => Ok(RGBA16Unorm),
     }
   }
 }
@@ -115,6 +120,6 @@ impl ImageData for Monocolor {
   }
 
   fn format(&self) -> SarektResult<ImageDataFormat> {
-    Ok(R8G8B8A8)
+    Ok(R8G8B8A8Srgb)
   }
 }

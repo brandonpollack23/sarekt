@@ -489,12 +489,6 @@ impl VulkanDeviceStructures {
     instance: &Instance, physical_device: vk::PhysicalDevice, aa_config: AntiAliasingConfig,
   ) -> SarektResult<bool> {
     if let AntiAliasingConfig::MSAA(aa_config) = aa_config {
-      if !aa_config.is_power_of_two() {
-        return Err(SarektError::CouldNotSelectPhysicalDevice(
-          "AA configuration is not a power of 2",
-        ));
-      }
-
       let physical_device_properites =
         unsafe { instance.get_physical_device_properties(physical_device) };
 
@@ -507,7 +501,7 @@ impl VulkanDeviceStructures {
             .framebuffer_depth_sample_counts,
         );
 
-      return Ok(counts.intersects(vk::SampleCountFlags::from_raw(aa_config)));
+      return Ok(counts.intersects(aa_config.into()));
     }
 
     Ok(true)

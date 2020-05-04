@@ -8,7 +8,7 @@ use sarekt::{
     buffers_and_images::{
       BufferType, IndexBufferElemSize, MagnificationMinificationFilter, TextureAddressMode,
     },
-    config::{Config, PresentMode},
+    config::Config,
     drawable_object::DrawableObject,
     vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
