@@ -22,7 +22,7 @@ pub struct BasePipelineBundle {
   pub pipeline: vk::Pipeline,
   pub pipeline_layout: vk::PipelineLayout,
   pub pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-  pub resolve_attachment: ResolveAttachment,
+  pub resolve_attachment: Option<ResolveAttachment>,
   pub depth_resources: Option<DepthResources>,
   pub descriptor_set_layouts: Option<Vec<vk::DescriptorSetLayout>>,
   pub vertex_shader_handle: Option<VulkanShaderHandle>,
@@ -32,8 +32,9 @@ impl BasePipelineBundle {
   pub fn new(
     pipeline: vk::Pipeline, pipeline_layout: vk::PipelineLayout,
     pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, resolve_attachment: ResolveAttachment,
-    depth_resources: DepthResources, vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    resolve_attachment: Option<ResolveAttachment>, depth_resources: DepthResources,
+    vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
     fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   ) -> Self {
     Self {
@@ -49,8 +50,8 @@ impl BasePipelineBundle {
   }
 }
 
-// TODO NOW put this in depth_buffer and rename it render_resources and make it
-// similar to depth. Maybe dont make this if MSAA is 1, Waste
+// TODO NOW put this in depth_buffer and rename it render_attachments and make
+// it similar to depth. Maybe dont make this if MSAA is 1, Waste
 // of resources maybe.
 pub struct ResolveAttachment {
   pub msaa_color_image_handle: BufferImageHandle<VulkanBufferImageFunctions>,

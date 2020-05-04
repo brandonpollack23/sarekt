@@ -279,12 +279,16 @@ impl VulkanRenderer {
       NumSamples::One
     };
 
-    let resolve_attachment = ResolveAttachment::new(
-      &self.buffer_image_store,
-      (width, height),
-      new_format.try_into()?,
-      num_msaa_samples,
-    )?;
+    let resolve_attachment = if !matches!(num_msaa_samples, NumSamples::One) {
+      Some(ResolveAttachment::new(
+        &self.buffer_image_store,
+        (width, height),
+        new_format.try_into()?,
+        num_msaa_samples,
+      )?)
+    } else {
+      None
+    };
 
     let depth_buffer = DepthResources::new(
       &instance,
@@ -303,7 +307,7 @@ impl VulkanRenderer {
 
     self.pipelines.recreate_framebuffers(
       logical_device,
-      &resolve_attachment,
+      resolve_attachment.as_ref(),
       &depth_buffer,
       &self.render_target_bundle.render_targets,
       new_extent,

@@ -51,13 +51,13 @@ fn main_loop() {
     4u8
   } else if args.contains(&"8x".to_owned()) {
     8u8
+  } else if args.contains(&"noaa".to_owned()) {
+    1u8
   } else {
     2u8
   };
 
-  if args.len() > 1 && !show_fps && !use_glb {
-    panic!("Illegal arguments provided: {:#?}", args);
-  }
+  info!("MSAA {}x", msaa_level);
   info!("Show FPS: {}", show_fps);
   info!("Use GLTF Model Type: {}", use_glb);
 
