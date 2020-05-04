@@ -33,7 +33,7 @@ const OBJ_MODEL_FILE_NAME: &str = "models/viking_room.obj";
 const MODEL_TEXTURE_FILE_NAME_GLB: &str = "textures/chalet.jpg";
 const MODEL_TEXTURE_FILE_NAME_OBJ: &str = "textures/viking_room.png";
 
-// TODO NOW flag for MSAA
+// TODO NOW doc update of readme, add new examples and features.
 
 fn main() {
   simple_logger::init_with_level(Level::Info).unwrap();
@@ -45,6 +45,10 @@ fn main_loop() {
   let args: Vec<String> = std::env::args().collect();
   let show_fps = args.contains(&"fps".to_owned());
   let use_glb = args.contains(&"glb".to_owned());
+  let msaa_level = 2;
+  let msaa_level = args.contains(&"4x".to_owned());
+  let msaa_level = args.contains(&"8x".to_owned());
+
   if args.len() > 1 && !show_fps && !use_glb {
     panic!("Illegal arguments provided: {:#?}", args);
   }

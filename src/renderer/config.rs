@@ -128,7 +128,8 @@ impl Default for PresentMode {
 }
 
 /// Configuration for AA.  Must be a power of 2.
-/// TODO NOW make issue for SSAA, make issue for other AA (TXAA)
+/// TODO(issue#32) make issue for SSAA.
+/// TODO(issue#33) other AA styles.
 #[derive(Copy, Clone)]
 pub enum AntiAliasingConfig {
   MSAA(u32),
