@@ -30,7 +30,7 @@ use crate::{
       queues::QueueFamilyIndices,
       vulkan_buffer_image_functions::{BufferAndMemoryMapped, ImageAndMemory, ResourceWithMemory},
       vulkan_renderer::{
-        base_pipeline_bundle::MsaaColorImage,
+        base_pipeline_bundle::ResolveAttachment,
         debug_utils_ext::DebugUserData,
         depth_buffer::DepthResources,
         draw_synchronization::DrawSynchronization,
@@ -273,16 +273,17 @@ impl VulkanRenderer {
     let new_format = self.render_target_bundle.swapchain_and_extension.format;
     let new_extent = self.render_target_bundle.extent;
 
-    let num_samples = if let AntiAliasingConfig::MSAA(ns) = self.config.aa_config {
+    let num_msaa_samples = if let AntiAliasingConfig::MSAA(ns) = self.config.aa_config {
       ns
     } else {
       NumSamples::One
     };
-    let msaa_color_iamge = MsaaColorImage::new(
+
+    let resolve_attachment = ResolveAttachment::new(
       &self.buffer_image_store,
       (width, height),
       new_format.try_into()?,
-      num_samples,
+      num_msaa_samples,
     )?;
 
     let depth_buffer = DepthResources::new(
@@ -290,17 +291,19 @@ impl VulkanRenderer {
       physical_device,
       &self.buffer_image_store,
       (width, height),
+      num_msaa_samples,
     )?;
 
     self
       .pipelines
-      .recreate_renderpasses(logical_device, new_format)?;
+      .recreate_renderpasses(logical_device, new_format, num_msaa_samples)?;
 
     let (vertex_shader_handle, fragment_shader_handle, descriptor_set_layouts) =
       self.pipelines.take_shaders_and_layouts();
 
     self.pipelines.recreate_framebuffers(
       logical_device,
+      &resolve_attachment,
       &depth_buffer,
       &self.render_target_bundle.render_targets,
       new_extent,
@@ -310,8 +313,9 @@ impl VulkanRenderer {
       logical_device,
       shader_store,
       new_extent,
-      msaa_color_iamge,
+      resolve_attachment,
       depth_buffer,
+      num_msaa_samples,
       descriptor_set_layouts.unwrap(),
       vertex_shader_handle.unwrap(),
       fragment_shader_handle.unwrap(),

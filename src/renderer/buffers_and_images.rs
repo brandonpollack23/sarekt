@@ -164,7 +164,7 @@ pub unsafe trait BufferAndImageLoader {
   /// does not give it any initial value, only a size and format.  This is
   /// useful for initializing internally used attachments, depth buffers, etc.
   fn create_uninitialized_image(
-    &self, dimensions: (u32, u32), format: ImageDataFormat, num_samples: NumSamples,
+    &self, dimensions: (u32, u32), format: ImageDataFormat, num_msaa_samples: NumSamples,
   ) -> SarektResult<Self::BackendHandle>;
 
   /// Deletes that resource, baby!
@@ -327,7 +327,7 @@ where
   /// internal render targets.
   pub(crate) fn create_uninitialized_image_msaa(
     this: &Arc<RwLock<Self>>, dimensions: (u32, u32), format: ImageDataFormat,
-    num_samples: NumSamples,
+    num_msaa_samples: NumSamples,
   ) -> SarektResult<(BufferImageHandle<BL>, BufferOrImage<BL::BackendHandle>)> {
     let mut buffer_store = this
       .write()
@@ -335,7 +335,7 @@ where
 
     let buffer_backend_handle = buffer_store
       .buffer_image_loader
-      .create_uninitialized_image(dimensions, format, num_samples)?;
+      .create_uninitialized_image(dimensions, format, num_msaa_samples)?;
     let buffer_or_image = BufferOrImage::new(buffer_backend_handle, ResourceType::Image);
 
     let inner_key = buffer_store

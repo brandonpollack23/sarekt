@@ -8,13 +8,15 @@ use sarekt::{
     buffers_and_images::{
       BufferType, IndexBufferElemSize, MagnificationMinificationFilter, TextureAddressMode,
     },
-    config::Config,
+    config::{AntiAliasingConfig, Config},
     drawable_object::DrawableObject,
     vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
   },
 };
-use std::{collections::HashMap, f32, fs::File, io::Read, sync::Arc, time::Instant};
+use std::{
+  collections::HashMap, convert::TryInto, f32, fs::File, io::Read, sync::Arc, time::Instant,
+};
 use ultraviolet as uv;
 use wavefront_obj as obj;
 use winit::{
@@ -45,9 +47,13 @@ fn main_loop() {
   let args: Vec<String> = std::env::args().collect();
   let show_fps = args.contains(&"fps".to_owned());
   let use_glb = args.contains(&"glb".to_owned());
-  let msaa_level = 2;
-  let msaa_level = args.contains(&"4x".to_owned());
-  let msaa_level = args.contains(&"8x".to_owned());
+  let msaa_level = if args.contains(&"4x".to_owned()) {
+    4u8
+  } else if args.contains(&"8x".to_owned()) {
+    8u8
+  } else {
+    2u8
+  };
 
   if args.len() > 1 && !show_fps && !use_glb {
     panic!("Illegal arguments provided: {:#?}", args);
@@ -72,6 +78,7 @@ fn main_loop() {
   let config = Config::builder()
     .requested_width(WIDTH)
     .requested_height(HEIGHT)
+    .aa_config(AntiAliasingConfig::MSAA(msaa_level.try_into().unwrap()))
     .build()
     .unwrap();
   let mut renderer = VulkanRenderer::new(window.clone(), config).unwrap();

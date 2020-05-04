@@ -1,5 +1,8 @@
+use crate::error::{SarektError, SarektResult};
+use std::convert::TryFrom;
+
 /// Sarekt configuration.  Sane defaults provided (no AA, etc).
-#[derive(Builder)]
+#[derive(Builder, Copy, Clone, Debug)]
 #[builder(default)]
 pub struct Config {
   pub requested_width: u32,
@@ -32,7 +35,7 @@ impl<'a> Default for Config {
 // ================================================================================
 /// A simple version with major, minor and patch fields for specifying
 /// information about your application.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Version {
   major: u32,
   minor: u32,
@@ -61,7 +64,7 @@ impl Default for Version {
 //  ApplicationDetails Struct
 // ================================================================================
 /// Application Details and version for your application.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ApplicationDetails<'a> {
   pub name: &'a str,
   pub version: Version,
@@ -89,7 +92,7 @@ impl<'a> Default for ApplicationDetails<'a> {
 //  EngineDetails Struct
 // ================================================================================
 /// Application Details and version for your engine.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct EngineDetails<'a> {
   pub name: &'a str,
   pub version: Version,
@@ -115,7 +118,7 @@ impl<'a> Default for EngineDetails<'a> {
 
 /// Determines Present mode, default is Mailbox if possible to allow for
 /// framerate equal to screen refresh while continuing to draw.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum PresentMode {
   Immediate,
   Mailbox,
@@ -130,7 +133,7 @@ impl Default for PresentMode {
 /// Configuration for AA.  Must be a power of 2.
 /// TODO(issue#32) make issue for SSAA.
 /// TODO(issue#33) other AA styles.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum AntiAliasingConfig {
   MSAA(NumSamples),
   // TODO(issue#32) just here to get rid of lint errors, remove when there are more types.
@@ -141,7 +144,7 @@ impl Default for AntiAliasingConfig {
     AntiAliasingConfig::MSAA(NumSamples::default())
   }
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum NumSamples {
   One,
   Two,
@@ -151,5 +154,20 @@ pub enum NumSamples {
 impl Default for NumSamples {
   fn default() -> NumSamples {
     NumSamples::One
+  }
+}
+impl TryFrom<u8> for NumSamples {
+  type Error = SarektError;
+
+  fn try_from(n: u8) -> SarektResult<NumSamples> {
+    match n {
+      1 => Ok(NumSamples::One),
+      2 => Ok(NumSamples::Two),
+      4 => Ok(NumSamples::Four),
+      8 => Ok(NumSamples::Eight),
+      _ => Err(SarektError::UnsupportedMsaa(
+        "Not a power of two less than or equal to 8",
+      )),
+    }
   }
 }

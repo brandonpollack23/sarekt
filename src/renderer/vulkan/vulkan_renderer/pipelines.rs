@@ -10,7 +10,7 @@ use crate::{
     vulkan::{
       images::ImageAndView,
       vulkan_renderer::{
-        base_pipeline_bundle::{BasePipelineBundle, MsaaColorImage},
+        base_pipeline_bundle::{BasePipelineBundle, ResolveAttachment},
         depth_buffer::DepthResources,
         render_targets::RenderTargetBundle,
         vulkan_core::{VulkanCoreStructures, VulkanDeviceStructures},
@@ -53,6 +53,10 @@ impl Pipelines {
     } else {
       NumSamples::One
     };
+    info!(
+      "Creating pipeline with MSAA sample count of: {:?}",
+      num_msaa_samples
+    );
 
     // TODO(issue#2) RENDERING_CAPABILITIES support other render pass types.
     let depth_buffer = DepthResources::new(
@@ -63,7 +67,7 @@ impl Pipelines {
       num_msaa_samples,
     )?;
 
-    let msaa_color_image = MsaaColorImage::new(
+    let resolve_attachment = ResolveAttachment::new(
       buffer_image_store,
       dimensions,
       render_target_bundle
@@ -78,6 +82,7 @@ impl Pipelines {
       &device_bundle.logical_device,
       render_target_bundle.get_render_target_format(),
       &depth_buffer,
+      num_msaa_samples,
     )?;
 
     // TODO(issue#2) RENDERING_CAPABILITIES when I can have multiple render pass
@@ -85,6 +90,7 @@ impl Pipelines {
     let framebuffers = Self::create_framebuffers(
       &device_bundle.logical_device,
       forward_render_pass,
+      &resolve_attachment,
       &depth_buffer,
       &render_target_bundle.render_targets,
       render_target_bundle.extent,
@@ -95,8 +101,9 @@ impl Pipelines {
       &shader_store, // Unlock and get a local mut ref to shaderstore.
       render_target_bundle.extent,
       forward_render_pass,
-      msaa_color_image,
+      resolve_attachment,
       depth_buffer,
+      num_msaa_samples,
     )?;
 
     Ok(Pipelines {
@@ -136,7 +143,7 @@ impl Pipelines {
   /// Recreates all render passes associated with the pipeline for swapchain
   /// recreation.
   pub fn recreate_renderpasses(
-    &mut self, logical_device: &Device, new_format: vk::Format,
+    &mut self, logical_device: &Device, new_format: vk::Format, num_msaa_samples: NumSamples,
   ) -> SarektResult<()> {
     self.forward_render_pass = Self::create_forward_render_pass(
       logical_device,
@@ -146,19 +153,21 @@ impl Pipelines {
         .depth_resources
         .as_ref()
         .unwrap(),
+      num_msaa_samples,
     )?;
     Ok(())
   }
 
   /// Same as above, recreates vulkan framebuffers
   pub fn recreate_framebuffers(
-    &mut self, logical_device: &Device, depth_buffer: &DepthResources,
-    render_targets: &[ImageAndView], new_extent: vk::Extent2D,
+    &mut self, logical_device: &Device, resolve_attachment: &ResolveAttachment,
+    depth_buffer: &DepthResources, render_targets: &[ImageAndView], new_extent: vk::Extent2D,
   ) -> SarektResult<()> {
     self.framebuffers = Self::create_framebuffers(
       logical_device,
       self.forward_render_pass,
-      &depth_buffer,
+      resolve_attachment,
+      depth_buffer,
       render_targets,
       new_extent,
     )?;
@@ -170,8 +179,8 @@ impl Pipelines {
   pub fn recreate_base_pipeline_bundle(
     &mut self, logical_device: &Device,
     shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>, new_extent: vk::Extent2D,
-    msaa_color_image: MsaaColorImage, depth_buffer: DepthResources,
-    descriptor_set_layouts: Vec<DescriptorSetLayout>,
+    msaa_color_image: ResolveAttachment, depth_buffer: DepthResources,
+    num_msaa_samples: NumSamples, descriptor_set_layouts: Vec<DescriptorSetLayout>,
     vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
     fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   ) -> SarektResult<()> {
@@ -182,6 +191,7 @@ impl Pipelines {
       self.forward_render_pass,
       msaa_color_image,
       depth_buffer,
+      num_msaa_samples,
       descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
@@ -257,17 +267,22 @@ impl Pipelines {
   /// Creates a simple forward render pass with one subpass.
   fn create_forward_render_pass(
     logical_device: &Device, format: vk::Format, depth_buffer: &DepthResources,
+    num_msaa_samples: NumSamples,
   ) -> SarektResult<vk::RenderPass> {
+    // TODO(issue#9) OFFSCREEN only make swapchain optimal if this is going to
+    // present. Otherwise TransferDST optimal would be good.
+
     // Used to reference attachments in render passes.
+    // This is the non MSAA sampled color attachment.
     let color_attachment = vk::AttachmentDescription::builder()
       .format(format)
-      .samples(vk::SampleCountFlags::TYPE_1)
+      .samples(num_msaa_samples.into())
       .load_op(vk::AttachmentLoadOp::CLEAR) // Clear on loading the color attachment, since we're writing over it.
       .store_op(vk::AttachmentStoreOp::STORE) // Want to save to this attachment in the pass.
       .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // Not using stencil.
       .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // Not using stencil.
       .initial_layout(vk::ImageLayout::UNDEFINED) // Don't know the layout coming in.
-      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR) // TODO(issue#9) OFFSCREEN only do this if going to present. Otherwise TransferDST optimal would be good.
+      .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
       .build();
     // Used to reference attachments in subpasses.
     let color_attachment_ref = vk::AttachmentReference::builder()
@@ -276,9 +291,10 @@ impl Pipelines {
       .build();
     let color_attachment_refs = [color_attachment_ref];
 
+    // This is the non sampled depth attachment
     let depth_attachment = vk::AttachmentDescription::builder()
       .format(depth_buffer.format)
-      .samples(vk::SampleCountFlags::TYPE_1)
+      .samples(num_msaa_samples.into())
       .load_op(vk::AttachmentLoadOp::CLEAR)
       .store_op(vk::AttachmentStoreOp::DONT_CARE)
       .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -291,7 +307,26 @@ impl Pipelines {
       .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
       .build();
 
-    let attachments = [color_attachment, depth_attachment];
+    // TODO NOW dont do this if num_msaa_samples is one and make the color one
+    // present.
+
+    // This is the resolved MSAA (and presented) color attachment.
+    let resolve_attachment = vk::AttachmentDescription::builder()
+      .format(format)
+      .samples(vk::SampleCountFlags::TYPE_1)
+      .load_op(vk::AttachmentLoadOp::DONT_CARE)
+      .store_op(vk::AttachmentStoreOp::STORE)
+      .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+      .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+      .initial_layout(vk::ImageLayout::UNDEFINED)
+      .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+      .build();
+    let resolve_attachment_ref = [vk::AttachmentReference::builder()
+      .attachment(2)
+      .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+      .build()];
+
+    let attachments = [color_attachment, depth_attachment, resolve_attachment];
 
     // Subpasses could also reference previous subpasses as input, depth/stencil
     // data, or preserve attachments to send them to the next subpass.
@@ -300,6 +335,7 @@ impl Pipelines {
       // index of this attachment here is a reference to the output of the shader in the form of layout(location = 0).
       .color_attachments(&color_attachment_refs)
       .depth_stencil_attachment(&depth_attachment_ref)
+      .resolve_attachments(&resolve_attachment_ref)
       .build();
     let subpass_descriptions = [subpass_description];
 
@@ -333,8 +369,8 @@ impl Pipelines {
   /// TODO(issue#17) RENDERING_CAPABILITIES enable pipeline cache.
   fn create_base_graphics_pipeline_and_shaders(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: vk::Extent2D, render_pass: vk::RenderPass, msaa_color_image: MsaaColorImage,
-    depth_buffer: DepthResources,
+    extent: vk::Extent2D, render_pass: vk::RenderPass, msaa_color_image: ResolveAttachment,
+    depth_buffer: DepthResources, num_msaa_samples: NumSamples,
   ) -> SarektResult<BasePipelineBundle> {
     let (vertex_shader_handle, fragment_shader_handle) =
       Self::create_default_shaders(shader_store)?;
@@ -349,6 +385,7 @@ impl Pipelines {
       render_pass,
       msaa_color_image,
       depth_buffer,
+      num_msaa_samples,
       default_descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
@@ -393,9 +430,10 @@ impl Pipelines {
 
   fn create_base_graphics_pipeline(
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
-    extent: vk::Extent2D, render_pass: vk::RenderPass, msaa_color_image: MsaaColorImage,
-    depth_buffer: DepthResources, descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
-    vertex_shader_handle: VulkanShaderHandle, fragment_shader_handle: VulkanShaderHandle,
+    extent: vk::Extent2D, render_pass: vk::RenderPass, msaa_color_image: ResolveAttachment,
+    depth_buffer: DepthResources, num_msaa_samples: NumSamples,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, vertex_shader_handle: VulkanShaderHandle,
+    fragment_shader_handle: VulkanShaderHandle,
   ) -> SarektResult<BasePipelineBundle> {
     let shader_store = shader_store.read().unwrap();
 
@@ -469,7 +507,7 @@ impl Pipelines {
     // TODO(issue#18) CONFIG make configurable
     let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
       .sample_shading_enable(false)
-      .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+      .rasterization_samples(num_msaa_samples.into())
       .min_sample_shading(1.0f32)
       .alpha_to_coverage_enable(false)
       .alpha_to_one_enable(false)
@@ -549,15 +587,16 @@ impl Pipelines {
   }
 
   fn create_framebuffers(
-    logical_device: &Device, render_pass: vk::RenderPass, depth_buffer: &DepthResources,
-    render_target_images: &[ImageAndView], extent: vk::Extent2D,
+    logical_device: &Device, render_pass: vk::RenderPass, resolve_attachment: &ResolveAttachment,
+    depth_buffer: &DepthResources, render_target_images: &[ImageAndView], extent: vk::Extent2D,
   ) -> SarektResult<Vec<vk::Framebuffer>> {
     let mut framebuffers = Vec::with_capacity(render_target_images.len());
 
-    for image_and_view in render_target_images.iter() {
+    for swapchain_image_and_view in render_target_images.iter() {
       let attachments = [
-        image_and_view.view,
+        resolve_attachment.msaa_color_image.image_and_view.view,
         depth_buffer.image_and_memory.image_and_view.view,
+        swapchain_image_and_view.view,
       ];
       let framebuffer_ci = vk::FramebufferCreateInfo::builder()
         .render_pass(render_pass)

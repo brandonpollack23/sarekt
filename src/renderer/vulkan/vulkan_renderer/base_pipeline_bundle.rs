@@ -22,7 +22,7 @@ pub struct BasePipelineBundle {
   pub pipeline: vk::Pipeline,
   pub pipeline_layout: vk::PipelineLayout,
   pub pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-  pub msaa_color_image: MsaaColorImage,
+  pub resolve_attachment: ResolveAttachment,
   pub depth_resources: Option<DepthResources>,
   pub descriptor_set_layouts: Option<Vec<vk::DescriptorSetLayout>>,
   pub vertex_shader_handle: Option<VulkanShaderHandle>,
@@ -32,7 +32,7 @@ impl BasePipelineBundle {
   pub fn new(
     pipeline: vk::Pipeline, pipeline_layout: vk::PipelineLayout,
     pipeline_create_info: vk::GraphicsPipelineCreateInfo,
-    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, msaa_color_image: MsaaColorImage,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>, resolve_attachment: ResolveAttachment,
     depth_resources: DepthResources, vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
     fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   ) -> Self {
@@ -40,7 +40,7 @@ impl BasePipelineBundle {
       pipeline,
       pipeline_layout,
       pipeline_create_info,
-      msaa_color_image,
+      resolve_attachment,
       depth_resources: Some(depth_resources),
       descriptor_set_layouts: Some(descriptor_set_layouts),
       vertex_shader_handle: Some(vertex_shader_handle),
@@ -50,26 +50,27 @@ impl BasePipelineBundle {
 }
 
 // TODO NOW put this in depth_buffer and rename it render_resources and make it
-// similar to depth.
-pub struct MsaaColorImage {
+// similar to depth. Maybe dont make this if MSAA is 1, Waste
+// of resources maybe.
+pub struct ResolveAttachment {
   pub msaa_color_image_handle: BufferImageHandle<VulkanBufferImageFunctions>,
   pub msaa_color_image: ImageAndMemory,
   pub format: vk::Format,
 }
-impl MsaaColorImage {
+impl ResolveAttachment {
   pub fn new(
     buffer_image_store: &Arc<RwLock<BufferImageStore<VulkanBufferImageFunctions>>>,
-    dimensions: (u32, u32), format: ImageDataFormat, num_samples: NumSamples,
-  ) -> SarektResult<MsaaColorImage> {
+    dimensions: (u32, u32), format: ImageDataFormat, num_msaa_samples: NumSamples,
+  ) -> SarektResult<ResolveAttachment> {
     let (msaa_color_image_handle, msaa_color_image) =
       BufferImageStore::create_uninitialized_image_msaa(
         buffer_image_store,
         dimensions,
         format,
-        num_samples,
+        num_msaa_samples,
       )?;
 
-    Ok(MsaaColorImage {
+    Ok(ResolveAttachment {
       msaa_color_image_handle,
       msaa_color_image: msaa_color_image.handle.image()?,
       format: format

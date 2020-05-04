@@ -176,11 +176,9 @@ impl VulkanBufferImageFunctions {
 
   /// Creates a buffer with TRANSFER_DST and appropriate image type flags
   /// flipped.
-  ///
-  /// num_samples referes to msaa samples.
   fn create_gpu_image(
     &self, dimens: (u32, u32), format: vk::Format, usage: vk::ImageUsageFlags,
-    queue_family_index: u32, mip_levels: u32, num_samples: NumSamples,
+    queue_family_index: u32, mip_levels: u32, num_msaa_samples: NumSamples,
   ) -> SarektResult<(vk::Image, vk_mem::Allocation, vk_mem::AllocationInfo)> {
     let image_ci = vk::ImageCreateInfo::builder()
       .image_type(vk::ImageType::TYPE_2D)
@@ -197,7 +195,7 @@ impl VulkanBufferImageFunctions {
       .initial_layout(vk::ImageLayout::UNDEFINED)
       .queue_family_indices(&[queue_family_index])
       .sharing_mode(vk::SharingMode::EXCLUSIVE) // Only used by the one queue family.
-      .samples(num_samples.into()) // Not multisampling, this isn't for an attachment.
+      .samples(num_msaa_samples.into()) // Not multisampling, this isn't for an attachment.
       .build();
     let alloc_ci = vk_mem::AllocationCreateInfo {
       usage: vk_mem::MemoryUsage::GpuOnly,
@@ -972,7 +970,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferImageFunctions {
   }
 
   fn create_uninitialized_image(
-    &self, dimensions: (u32, u32), format: ImageDataFormat, num_samples: NumSamples,
+    &self, dimensions: (u32, u32), format: ImageDataFormat, num_msaa_samples: NumSamples,
   ) -> SarektResult<ResourceWithMemory> {
     info!("Creating image with dimensions {:?}", dimensions);
 
@@ -982,7 +980,7 @@ unsafe impl BufferAndImageLoader for VulkanBufferImageFunctions {
       vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
       self.graphics_queue_family,
       1,
-      num_samples,
+      num_msaa_samples,
     )?;
     let image_view =
       self.create_image_view(image, format.into(), vk::ImageAspectFlags::DEPTH, 1)?;

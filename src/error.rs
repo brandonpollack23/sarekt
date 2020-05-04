@@ -26,6 +26,7 @@ pub enum SarektError {
   VulkanMemoryAllocatorError(vk_mem::error::Error),
   IllegalMipmapCount,
   FormatDoesNotSupportMipmapping(String),
+  UnsupportedMsaa(&'static str),
 }
 
 impl From<vk::Result> for SarektError {
@@ -113,6 +114,7 @@ impl fmt::Display for SarektError {
       SarektError::FormatDoesNotSupportMipmapping(s) => {
         write!(f, "Format not supported for mipmapping: {}", s)
       }
+      SarektError::UnsupportedMsaa(s) => write!(f, "Unsupported MSAA: {}", s),
     }
   }
 }
