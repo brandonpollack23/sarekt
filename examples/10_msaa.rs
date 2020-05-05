@@ -35,7 +35,7 @@ const OBJ_MODEL_FILE_NAME: &str = "models/viking_room.obj";
 const MODEL_TEXTURE_FILE_NAME_GLB: &str = "textures/chalet.jpg";
 const MODEL_TEXTURE_FILE_NAME_OBJ: &str = "textures/viking_room.png";
 
-// TODO NOW sample shading
+// TODO NOW sample shading and config, default true when msaa on.
 
 fn main() {
   simple_logger::init_with_level(Level::Info).unwrap();

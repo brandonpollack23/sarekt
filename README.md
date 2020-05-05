@@ -18,7 +18,9 @@ Shran wrapper.  Get it?
 
 ## Setup
 
-As a library just include the crate and install the vulkan SDK (need it for shader compilation and layers).
+As a library just include the crate and install the vulkan SDK (need it for shader compilation via glslc and validation layers).
+* Make sure the VulkanSDK/VERSION/Bin folder is in your path if this wasn't handled by a package manager (if you downloaded from LunarG's site!).
+* Also remember to set up libshaderc path as described [in shaderc-sys](https://github.com/google/shaderc-rs), which involves setting the path for SHADERC_LIB_DIR.
 
 Examples require one extra step:
 I used to use LFS, but its expensive once people started cloning and using my max bandwidth.  If i weren't sharing this I'd use Azure Devops or something, but it's on github, so I hosted the assets in gcs.
