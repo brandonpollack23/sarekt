@@ -18,7 +18,7 @@ Shran wrapper.  Get it?
 
 ## Setup
 
-As a library just include the crate.
+As a library just include the crate and install the vulkan SDK (need it for shader compilation and layers).
 
 Examples require one extra step:
 I used to use LFS, but its expensive once people started cloning and using my max bandwidth.  If i weren't sharing this I'd use Azure Devops or something, but it's on github, so I hosted the assets in gcs.
