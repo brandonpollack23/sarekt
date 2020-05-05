@@ -268,8 +268,8 @@ impl Pipelines {
   // ================================================================================
   //  Pipeline Helper Methods
   // ================================================================================
-  // TODO NOW make custom story related to issue 2 for custom render passes, but
-  // not needed for basic single pass pipelines.
+  // TODO(issue#35) make custom story related to issue 2 for custom render passes,
+  // but not needed for basic single pass pipelines.
   /// Creates a simple forward render pass with one subpass.
   fn create_forward_render_pass(
     logical_device: &Device, format: vk::Format, depth_buffer: &DepthAttachment,
