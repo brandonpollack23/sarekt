@@ -2,3 +2,9 @@
 **/*.rs.bk
 .idea
 Cargo.lock
+*.png
+*.jpg
+*.obj
+*.glb
+*.gltf
+*.zip

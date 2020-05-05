@@ -16,12 +16,23 @@ I'll call "Shran", another Star Trek character.
 
 Shran wrapper.  Get it?
 
+## Setup
+
+As a library just include the crate.
+
+Examples require one extra step:
+I used to use LFS, but its expensive once people started cloning and using my max bandwidth.  If i weren't sharing this I'd use Azure Devops or something, but it's on github, so I hosted the assets in gcs.
+
+I would really appreciate that you didn't use git LFS to pull down the files.  I'm not going to renew the upped bandwidth, so please use the setup if you want the asset files :).
+
+So now you need to run setup.sh which just curls the zip and unzips it.  If you're on windows use git bash or mingw to run it or something (like I did).
+
 ## Usage
 
 This readme is minimal.  Cargo doc is your friend.  This is far from done.
 
 The most up to date documentation/usage you'll get is by checkout out the 
-examples (later is better).  So far the best one is 03_vertex_loading.
+examples (later is better).
 
 Sarekt can load arbitrary models, textures, and uniforms and display them.
 
