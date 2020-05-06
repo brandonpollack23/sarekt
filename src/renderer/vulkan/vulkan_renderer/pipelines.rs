@@ -2,7 +2,7 @@ use crate::{
   error::SarektResult,
   renderer::{
     buffers_and_images::BufferImageStore,
-    config::{AntiAliasingConfig, Config, NumSamples},
+    config::{Config, MsaaConfig, NumSamples},
     shaders::ShaderStore,
     vertex_bindings::{
       DefaultForwardShaderLayout, DefaultForwardShaderVertex, DescriptorLayoutInfo, VertexBindings,
@@ -48,14 +48,10 @@ impl Pipelines {
       render_target_bundle.extent.width,
       render_target_bundle.extent.height,
     );
-    let num_msaa_samples = if let AntiAliasingConfig::MSAA(ns) = config.aa_config {
-      ns
-    } else {
-      NumSamples::One
-    };
+    let num_msaa_samples = config.msaa_config.samples;
     info!(
-      "Creating pipeline with MSAA sample count of: {:?}",
-      num_msaa_samples
+      "Creating pipeline with MSAA sample count of: {:?}. Minsample shading: {:?}",
+      num_msaa_samples, config.msaa_config.min_sample_shading,
     );
 
     // TODO(issue#2) RENDERING_CAPABILITIES support other render pass types.
@@ -107,7 +103,7 @@ impl Pipelines {
       forward_render_pass,
       resolve_attachment,
       depth_buffer,
-      num_msaa_samples,
+      &config.msaa_config,
     )?;
 
     Ok(Pipelines {
@@ -184,7 +180,7 @@ impl Pipelines {
     &mut self, logical_device: &Device,
     shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>, new_extent: vk::Extent2D,
     resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthAttachment,
-    num_msaa_samples: NumSamples, descriptor_set_layouts: Vec<DescriptorSetLayout>,
+    msaa_config: &MsaaConfig, descriptor_set_layouts: Vec<DescriptorSetLayout>,
     vertex_shader_handle: ShaderHandle<VulkanShaderFunctions>,
     fragment_shader_handle: ShaderHandle<VulkanShaderFunctions>,
   ) -> SarektResult<()> {
@@ -195,7 +191,7 @@ impl Pipelines {
       self.forward_render_pass,
       resolve_attachment,
       depth_buffer,
-      num_msaa_samples,
+      msaa_config,
       descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
@@ -385,7 +381,7 @@ impl Pipelines {
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: vk::Extent2D, render_pass: vk::RenderPass,
     resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthAttachment,
-    num_msaa_samples: NumSamples,
+    msaa_config: &MsaaConfig,
   ) -> SarektResult<BasePipelineBundle> {
     let (vertex_shader_handle, fragment_shader_handle) =
       Self::create_default_shaders(shader_store)?;
@@ -400,7 +396,7 @@ impl Pipelines {
       render_pass,
       resolve_attachment,
       depth_buffer,
-      num_msaa_samples,
+      msaa_config,
       default_descriptor_set_layouts,
       vertex_shader_handle,
       fragment_shader_handle,
@@ -447,7 +443,7 @@ impl Pipelines {
     logical_device: &Device, shader_store: &Arc<RwLock<ShaderStore<VulkanShaderFunctions>>>,
     extent: vk::Extent2D, render_pass: vk::RenderPass,
     resolve_attachment: Option<ResolveAttachment>, depth_buffer: DepthAttachment,
-    num_msaa_samples: NumSamples, descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    msaa_config: &MsaaConfig, descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     vertex_shader_handle: VulkanShaderHandle, fragment_shader_handle: VulkanShaderHandle,
   ) -> SarektResult<BasePipelineBundle> {
     let shader_store = shader_store.read().unwrap();
@@ -522,7 +518,9 @@ impl Pipelines {
     // TODO(issue#18) CONFIG make configurable
     let multisample_state_ci = vk::PipelineMultisampleStateCreateInfo::builder()
       .sample_shading_enable(false)
-      .rasterization_samples(num_msaa_samples.into())
+      .rasterization_samples(msaa_config.samples.into())
+      .sample_shading_enable(msaa_config.min_sample_shading.is_some())
+      .min_sample_shading(msaa_config.min_sample_shading.unwrap_or(0f32))
       .min_sample_shading(1.0f32)
       .alpha_to_coverage_enable(false)
       .alpha_to_one_enable(false)

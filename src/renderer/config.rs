@@ -10,7 +10,7 @@ pub struct Config {
   pub application_details: ApplicationDetails<'static>,
   pub engine_details: EngineDetails<'static>,
   pub present_mode: PresentMode,
-  pub aa_config: AntiAliasingConfig,
+  pub msaa_config: MsaaConfig,
 }
 impl Config {
   pub fn builder() -> ConfigBuilder {
@@ -25,7 +25,7 @@ impl<'a> Default for Config {
       application_details: ApplicationDetails::default(),
       engine_details: EngineDetails::default(),
       present_mode: PresentMode::default(),
-      aa_config: AntiAliasingConfig::default(),
+      msaa_config: MsaaConfig::default(),
     }
   }
 }
@@ -130,20 +130,23 @@ impl Default for PresentMode {
   }
 }
 
-/// Configuration for AA.  Must be a power of 2.
-/// TODO(issue#32) make issue for SSAA.
-/// TODO(issue#33) other AA styles.
-#[derive(Copy, Clone, Debug)]
-pub enum AntiAliasingConfig {
-  MSAA(NumSamples),
-  // TODO(issue#32) just here to get rid of lint errors, remove when there are more types.
-  Unreachable,
+/// Configuration for MSAA.
+/// TODO(issue#32) SSAA.
+/// TODO(issue#33) other AA styles (TXAA?).
+#[derive(Copy, Clone, Debug, Default)]
+pub struct MsaaConfig {
+  pub samples: NumSamples,
+  pub min_sample_shading: Option<f32>,
 }
-impl Default for AntiAliasingConfig {
-  fn default() -> AntiAliasingConfig {
-    AntiAliasingConfig::MSAA(NumSamples::default())
+impl MsaaConfig {
+  pub fn new(samples: NumSamples, min_sample_shading: Option<f32>) -> MsaaConfig {
+    MsaaConfig {
+      samples,
+      min_sample_shading,
+    }
   }
 }
+
 #[derive(Copy, Clone, Debug)]
 pub enum NumSamples {
   One,

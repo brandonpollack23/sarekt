@@ -21,7 +21,7 @@ use crate::{
       IndexBufferElemSize, MagnificationMinificationFilter, ResourceType, TextureAddressMode,
       UniformBufferHandle,
     },
-    config::{AntiAliasingConfig, Config, NumSamples},
+    config::{Config, NumSamples},
     drawable_object::DrawableObject,
     shaders::ShaderStore,
     vertex_bindings::DescriptorLayoutInfo,
@@ -273,18 +273,12 @@ impl VulkanRenderer {
     let new_format = self.render_target_bundle.swapchain_and_extension.format;
     let new_extent = self.render_target_bundle.extent;
 
-    let num_msaa_samples = if let AntiAliasingConfig::MSAA(ns) = self.config.aa_config {
-      ns
-    } else {
-      NumSamples::One
-    };
-
-    let resolve_attachment = if !matches!(num_msaa_samples, NumSamples::One) {
+    let resolve_attachment = if !matches!(self.config.msaa_config.samples, NumSamples::One) {
       Some(ResolveAttachment::new(
         &self.buffer_image_store,
         (width, height),
         new_format.try_into()?,
-        num_msaa_samples,
+        self.config.msaa_config.samples,
       )?)
     } else {
       None
@@ -295,12 +289,14 @@ impl VulkanRenderer {
       physical_device,
       &self.buffer_image_store,
       (width, height),
-      num_msaa_samples,
+      self.config.msaa_config.samples,
     )?;
 
-    self
-      .pipelines
-      .recreate_renderpasses(logical_device, new_format, num_msaa_samples)?;
+    self.pipelines.recreate_renderpasses(
+      logical_device,
+      new_format,
+      self.config.msaa_config.samples,
+    )?;
 
     let (vertex_shader_handle, fragment_shader_handle, descriptor_set_layouts) =
       self.pipelines.take_shaders_and_layouts();
@@ -319,7 +315,7 @@ impl VulkanRenderer {
       new_extent,
       resolve_attachment,
       depth_buffer,
-      num_msaa_samples,
+      &self.config.msaa_config,
       descriptor_set_layouts.unwrap(),
       vertex_shader_handle.unwrap(),
       fragment_shader_handle.unwrap(),

@@ -1,7 +1,7 @@
 use crate::{
   error::{SarektError, SarektResult},
   renderer::{
-    config::{AntiAliasingConfig, ApplicationDetails, Config, EngineDetails},
+    config::{ApplicationDetails, Config, EngineDetails, MsaaConfig},
     vulkan::{
       queues::{QueueFamilyIndices, Queues},
       vulkan_renderer::{
@@ -264,7 +264,7 @@ impl VulkanDeviceStructures {
     let physical_device = Self::pick_physical_device(
       &vulkan_core.instance,
       &vulkan_core.surface_and_extension,
-      config.aa_config,
+      &config.msaa_config,
     )?;
 
     let (logical_device, queue_families, queues) = Self::create_logical_device_and_queues(
@@ -289,7 +289,7 @@ impl VulkanDeviceStructures {
   ///
   /// TODO(issue#18) CONFIG have this be overridable somehow with config etc.
   fn pick_physical_device(
-    instance: &Instance, surface_and_extension: &SurfaceAndExtension, aa_config: AntiAliasingConfig,
+    instance: &Instance, surface_and_extension: &SurfaceAndExtension, msaa_conifg: &MsaaConfig,
   ) -> SarektResult<vk::PhysicalDevice> {
     let available_physical_devices = unsafe {
       instance
@@ -317,7 +317,7 @@ impl VulkanDeviceStructures {
         "No compatible device",
       ))?;
 
-    if !Self::aaconfig_compatible(instance, physical_device, aa_config)? {
+    if !Self::aaconfig_compatible(instance, physical_device, msaa_conifg)? {
       return Err(SarektError::CouldNotSelectPhysicalDevice(
         "AA mode not compatible",
       ));
@@ -485,25 +485,21 @@ impl VulkanDeviceStructures {
   }
 
   fn aaconfig_compatible(
-    instance: &Instance, physical_device: vk::PhysicalDevice, aa_config: AntiAliasingConfig,
+    instance: &Instance, physical_device: vk::PhysicalDevice, msaa_config: &MsaaConfig,
   ) -> SarektResult<bool> {
-    if let AntiAliasingConfig::MSAA(aa_config) = aa_config {
-      let physical_device_properites =
-        unsafe { instance.get_physical_device_properties(physical_device) };
+    let physical_device_properites =
+      unsafe { instance.get_physical_device_properties(physical_device) };
 
-      let counts = physical_device_properites
-        .limits
-        .framebuffer_color_sample_counts
-        .bitand(
-          physical_device_properites
-            .limits
-            .framebuffer_depth_sample_counts,
-        );
+    let counts = physical_device_properites
+      .limits
+      .framebuffer_color_sample_counts
+      .bitand(
+        physical_device_properites
+          .limits
+          .framebuffer_depth_sample_counts,
+      );
 
-      return Ok(counts.intersects(aa_config.into()));
-    }
-
-    Ok(true)
+    return Ok(counts.intersects(msaa_config.samples.into()));
   }
 
   // ================================================================================

@@ -8,7 +8,7 @@ use sarekt::{
     buffers_and_images::{
       BufferType, IndexBufferElemSize, MagnificationMinificationFilter, TextureAddressMode,
     },
-    config::{AntiAliasingConfig, Config},
+    config::{Config, MsaaConfig},
     drawable_object::DrawableObject,
     vertex_bindings::{DefaultForwardShaderLayout, DefaultForwardShaderVertex},
     Drawer, Renderer, VulkanRenderer,
@@ -34,8 +34,6 @@ const GLB_MODEL_FILE_NAME: &str = "models/chalet.glb";
 const OBJ_MODEL_FILE_NAME: &str = "models/viking_room.obj";
 const MODEL_TEXTURE_FILE_NAME_GLB: &str = "textures/chalet.jpg";
 const MODEL_TEXTURE_FILE_NAME_OBJ: &str = "textures/viking_room.png";
-
-// TODO NOW sample shading and config, default true when msaa on.
 
 fn main() {
   simple_logger::init_with_level(Level::Info).unwrap();
@@ -78,7 +76,10 @@ fn main_loop() {
   let config = Config::builder()
     .requested_width(WIDTH)
     .requested_height(HEIGHT)
-    .aa_config(AntiAliasingConfig::MSAA(msaa_level.try_into().unwrap()))
+    .msaa_config(MsaaConfig::new(
+      msaa_level.try_into().unwrap(),
+      Some(0.2f32),
+    ))
     .build()
     .unwrap();
   let mut renderer = VulkanRenderer::new(window.clone(), config).unwrap();
